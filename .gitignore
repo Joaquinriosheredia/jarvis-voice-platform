@@ -1,0 +1,14 @@
+.env
+credentials.json
+token.json
+*.json.bak
+__pycache__/
+*.pyc
+memoria.json
+voices/*.onnx
+*.log
+vlc-help.txt
+test_micro.py
+test_voz.py
+test_voz2.py
+test_voz3.py
