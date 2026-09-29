@@ -79,6 +79,18 @@ def ducking_off():
     except Exception:
         pass
 
+# ── DETECCIÓN VLC ─────────────────────────────────────────────────
+def _vlc_activo():
+    """True si hay un proceso vlc con sesión de audio activa.
+    Falla cerrado: ante cualquier error devuelve False (umbral normal)."""
+    try:
+        for s in AudioUtilities.GetAllSessions():
+            if s.Process and "vlc" in s.Process.name().lower() and s.State == 1:
+                return True
+    except Exception:
+        pass
+    return False
+
 # ── RMS ───────────────────────────────────────────────────────────
 def _rms(frame_bytes):
     audio = np.frombuffer(frame_bytes, dtype=np.int16).astype(np.float32)
@@ -226,6 +238,8 @@ def escuchar(whisper_model):
     total        = 0
     voz_contador = 0
     fin_captura  = "tope"
+    # GetAllSessions() tarda ~29 ms: se consulta una vez por escucha, no por trama
+    umbral       = UMBRAL_RMS * 3 if _vlc_activo() else UMBRAL_RMS
 
     with sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1,
                            dtype='int16', blocksize=FRAME_SIZE, device=1) as stream:
@@ -235,7 +249,7 @@ def escuchar(whisper_model):
             total   += 1
             energia  = _rms(fb)
 
-            if energia > UMBRAL_RMS:
+            if energia > umbral:
                 voz_contador += 1
                 if voz_contador >= FRAMES_INICIO:
                     hablando = True

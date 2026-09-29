@@ -12,3 +12,4 @@ test_micro.py
 test_voz.py
 test_voz2.py
 test_voz3.py
+*.bak_vad
