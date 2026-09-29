@@ -13,3 +13,4 @@ test_voz.py
 test_voz2.py
 test_voz3.py
 *.bak_vad
+*.bak_f3

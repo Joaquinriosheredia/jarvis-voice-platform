@@ -252,10 +252,10 @@ class TestIntegracionDispatcher(Base):
             self.assertEqual(brain.TOOL_RISK[tool], nivel, tool)
 
     def test_toda_tool_destructive_sin_frase_falla_cerrado_sin_keyerror(self):
-        # Fija el estado de la Fase 2B (emails DESTRUCTIVE sin frase). Al añadir las frases en 2C
-        # la primera aserción dejará de cumplirse a propósito: habrá que actualizar este test.
+        # Fija el estado de la Fase 3 (borrar_email ya tiene frase; borrar_multiples_emails aún no).
+        # Al añadir su frase la primera aserción dejará de cumplirse a propósito: habrá que actualizar este test.
         sin_frase = [t for t, r in brain.TOOL_RISK.items() if r == "DESTRUCTIVE" and t not in brain.CONFIRM_PHRASES]
-        self.assertEqual(set(sin_frase), {"borrar_email", "borrar_multiples_emails"})
+        self.assertEqual(set(sin_frase), {"borrar_multiples_emails"})
         for tool in sin_frase:
             res = brain._gate(tool, {"indice": 0, "cantidad": 3}, "borra")
             self.assertTrue(bloqueado(res), tool)

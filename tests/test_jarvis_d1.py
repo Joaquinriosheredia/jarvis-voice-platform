@@ -99,6 +99,28 @@ class TestD1Fix(Base):
         ej.assert_not_called()
         self.assertIs(self.devuelto, False)
 
+    def test_borrar_email_ejecutar_con_msg_id(self):
+        brain._pendiente = {"firma": ("borrar_email", "m1"), "ts": brain.time.monotonic()}
+        self._d1()
+        ej, out = self._fix(brain._ok("Email de Ana eliminado"))
+        ej.assert_called_once_with("borrar_email", {"msg_id": "m1"}, jarvis.SKILLS, CONF_B)
+        self.assertIn("[D1-FIX] ejecutado tool=borrar_email ok=True", out)
+        self.assertIs(self.devuelto, True)
+
+    def test_borrar_email_d1_extremo_a_extremo(self):
+        # _ejecutar real: el gate reconoce la frase de correo y la firma por msg_id
+        gm = MagicMock()
+        gm.info_email.return_value = {"id": "m1", "remitente": "Ana", "asunto": "Factura", "ts": 0}
+        gm.borrar_email.return_value = (True, "Email de Ana eliminado")
+        conf = "confirmo borrado de correo"
+        with patch.dict(jarvis.SKILLS, {"gmail": gm}), contextlib.redirect_stdout(io.StringIO()):
+            brain._gate("borrar_email", {"msg_id": "m1"}, "borra el de Ana", gm.info_email.return_value)
+            self._d1()
+            self.assertIs(jarvis._d1_fix(conf), True)
+        gm.borrar_email.assert_called_once_with("m1")
+        jarvis.audio.hablar.assert_called_once_with("Email de Ana eliminado")
+        self.assertIsNone(brain._pendiente)
+
 
 class TestPendienteInfo(Base):
     def test_none_sin_pendiente(self):

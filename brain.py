@@ -70,10 +70,10 @@ TOOLS = [
     },
     {
         "name": "borrar_email",
-        "description": "Borra un email por índice. Solo usar tras confirmación del usuario.",
+        "description": "Mueve a la papelera un email ya listado. El gate pide confirmación al usuario.",
         "input_schema": {"type": "object", "properties": {
-            "indice": {"type": "integer", "description": "Índice del email"}
-        }, "required": ["indice"]}
+            "msg_id": {"type": "string", "description": "ID del email: el valor [id=...] del último listado"}
+        }, "required": ["msg_id"]}
     },
     {
         "name": "borrar_multiples_emails",
@@ -241,7 +241,7 @@ COMPORTAMIENTO:
 - Usa herramientas para CUALQUIER acción — nunca finjas haberla ejecutado
 - Para música: usa reproducir_musica (reproduce con VLC, no abre navegador)
 - Para abrir YouTube en navegador: usa abrir_youtube
-- Para emails: pide confirmación antes de borrar, luego borra directamente
+- Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
 - Para cerrar Jarvis (adiós, hasta luego, apágate, desconéctate): usa cerrar_jarvis
 - Para apagar el PC: solo con "confirmo apagado del pc"
 - Para info actual: usa buscar_en_web
@@ -362,6 +362,7 @@ BLOCKED_EXACT   = [r"C:\Users\Usuario"]
 CONFIRM_PHRASES   = {
     "apagar_pc":      "confirmo apagado del pc",
     "borrar_archivo": "confirmo borrado",
+    "borrar_email":   "confirmo borrado de correo",
 }
 CONFIRM_TTL       = 120
 MAX_BORRAR_EMAILS = 10
@@ -454,10 +455,12 @@ def _firma(nombre, parametros):
         return (nombre, 'reiniciar' if parametros.get('accion', 'apagar') == 'reiniciar' else 'apagar')
     if nombre == "borrar_archivo":
         return (nombre, _real(parametros.get('ruta', '')))
+    if nombre == "borrar_email":  # el ID real de Gmail, nunca la posición en la lista
+        return (nombre, parametros.get("msg_id", ""))
     return (nombre, repr(sorted(parametros.items())))
 
 
-def _gate_core(nombre, parametros, texto_usuario=""):
+def _gate_core(nombre, parametros, texto_usuario="", email=None):
     """None = permitido; str = mensaje de bloqueo (se devuelve al modelo).
 
     La confirmación se lee SOLO de texto_usuario (lo que transcribió Whisper
@@ -480,6 +483,14 @@ def _gate_core(nombre, parametros, texto_usuario=""):
             return "BLOQUEADO: cantidad de emails no válida."
         if cantidad < 1 or cantidad > MAX_BORRAR_EMAILS:
             return f"BLOQUEADO: máximo {MAX_BORRAR_EMAILS} emails por operación (pedidos: {cantidad})."
+
+    if nombre == "borrar_email":
+        # email = entrada de la caché de gmail para ese msg_id (la resuelve _ejecutar).
+        # Sin ella no se arma ni se gasta ninguna confirmación.
+        if not parametros.get("msg_id"):
+            return "BLOQUEADO: borrar_email necesita el msg_id de un email listado. Lee primero los emails."
+        if not email:
+            return "BLOQUEADO: ese email no está en la última lista leída. Lee primero los emails."
 
     if riesgo != "DESTRUCTIVE":
         return None
@@ -505,7 +516,8 @@ def _gate_core(nombre, parametros, texto_usuario=""):
 
     _pendiente = {"firma": firma, "ts": ahora}
     frase = CONFIRM_PHRASES[nombre]
-    return (f"BLOQUEADO: '{nombre}' ({firma[1]}) es irreversible y requiere confirmación del usuario. "
+    objeto = f"email de {email['remitente']}: {email['asunto']}" if nombre == "borrar_email" else firma[1]
+    return (f"BLOQUEADO: '{nombre}' ({objeto}) es irreversible y requiere confirmación del usuario. "
             f"Dile exactamente qué se va a hacer y que responda solo: \"{frase}\". "
             f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
 
@@ -521,6 +533,8 @@ def _params_desde_firma(firma):
         return {"ruta": firma[1]}
     if firma[0] == "apagar_pc":
         return {"accion": firma[1]}
+    if firma[0] == "borrar_email":
+        return {"msg_id": firma[1]}
     return {}
 
 
@@ -541,10 +555,10 @@ def consumir_pendiente():
     _pendiente = None
 
 
-def _gate(nombre, parametros, texto_usuario=""):
+def _gate(nombre, parametros, texto_usuario="", email=None):
     edad = f" pendiente_edad={int(time.monotonic() - _pendiente['ts'])}s" if _pendiente else ""
     _print_seguro(f"[GATE] tool={nombre} nivel={TOOL_RISK.get(nombre, 'DESCONOCIDO')}{edad}")
-    resultado = _gate_core(nombre, parametros, texto_usuario)
+    resultado = _gate_core(nombre, parametros, texto_usuario, email)
     if resultado:
         _print_seguro(f"[GATE BLOQUEADO] {resultado}")
     else:
@@ -575,10 +589,22 @@ def _envolver(texto):
 
 
 # ── EJECUTOR ──────────────────────────────────────────────────────
+def _email_en_cache(nombre, parametros, skills):
+    """Entrada de la caché de gmail para borrar_email (o None). Da remitente
+    y asunto al mensaje del gate y prueba que el msg_id salió de un listado."""
+    if nombre != "borrar_email":
+        return None
+    try:
+        email = skills.get('gmail').info_email(parametros.get("msg_id", ""))
+    except Exception:
+        return None
+    return email if isinstance(email, dict) else None
+
+
 def _ejecutar(nombre, parametros, skills, texto_usuario=""):
     global _cerrar
     try:
-        bloqueo = _gate(nombre, parametros, texto_usuario)
+        bloqueo = _gate(nombre, parametros, texto_usuario, _email_en_cache(nombre, parametros, skills))
         if bloqueo:
             return _envolver(bloqueo)
 
@@ -629,7 +655,8 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
             return _envolver(gmail.leer_email(parametros.get('indice', 0)))
 
         if nombre == "borrar_email":
-            return _envolver(gmail.borrar_email(parametros.get('indice', 0)))
+            ok, msg = gmail.borrar_email(parametros.get("msg_id", ""))
+            return _ok(msg) if ok else _err(msg, "borrado_rechazado")
 
         if nombre == "borrar_multiples_emails":
             return _envolver(gmail.borrar_multiples(parametros.get('cantidad', 1)))

@@ -1,4 +1,5 @@
 import os
+import time
 import base64
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -9,7 +10,9 @@ SCOPES           = ['https://www.googleapis.com/auth/gmail.modify']
 CREDENTIALS_FILE = r"C:\Jarvis-secrets\credentials.json"
 TOKEN_FILE       = r"C:\Jarvis-secrets\token.json"
 
+# Entradas {"id", "remitente", "asunto", "ts"} de la última lista leída al usuario
 cache_emails     = []
+CACHE_TTL        = 300  # s; pasado este tiempo no se borra nada de la lista
 pendiente_borrar = None  # mantenido por compatibilidad con jarvis.py
 
 # ── AUTENTICACIÓN ─────────────────────────────────────────────────
@@ -40,6 +43,31 @@ def _get_headers(service, msg_id):
         remitente = remitente.split('<')[0].strip().strip('"')
     return remitente, asunto
 
+# ── CACHÉ DE LA ÚLTIMA LISTA ──────────────────────────────────────
+def _entradas_cache(service, messages):
+    ahora    = time.time()
+    entradas = []
+    for msg in messages:
+        remitente, asunto = _get_headers(service, msg['id'])
+        entradas.append({"id": msg['id'], "remitente": remitente,
+                         "asunto": asunto, "ts": ahora})
+    return entradas
+
+def _linea(i, e):
+    return f"{i+1}. {e['remitente']}: {e['asunto']} [id={e['id']}]"
+
+def info_email(msg_id):
+    """Entrada de caché del email (dict) o None si no se ha listado."""
+    if not msg_id:
+        return None
+    for e in cache_emails:
+        if isinstance(e, dict) and e.get('id') == msg_id:
+            return e
+    return None
+
+def esta_en_cache(msg_id):
+    return info_email(msg_id) is not None
+
 # ── LEER NO LEÍDOS ────────────────────────────────────────────────
 def leer_no_leidos(max_emails=5):
     global cache_emails
@@ -55,11 +83,8 @@ def leer_no_leidos(max_emails=5):
         if not messages:
             cache_emails = []
             return "No tienes emails sin leer en la bandeja principal"
-        cache_emails = messages
-        resumen = []
-        for i, msg in enumerate(messages[:5]):
-            remitente, asunto = _get_headers(service, msg['id'])
-            resumen.append(f"{i+1}. {remitente}: {asunto}")
+        cache_emails = _entradas_cache(service, messages)
+        resumen = [_linea(i, e) for i, e in enumerate(cache_emails[:5])]
         return f"Tienes {len(messages)} emails sin leer. {'. '.join(resumen)}"
     except Exception as e:
         return f"Error leyendo emails: {e}"
@@ -79,11 +104,8 @@ def leer_recruiters():
         messages = results.get('messages', [])
         if not messages:
             return "No tienes emails de recruiters sin leer"
-        cache_emails = messages
-        resumen = []
-        for i, msg in enumerate(messages):
-            remitente, asunto = _get_headers(service, msg['id'])
-            resumen.append(f"{i+1}. {remitente}: {asunto}")
+        cache_emails = _entradas_cache(service, messages)
+        resumen = [_linea(i, e) for i, e in enumerate(cache_emails)]
         return f"Tienes {len(messages)} emails de recruiters. " + ". ".join(resumen)
     except Exception as e:
         return f"Error: {e}"
@@ -135,33 +157,24 @@ def leer_email(indice=0):
     except Exception as e:
         return f"Error leyendo email: {e}"
 
-# ── BORRAR EMAIL — DIRECTO ────────────────────────────────────────
-def borrar_email(indice=0):
-    """Borra directamente. El agente ya pidió confirmación al usuario."""
-    global cache_emails
+# ── BORRAR EMAIL ──────────────────────────────────────────────────
+def borrar_email(msg_id):
+    """Mueve a la papelera un email de la última lista leída.
+    Devuelve (ok, mensaje). Falla cerrado si el email no está en la caché
+    o la lista tiene más de CACHE_TTL s: nunca busca por su cuenta."""
+    entrada = info_email(msg_id)
+    if entrada is None:
+        return False, "Lee primero los emails"
+    if time.time() - entrada.get('ts', 0) > CACHE_TTL:
+        return False, "La lista está desactualizada, lee los emails de nuevo"
     try:
         service = get_service()
-        if cache_emails and indice < len(cache_emails):
-            msg_id = cache_emails[indice]['id']
-        else:
-            results  = service.users().messages().list(
-                userId='me',
-                labelIds=['INBOX', 'UNREAD'],
-                q='category:primary',
-                maxResults=indice + 1
-            ).execute()
-            messages = results.get('messages', [])
-            if not messages or indice >= len(messages):
-                return "No hay email en esa posición"
-            cache_emails = messages
-            msg_id = messages[indice]['id']
-
         service.users().messages().trash(userId='me', id=msg_id).execute()
-        if cache_emails and indice < len(cache_emails):
-            cache_emails.pop(indice)
-        return f"Email {indice+1} eliminado"
     except Exception as e:
-        return f"Error borrando: {e}"
+        return False, f"Error borrando: {e}"
+    if entrada in cache_emails:
+        cache_emails.remove(entrada)
+    return True, f"Email de {entrada['remitente']} eliminado"
 
 # ── BORRAR MÚLTIPLES ──────────────────────────────────────────────
 def borrar_multiples(cantidad=5):
@@ -213,11 +226,8 @@ def buscar_emails(query, max_emails=5):
         messages = results.get('messages', [])
         if not messages:
             return f"No encontré emails sobre: {query}"
-        cache_emails = messages
-        resumen = []
-        for i, msg in enumerate(messages[:3]):
-            remitente, asunto = _get_headers(service, msg['id'])
-            resumen.append(f"{i+1}. {remitente}: {asunto}")
+        cache_emails = _entradas_cache(service, messages)
+        resumen = [_linea(i, e) for i, e in enumerate(cache_emails[:3])]
         return f"Encontré {len(messages)} emails. " + ". ".join(resumen)
     except Exception as e:
         return f"Error buscando: {e}"

@@ -74,7 +74,7 @@ def _d1_fix(texto):
     traza = brain.ultima_traza()
     if traza and traza.get("d1_detectado"):
         info = brain.pendiente_info()
-        if info and info["tool"] in ("borrar_archivo", "apagar_pc"):
+        if info and info["tool"] in ("borrar_archivo", "apagar_pc", "borrar_email"):
             res = brain._ejecutar(info["tool"], info["params"], SKILLS, texto)
             audio.hablar(res["message"])
             brain.consumir_pendiente()
