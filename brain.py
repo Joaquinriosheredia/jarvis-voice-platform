@@ -17,7 +17,7 @@ import requests
 cliente = anthropic.Anthropic()
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 OLLAMA_URL     = "http://localhost:11434"
-OLLAMA_MODEL   = "qwen2.5:7b"
+OLLAMA_MODEL   = "qwen2.5:3b"
 OLLAMA_TIMEOUT = 8
 OLLAMA_KEEP    = "10m"
 DESCARGAS    = r"E:\descargas ryzen"
