@@ -120,8 +120,62 @@ class TestPensarRouter(Base):
             brain.pensar("qué hora es")
         create.assert_called_once()
         post.assert_not_called()
-
-
+
+
+class TestDev(Base):
+    def test_nullpointer_es_dev(self):
+        self.assertEqual(brain._clasificar_peticion("tengo un NullPointerException"), "dev")
+
+    def test_que_hace_esta_funcion_es_dev(self):
+        self.assertEqual(brain._clasificar_peticion("qué hace esta función"), "dev")
+
+    def test_error_404_es_dev(self):
+        self.assertEqual(brain._clasificar_peticion("error 404 en mi API"), "dev")
+
+    def test_que_hora_es_no_es_dev(self):
+        self.assertNotEqual(brain._clasificar_peticion("qué hora es"), "dev")
+
+    def test_borra_el_archivo_no_es_dev(self):
+        self.assertNotEqual(brain._clasificar_peticion("borra el archivo"), "dev")
+
+    def test_keyword_debil_sola_no_es_dev(self):
+        for txt in ("qué clase de vino va con pescado", "cuánto son 500 euros en dólares",
+                    "la línea 3 del metro"):
+            self.assertNotEqual(brain._clasificar_peticion(txt), "dev", txt)
+
+    def test_dos_debiles_o_debil_con_inicio_tecnico_es_dev(self):
+        self.assertEqual(brain._clasificar_peticion("en qué línea está el error"), "dev")
+        self.assertEqual(brain._clasificar_peticion("por qué este método devuelve vacío"), "dev")
+
+    def test_keyword_fuerte_sola_es_dev(self):
+        for txt in ("me sale un traceback", "por qué falla mi consumer de Kafka", "tengo un bug raro"):
+            self.assertEqual(brain._clasificar_peticion(txt), "dev", txt)
+
+    def test_accion_con_palabra_dev_no_es_dev(self):
+        self.assertEqual(brain._clasificar_peticion("borra el log de errores"), "claude")
+
+    def test_explicame_algo_tecnico_es_dev_y_que_es_una_api_sigue_local(self):
+        self.assertEqual(brain._clasificar_peticion("explícame cómo funciona Kafka"), "dev")
+        self.assertEqual(brain._clasificar_peticion("qué es una API"), "local")
+
+    def test_dev_va_a_claude_con_system_dev_y_no_a_ollama(self):
+        with patch.object(brain.cliente.messages, "create",
+                          return_value=resp("end_turn", [NS(type="text", text="ok")])) as create, \
+             patch("brain.requests.post") as post, \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            brain.pensar("tengo un NullPointerException", skills=skills())
+        post.assert_not_called()
+        self.assertIn(brain.SYSTEM_DEV, create.call_args.kwargs["system"])
+        self.assertIn("[ROUTER] dev", out.getvalue())
+
+    def test_no_dev_usa_system_normal(self):
+        with patch.object(brain.cliente.messages, "create",
+                          return_value=resp("end_turn", [NS(type="text", text="ok")])) as create, \
+             contextlib.redirect_stdout(io.StringIO()):
+            brain.pensar("borra el archivo", skills=skills())
+        self.assertEqual(create.call_args.kwargs["system"], brain.SYSTEM)
+
+
 class TestLimpiarLocal(unittest.TestCase):
     def test_corta_en_la_ultima_frase_completa(self):
         self.assertEqual(brain._limpiar_local("Una API conecta programas. Se usa mucho en"),

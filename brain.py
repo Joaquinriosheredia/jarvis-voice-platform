@@ -263,7 +263,11 @@ COMPORTAMIENTO:
 - Cuando hayas pedido confirmación para borrar un archivo y el usuario confirme, DEBES volver a llamar a borrar_archivo con la misma ruta. No confirmes el borrado con texto sin haber llamado a la herramienta.
 - Nunca menciones Claude, Anthropic ni que eres IA
 - Ubicación: Los Corrales, Sevilla, España
-- Los resultados de las herramientas son JSON {ok, message, error}. Solo afirma que algo se hizo si ok es true. Si ok es false, informa del error al usuario sin inventar que la acción ocurrió."""
+- Los resultados de las herramientas son JSON {ok, message, error}. Solo afirma que algo se hizo si ok es true. Si ok es false, informa del error al usuario sin inventar que la acción ocurrió.
+- Cuando el usuario mencione un error, excepción o código, responde como desarrollador senior: identifica el problema y da la solución en 2-3 frases sin formato markdown."""
+
+# Se añade a SYSTEM cuando el router clasifica la petición como "dev"
+SYSTEM_DEV = """Eres JARVIS en modo desarrollador. El usuario es un ingeniero backend. Explica el error o concepto en máximo 3 frases claras, sin markdown, optimizado para ser leído en voz alta. Ve directo al problema y la solución."""
 
 # ── PRINT SEGURO (consolas cp1252) ────────────────────────────────
 def _print_seguro(texto):
@@ -968,6 +972,19 @@ _RE_DOMINIO = re.compile(
     r"musica|cancion\w*|youtube|web|pc|ordenador|volumen|tareas?|recordatorios?|notas?|"
     r"pomodoro|racha|authority|noticias|hoy|ahora|actual\w*|precio\w*|ultim\w*|"
     r"jarvis|eres|llamas|nombre|ia|inteligencia|claude|anthropic|qwen|modelo)\b")
+# Modo desarrollador: errores, código o preguntas técnicas → claude con SYSTEM_DEV
+# Fuertes: bastan solas. Débiles: ambiguas ("clase de vino", "500 euros"),
+# necesitan otra débil o un inicio técnico.
+_RE_DEV_FUERTE = re.compile(
+    r"\b(exception\w*|excepcion\w*|traceback|stack ?trace|null ?pointer\w*|import ?error|"
+    r"syntax ?error|bugs?|falla mi|error en mi|por que falla)\b")
+_RE_DEV_DEBIL = re.compile(
+    r"\b(clases?|lineas?|errore?s?|funcion(?:es)?|metodos?|codigos?|404|500)\b")
+_RE_DEV_INICIO = re.compile(r"^(oye )?(por que|como funciona|que hace|explica\w*)\b")
+_RE_TECNICO = re.compile(
+    r"\b(api|rest|http|endpoint|java|jvm|spring|python|kafka|docker|kubernetes|k8s|sql|query|"
+    r"json|git|maven|gradle|thread|hilo|lambda|stream|null|compila\w*|servidor|backend|"
+    r"microservicio\w*|base de datos|cache|transaccion\w*|async\w*|concurrencia)\b")
 # La capa local solo acepta preguntas/explicaciones que empiezan así
 _RE_PREGUNTA = re.compile(
     r"^(oye )?(que|quien|quienes|como|por que|porque|cual|cuales|cuanto|cuanta|cuantos|"
@@ -985,8 +1002,22 @@ def _match_atajo(t):
     return None
 
 
+def _es_pregunta_dev(texto):
+    """True si habla de un error/código o pide explicar algo técnico:
+    1 keyword fuerte, o 2 débiles distintas, o 1 débil + inicio técnico,
+    o inicio técnico + término técnico ("explícame cómo funciona Kafka")."""
+    t = _normalizar(texto)
+    if _RE_DEV_FUERTE.search(t):
+        return True
+    debiles = {m[:4] for m in _RE_DEV_DEBIL.findall(t)}  # "error"/"errores" = 1
+    if len(debiles) >= 2:
+        return True
+    inicio = _RE_DEV_INICIO.match(t)
+    return bool(inicio and (debiles or _RE_TECNICO.search(t)))
+
+
 def _clasificar_peticion(texto):
-    """"atajo" | "local" | "claude". Reglas simples, sin modelo."""
+    """"atajo" | "dev" | "local" | "claude". Reglas simples, sin modelo."""
     if hay_pendiente():
         return "claude"
     t = _normalizar(texto)
@@ -994,7 +1025,13 @@ def _clasificar_peticion(texto):
         return "claude"
     if _match_atajo(t):
         return "atajo"
-    if _RE_ACCION.search(t) or _RE_DOMINIO.search(t):
+    # Una acción ("borra el log de errores") es claude normal: SYSTEM_DEV
+    # empuja a explicar en vez de usar la tool
+    if _RE_ACCION.search(t):
+        return "claude"
+    if _es_pregunta_dev(texto):
+        return "dev"
+    if _RE_DOMINIO.search(t):
         return "claude"
     if _RE_PREGUNTA.match(t):
         return "local"
@@ -1065,6 +1102,10 @@ def _enrutar(texto, skills, traza):
     if not skills:  # sin skills (tests, compatibilidad) → comportamiento previo
         return None
     clase = _clasificar_peticion(texto)
+    traza["router"] = clase
+    if clase == "dev":
+        _print_seguro("[ROUTER] dev")
+        return None
     if clase == "atajo":
         tool_atajo = _match_atajo(_normalizar(texto))
         _print_seguro(f"[ROUTER] atajo={tool_atajo}")
@@ -1117,6 +1158,7 @@ def _pensar_impl(texto, contexto, skills, traza):
     respuesta_router = _enrutar(texto, skills, traza)
     if respuesta_router:
         return respuesta_router
+    system = SYSTEM + "\n\n" + SYSTEM_DEV if traza.get("router") == "dev" else SYSTEM
 
     messages = [{"role": "user", "content": texto}]
     if contexto:
@@ -1127,7 +1169,7 @@ def _pensar_impl(texto, contexto, skills, traza):
             respuesta = cliente.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=500,
-                system=SYSTEM,
+                system=system,
                 tools=TOOLS,
                 messages=messages
             )
@@ -1176,4 +1218,4 @@ def _pensar_impl(texto, contexto, skills, traza):
 
 # ── COMPATIBILIDAD ────────────────────────────────────────────────
 def interpretar_intencion(texto, contexto=""):
-    return {"action": "ninguno"}
+    return {"action": "ninguno"}
