@@ -89,6 +89,29 @@ def leer_no_leidos(max_emails=5):
     except Exception as e:
         return f"Error leyendo emails: {e}"
 
+# ── NO LEÍDOS PARA EL RESUMEN DE ARRANQUE ─────────────────────────
+def no_leidos_arranque(max_emails=10):
+    """(total, [{"remitente", "asunto"}, ...]) de los no leídos de la
+    bandeja principal, o None si falla Gmail. No toca cache_emails:
+    el arranque no debe dejar borrados habilitados."""
+    try:
+        service  = get_service()
+        results  = service.users().messages().list(
+            userId='me',
+            labelIds=['INBOX', 'UNREAD'],
+            q='category:primary',
+            maxResults=max_emails
+        ).execute()
+        messages = results.get('messages', [])
+        emails   = []
+        for msg in messages:
+            remitente, asunto = _get_headers(service, msg['id'])
+            emails.append({"remitente": remitente, "asunto": asunto})
+        total = max(results.get('resultSizeEstimate', 0), len(emails))
+        return total, emails
+    except Exception:
+        return None
+
 # ── LEER RECRUITERS ───────────────────────────────────────────────
 def leer_recruiters():
     global cache_emails

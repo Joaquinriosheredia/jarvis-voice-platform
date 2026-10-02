@@ -39,6 +39,41 @@ def cleanup():
 
 atexit.register(cleanup)
 
+# ── RESUMEN DE EMAILS AL ARRANCAR (sin LLM) ──────────────────────
+def _enumerar(items):
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " y " + items[-1]
+
+def _resumen_emails_arranque():
+    """Resumen breve de los no leídos construido en Python.
+    Cadena vacía si no hay emails o si falla Gmail: nunca interrumpe el arranque."""
+    try:
+        datos = gmail.no_leidos_arranque(max_emails=10)
+        if not datos or not datos[1]:
+            return ""
+        total, emails = datos
+
+        if total <= 3:
+            items = []
+            for e in emails:
+                asunto = " ".join(e["asunto"].split()[:8])
+                if asunto and asunto != "Sin asunto":
+                    items.append(f"uno de {e['remitente']} sobre {asunto}")
+                else:
+                    items.append(f"uno de {e['remitente']}")
+            cuantos = "un email" if total == 1 else f"{total} emails"
+            return f"Tienes {cuantos}: {_enumerar(items)}."
+
+        # Más de 3: agrupa por remitente, en orden de llegada (más recientes primero)
+        conteo = {}
+        for e in emails:
+            conteo[e["remitente"]] = conteo.get(e["remitente"], 0) + 1
+        grupos = [r if n == 1 else f"{n} de {r}" for r, n in list(conteo.items())[:3]]
+        return f"Tienes {total} emails. Los más recientes son de {_enumerar(grupos)}."
+    except Exception:
+        return ""
+
 # ── RESUMEN DIARIO ────────────────────────────────────────────────
 def resumen_diario():
     hora = datetime.now().hour
@@ -59,7 +94,7 @@ def resumen_diario():
     elif tareas_pend:
         partes.append(f"Tiene {len(tareas_pend)} tareas pendientes.")
 
-    resumen_gmail = gmail.resumen_diario_gmail()
+    resumen_gmail = _resumen_emails_arranque()
     if resumen_gmail:
         partes.append(resumen_gmail)
 
