@@ -99,6 +99,21 @@ TOOLS = [
         }, "required": ["indice"]}
     },
     {
+        "name": "enviar_email",
+        "description": "Envía un email. SOLO a direcciones confirmadas. Para enviar a ti mismo usa get_mi_email primero. El gate pedirá confirmación con destinatario y adjunto.",
+        "input_schema": {"type": "object", "properties": {
+            "destinatario": {"type": "string"},
+            "asunto":       {"type": "string"},
+            "cuerpo":       {"type": "string"},
+            "adjunto":      {"type": "string", "description": "Ruta completa del archivo a adjuntar (opcional)"}
+        }, "required": ["destinatario", "asunto", "cuerpo"]}
+    },
+    {
+        "name": "get_mi_email",
+        "description": "Devuelve la dirección de email del usuario (la cuenta de Gmail de JARVIS).",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    {
         "name": "buscar_emails",
         "description": "Busca emails por remitente o tema",
         "input_schema": {"type": "object", "properties": {
@@ -252,6 +267,7 @@ COMPORTAMIENTO:
 - Para abrir YouTube en navegador: usa abrir_youtube
 - Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
 - Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
+- Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario dice 'mándamelo a mí', usa get_mi_email primero para obtener su dirección. El gate pedirá confirmación.
 - Para cerrar Jarvis (adiós, hasta luego, apágate, desconéctate): usa cerrar_jarvis
 - Para apagar el PC: solo con "confirmo apagado del pc"
 - Para info actual: usa buscar_en_web
@@ -349,7 +365,7 @@ TOOL_RISK = {
     "tiempo": "READ", "hora": "READ", "fecha": "READ",
     "estado_sistema": "READ", "listar_directorio": "READ",
     "buscar_archivo": "READ", "listar_tareas": "READ",
-    "estado_authority": "READ",
+    "estado_authority": "READ", "get_mi_email": "READ",
     # WRITE: modifican estado interno de JARVIS (memoria, tareas, notas, ciclo de vida)
     "recordatorio": "WRITE", "nota": "WRITE", "cerrar_jarvis": "WRITE",
     # EXTERNAL: producen efecto fuera de JARVIS (archivos, email, sistema, audio)
@@ -362,6 +378,7 @@ TOOL_RISK = {
     # DESTRUCTIVE: irreversible o requieren confirmación (ver _gate_core)
     "borrar_archivo": "DESTRUCTIVE", "apagar_pc": "DESTRUCTIVE",
     "borrar_email": "DESTRUCTIVE", "borrar_multiples_emails": "DESTRUCTIVE",
+    "enviar_email": "DESTRUCTIVE",
 }
 
 ALLOWED_ROOTS   = [DESCARGAS, r"C:\Users\Usuario\Desktop"]
@@ -378,9 +395,13 @@ CONFIRM_PHRASES   = {
     "borrar_archivo": "confirmo borrado",
     "borrar_email":   "confirmo borrado de correo",
     "borrar_multiples_emails": "confirmo borrado de correos",
+    "enviar_email":   "confirmo envío",
 }
 CONFIRM_TTL       = 120
 MAX_BORRAR_EMAILS = 10
+MAX_ADJUNTO       = 20 * 1024 * 1024  # bytes; mismo límite que gmail.MAX_ADJUNTO
+# Fase 5D: solo la dirección propia (gmail.get_mi_email). Vacía = ningún envío.
+DESTINATARIOS_PERMITIDOS = []
 
 # Última acción destructiva bloqueada: {"firma": (...), "ts": monotonic}
 _pendiente = None
@@ -439,6 +460,8 @@ def _gate_rutas(nombre, parametros):
         chequeos = [(parametros.get('ruta', DESCARGAS), ORGANIZAR_ROOTS, True)]
     elif nombre == "crear_carpeta":
         chequeos = [(parametros.get('ruta', ''), ALLOWED_ROOTS, True)]
+    elif nombre == "enviar_email" and parametros.get('adjunto'):
+        chequeos = [(parametros.get('adjunto'), ALLOWED_ROOTS, False)]
     else:
         return None
     for ruta, roots, permitir_raiz in chequeos:
@@ -475,6 +498,10 @@ def _firma(nombre, parametros):
     if nombre == "borrar_multiples_emails":  # mismo conjunto de IDs = misma firma, sin importar el orden
         ids = parametros.get("msg_ids")
         return (nombre, tuple(sorted(set(ids if isinstance(ids, list) else []))))
+    if nombre == "enviar_email":  # lo que el usuario confirma en voz: a quién y qué archivo
+        adjunto = parametros.get("adjunto")
+        return (nombre, (parametros.get("destinatario") or "").strip().lower(),
+                _real(adjunto) if adjunto else "")
     return (nombre, repr(sorted(parametros.items())))
 
 
@@ -533,6 +560,21 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
         if not email:
             return "BLOQUEADO: ese email no está en la última lista leída. Lee primero los emails."
 
+    if nombre == "enviar_email":
+        # Antes de armar nada: un email leído (inyección) no puede dirigir un envío fuera
+        destinatario = (parametros.get("destinatario") or "").strip().lower()
+        if destinatario not in DESTINATARIOS_PERMITIDOS:
+            return "BLOQUEADO: solo puedes enviar emails a tu propia dirección por ahora."
+        # La ruta del adjunto ya pasó _gate_rutas (allowlist); aquí existencia y tamaño
+        adjunto = parametros.get("adjunto")
+        if adjunto:
+            try:
+                tam = os.path.getsize(adjunto)
+            except OSError:
+                return f"BLOQUEADO: no existe el adjunto {adjunto}. Búscalo con buscar_archivo."
+            if tam > MAX_ADJUNTO:
+                return f"BLOQUEADO: el adjunto supera 20 MB ({tam // (1024 * 1024)} MB)."
+
     if riesgo != "DESTRUCTIVE":
         return None
 
@@ -556,11 +598,19 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
                 "(distinta acción, ya usada o caducada). Pide de nuevo la acción al usuario.")
 
     _pendiente = {"firma": firma, "ts": ahora}
+    if nombre == "enviar_email":
+        # La firma no lleva asunto/cuerpo; sin esto, el D1-fix (que ejecuta
+        # pendiente_info()["params"] sin modelo) enviaría el email vacío
+        _pendiente["params"] = dict(parametros)
     frase = CONFIRM_PHRASES[nombre]
     if nombre == "borrar_email":
         objeto = f"email de {email['remitente']}: {email['asunto']}"
     elif nombre == "borrar_multiples_emails":
         objeto = _resumen_remitentes(email["entradas"])
+    elif nombre == "enviar_email":
+        objeto = f"Enviar email a {firma[1]} con asunto {parametros.get('asunto', '')}"
+        if firma[2]:
+            objeto += f" y adjunto {os.path.basename(parametros['adjunto'])}"
     else:
         objeto = firma[1]
     return (f"BLOQUEADO: '{nombre}' ({objeto}) es irreversible y requiere confirmación del usuario. "
@@ -583,6 +633,8 @@ def _params_desde_firma(firma):
         return {"msg_id": firma[1]}
     if firma[0] == "borrar_multiples_emails":
         return {"msg_ids": list(firma[1])}
+    if firma[0] == "enviar_email":
+        return {"destinatario": firma[1], "adjunto": firma[2] or None}
     return {}
 
 
@@ -595,6 +647,35 @@ def pendiente_info():
         "params": _pendiente.get("params") or _params_desde_firma(_pendiente["firma"]),
         "firma":  _pendiente["firma"]
     }
+
+
+def cargar_destinatarios_permitidos(skills):
+    """Rellena DESTINATARIOS_PERMITIDOS con la dirección propia (gmail cachea
+    getProfile). Si falla, la lista sigue vacía y todo envío queda bloqueado."""
+    if DESTINATARIOS_PERMITIDOS:
+        return
+    try:
+        mi_email = skills.get('gmail').get_mi_email()
+    except Exception:
+        return
+    if isinstance(mi_email, str) and "@" in mi_email:
+        DESTINATARIOS_PERMITIDOS.append(mi_email.strip().lower())
+
+
+def anuncio_confirmacion():
+    """Texto fijo (no del modelo) para leer en voz alta si este turno dejó un
+    enviar_email pendiente de confirmar; None si no. Sale de _pendiente, que
+    es exactamente lo que se ejecutará al confirmar."""
+    traza = _ultima_traza or {}
+    if not hay_pendiente() or _pendiente["firma"][0] != "enviar_email":
+        return None
+    if not any(t.get("nombre") == "enviar_email" for t in traza.get("tools_ejecutadas") or []):
+        return None
+    destinatario = _pendiente["firma"][1]
+    adjunto      = (_pendiente.get("params") or {}).get("adjunto")
+    con_adjunto  = f" con el archivo {os.path.basename(adjunto)}" if adjunto else ""
+    frase        = CONFIRM_PHRASES["enviar_email"]
+    return f"Vas a enviar un email a {destinatario}{con_adjunto}. ¿Confirmas con '{frase}'?"
 
 
 def consumir_pendiente():
@@ -681,6 +762,8 @@ def _emails_en_cache(parametros, skills):
 def _ejecutar(nombre, parametros, skills, texto_usuario=""):
     global _cerrar
     try:
+        if nombre == "enviar_email":
+            cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
         bloqueo = _gate(nombre, parametros, texto_usuario, _email_en_cache(nombre, parametros, skills))
         if bloqueo:
             return _envolver(bloqueo)
@@ -738,6 +821,15 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
         if nombre == "borrar_multiples_emails":
             ok, msg = gmail.borrar_multiples(parametros.get("msg_ids", []))
             return _ok(msg) if ok else _err(msg, "borrado_rechazado")
+
+        if nombre == "enviar_email":
+            ok, msg = gmail.enviar_email(parametros.get("destinatario", ""), parametros.get("asunto", ""),
+                                         parametros.get("cuerpo", ""), parametros.get("adjunto") or None)
+            return _ok(msg) if ok else _err(msg, "envio_rechazado")
+
+        if nombre == "get_mi_email":
+            mi_email = gmail.get_mi_email()
+            return _ok(mi_email) if mi_email else _err("No pude obtener tu dirección de email", "no_disponible")
 
         if nombre == "archivar_email":
             return _envolver(gmail.archivar_email(parametros.get('indice', 0)))

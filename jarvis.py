@@ -109,7 +109,7 @@ def _d1_fix(texto):
     traza = brain.ultima_traza()
     if traza and traza.get("d1_detectado"):
         info = brain.pendiente_info()
-        if info and info["tool"] in ("borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails"):
+        if info and info["tool"] in ("borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails", "enviar_email"):
             res = brain._ejecutar(info["tool"], info["params"], SKILLS, texto)
             audio.hablar(res["message"])
             brain.consumir_pendiente()
@@ -119,6 +119,7 @@ def _d1_fix(texto):
 
 # ── MAIN LOOP ─────────────────────────────────────────────────────
 def main():
+    brain.cargar_destinatarios_permitidos(SKILLS)
     audio.hablar(resumen_diario())
 
     while True:
@@ -132,6 +133,17 @@ def main():
             respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS)
             d1_ejecutado = _d1_fix(texto)
 
+            # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
+            # no la paráfrasis del modelo, que podría estar manipulada
+            anuncio = brain.anuncio_confirmacion()
+            if anuncio:
+                audio.BARGE_IN_ACTIVO = False
+                try:
+                    audio.hablar(anuncio)
+                finally:
+                    audio.BARGE_IN_ACTIVO = True
+                mem.añadir_al_historial(memoria, f"Jarvis: {anuncio}")
+
             # El agente activa el flag si quiere cerrar
             if brain.debe_cerrar():
                 audio.hablar("Hasta luego Joaquín. Que tengas un buen día.")
@@ -139,7 +151,7 @@ def main():
 
             # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
             # del modelo de este turno se descarta (puede afirmar algo falso).
-            if respuesta and respuesta != "cerrando" and not d1_ejecutado:
+            if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
                 audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
                 try:
                     audio.hablar(respuesta)

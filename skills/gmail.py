@@ -1,6 +1,7 @@
 import os
 import time
 import base64
+from email.message import EmailMessage
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -14,6 +15,8 @@ TOKEN_FILE       = r"C:\Jarvis-secrets\token.json"
 cache_emails     = []
 CACHE_TTL        = 300  # s; pasado este tiempo no se borra nada de la lista
 pendiente_borrar = None  # mantenido por compatibilidad con jarvis.py
+MAX_ADJUNTO      = 20 * 1024 * 1024  # bytes
+_mi_email        = None  # caché de getProfile
 
 # ── AUTENTICACIÓN ─────────────────────────────────────────────────
 def get_service():
@@ -270,17 +273,46 @@ def buscar_emails(query, max_emails=5):
         return f"Error buscando: {e}"
 
 # ── ENVIAR EMAIL ──────────────────────────────────────────────────
-def enviar_email(destinatario, asunto, cuerpo):
+def enviar_email(destinatario, asunto, cuerpo, adjunto=None):
+    """(True, "Email enviado a X") o (False, "Error: motivo")."""
+    destinatario = (destinatario or "").strip()
+    asunto       = asunto or ""
+    if not destinatario or "@" not in destinatario:
+        return False, "Error: destinatario no válido"
+    if any(c in destinatario for c in "\r\n"):
+        return False, "Error: destinatario con saltos de línea"
+    if any(c in asunto for c in "\r\n"):
+        return False, "Error: asunto con saltos de línea"
     try:
-        service = get_service()
-        mensaje = f"To: {destinatario}\nSubject: {asunto}\n\n{cuerpo}"
-        encoded = base64.urlsafe_b64encode(mensaje.encode()).decode()
-        service.users().messages().send(
-            userId='me', body={'raw': encoded}
-        ).execute()
-        return f"Email enviado a {destinatario}"
+        msg = EmailMessage()
+        msg["To"]      = destinatario
+        msg["Subject"] = asunto
+        msg.set_content(cuerpo or "")
+        if adjunto:
+            if not os.path.isfile(adjunto):
+                return False, f"Error: no existe el adjunto {adjunto}"
+            if os.path.getsize(adjunto) > MAX_ADJUNTO:
+                return False, "Error: el adjunto supera 20 MB"
+            with open(adjunto, "rb") as f:
+                msg.add_attachment(f.read(), maintype="application", subtype="octet-stream",
+                                   filename=os.path.basename(adjunto))
+        encoded = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        get_service().users().messages().send(userId='me', body={'raw': encoded}).execute()
+        return True, f"Email enviado a {destinatario}"
     except Exception as e:
-        return f"Error enviando email: {e}"
+        return False, f"Error: {e}"
+
+# ── MI DIRECCIÓN ──────────────────────────────────────────────────
+def get_mi_email():
+    """Dirección de la cuenta autenticada (cacheada), o None si falla."""
+    global _mi_email
+    if _mi_email:
+        return _mi_email
+    try:
+        _mi_email = get_service().users().getProfile(userId='me').execute()['emailAddress']
+        return _mi_email
+    except Exception:
+        return None
 
 # ── RESUMEN DIARIO ────────────────────────────────────────────────
 def resumen_diario_gmail():
