@@ -177,25 +177,39 @@ def borrar_email(msg_id):
     return True, f"Email de {entrada['remitente']} eliminado"
 
 # ── BORRAR MÚLTIPLES ──────────────────────────────────────────────
-def borrar_multiples(cantidad=5):
-    """Borra los primeros N emails directamente."""
-    global cache_emails
+def borrar_multiples(msg_ids):
+    """Mueve a la papelera varios emails de la última lista leída.
+    Devuelve (ok, mensaje). Valida todos antes de tocar ninguno: si alguno
+    no está en la caché o la lista tiene más de CACHE_TTL s, no borra nada.
+    Nunca busca por su cuenta ni usa batchDelete (borrado permanente)."""
+    if not isinstance(msg_ids, list) or not msg_ids:
+        return False, "No hay emails que borrar"
+    entradas = [info_email(m) for m in dict.fromkeys(msg_ids)]
+    if any(e is None for e in entradas):
+        return False, "Lee primero los emails"
+    ahora = time.time()
+    if any(ahora - e.get('ts', 0) > CACHE_TTL for e in entradas):
+        return False, "La lista está desactualizada, lee los emails de nuevo"
     try:
         service = get_service()
-        if not cache_emails:
-            leer_no_leidos(max_emails=cantidad)
-        borrados = 0
-        indices_borrar = min(cantidad, len(cache_emails))
-        for _ in range(indices_borrar):
-            if not cache_emails:
-                break
-            msg_id = cache_emails[0]['id']
-            service.users().messages().trash(userId='me', id=msg_id).execute()
-            cache_emails.pop(0)
-            borrados += 1
-        return f"Eliminados {borrados} emails"
     except Exception as e:
-        return f"Error borrando: {e}"
+        return False, f"Error borrando: {e}"
+    borrados, fallidos = [], []
+    for e in entradas:
+        try:
+            service.users().messages().trash(userId='me', id=e['id']).execute()
+        except Exception:
+            fallidos.append(e)
+            continue
+        borrados.append(e)
+        if e in cache_emails:
+            cache_emails.remove(e)
+    if not fallidos:
+        return True, f"{len(borrados)} emails eliminados"
+    fallo = "; ".join(f"{e['remitente']}: {e['asunto']}" for e in fallidos)
+    if not borrados:
+        return False, f"No se pudo borrar ningún email. Fallaron: {fallo}"
+    return False, f"Eliminados {len(borrados)} de {len(entradas)}. Fallaron: {fallo}"
 
 # ── ARCHIVAR EMAIL ────────────────────────────────────────────────
 def archivar_email(indice=0):

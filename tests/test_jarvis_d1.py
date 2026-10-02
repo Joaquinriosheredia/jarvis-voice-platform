@@ -93,7 +93,7 @@ class TestD1Fix(Base):
         self.assertIs(self.devuelto, False)
 
     def test_tool_fuera_de_lista_no_ejecuta(self):
-        brain._pendiente = {"firma": ("borrar_multiples_emails", "[]"), "ts": brain.time.monotonic()}
+        brain._pendiente = {"firma": ("tool_no_listada", "x"), "ts": brain.time.monotonic()}
         self._d1()
         ej, _ = self._fix(brain._ok("x"))
         ej.assert_not_called()
@@ -119,6 +119,24 @@ class TestD1Fix(Base):
             self.assertIs(jarvis._d1_fix(conf), True)
         gm.borrar_email.assert_called_once_with("m1")
         jarvis.audio.hablar.assert_called_once_with("Email de Ana eliminado")
+        self.assertIsNone(brain._pendiente)
+
+    def test_borrar_multiples_d1_extremo_a_extremo(self):
+        # _ejecutar real: params reconstruidos de la firma (conjunto ordenado de IDs)
+        gm = MagicMock()
+        gm.CACHE_TTL = 300
+        cache = {i: {"id": i, "remitente": "David", "asunto": a, "ts": brain.time.time()}
+                 for i, a in (("m1", "Oferta"), ("m3", "Re: Oferta"))}
+        gm.info_email.side_effect = cache.get
+        gm.borrar_multiples.return_value = (True, "2 emails eliminados")
+        with patch.dict(jarvis.SKILLS, {"gmail": gm}), contextlib.redirect_stdout(io.StringIO()):
+            res = brain._ejecutar("borrar_multiples_emails", {"msg_ids": ["m3", "m1"]},
+                                  jarvis.SKILLS, "borra los de David")
+            self.assertIn("2 emails de David", res["message"])
+            self._d1()
+            self.assertIs(jarvis._d1_fix("confirmo borrado de correos"), True)
+        gm.borrar_multiples.assert_called_once_with(["m1", "m3"])
+        jarvis.audio.hablar.assert_called_once_with("2 emails eliminados")
         self.assertIsNone(brain._pendiente)
 
 

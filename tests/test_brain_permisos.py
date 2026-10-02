@@ -169,25 +169,31 @@ class TestBorrarMultiples(Base):
 
     def test_11_bloqueado(self):
         s = self._skills()
-        res = brain.ejecutar_herramienta("borrar_multiples_emails", {"cantidad": 11}, s, "borra 11")
+        ids = [f"m{i}" for i in range(11)]
+        res = brain.ejecutar_herramienta("borrar_multiples_emails", {"msg_ids": ids}, s, "borra 11")
         self.assertTrue(bloqueado(res))
+        self.assertIn("máximo", res)
         s["gmail"].borrar_multiples.assert_not_called()
 
-    def test_10_pasa_el_tope_pero_bloquea_por_falta_de_frase(self):
-        # Fase 2B: borrar_multiples_emails es DESTRUCTIVE y aún no tiene frase (Fase 2C).
-        # 10 supera el control de tope (no es el mensaje de "máximo"), pero no se ejecuta.
+    def test_10_pasa_el_tope_pero_bloquea_sin_cache(self):
+        # Fase 4: 10 supera el control de tope (no es el mensaje de "máximo"), pero los IDs
+        # no salen de ningún listado (gmail mockeado sin caché): no se arma ni se ejecuta.
         s = self._skills()
-        res = brain.ejecutar_herramienta("borrar_multiples_emails", {"cantidad": 10}, s, "borra 10")
+        ids = [f"m{i}" for i in range(10)]
+        res = brain.ejecutar_herramienta("borrar_multiples_emails", {"msg_ids": ids}, s, "borra 10")
         self.assertTrue(bloqueado(res))
-        self.assertIn("frase de confirmación", res)
         self.assertNotIn("máximo", res)
+        self.assertIsNone(brain._pendiente)
         s["gmail"].borrar_multiples.assert_not_called()
 
-    def test_cero_negativo_o_basura_bloqueados(self):
+    def test_vacio_o_basura_bloqueados(self):
         s = self._skills()
-        for c in (0, -3, "muchos", None):
+        for ids in ([], None, "m1", 3, [1, 2], [""], [None]):
             self.assertTrue(bloqueado(brain.ejecutar_herramienta(
-                "borrar_multiples_emails", {"cantidad": c}, s, "x")), c)
+                "borrar_multiples_emails", {"msg_ids": ids}, s, "x")), ids)
+        self.assertTrue(bloqueado(brain.ejecutar_herramienta(
+            "borrar_multiples_emails", {"cantidad": 3}, s, "x")))       # el parámetro antiguo ya no vale
+        self.assertIsNone(brain._pendiente)
         s["gmail"].borrar_multiples.assert_not_called()
 
 
@@ -252,15 +258,16 @@ class TestIntegracionDispatcher(Base):
             self.assertEqual(brain.TOOL_RISK[tool], nivel, tool)
 
     def test_toda_tool_destructive_sin_frase_falla_cerrado_sin_keyerror(self):
-        # Fija el estado de la Fase 3 (borrar_email ya tiene frase; borrar_multiples_emails aún no).
-        # Al añadir su frase la primera aserción dejará de cumplirse a propósito: habrá que actualizar este test.
+        # Fase 4: todas las DESTRUCTIVE tienen frase. Se comprueba el fallo cerrado
+        # quitando temporalmente una frase (una tool futura sin frase no debe dar KeyError).
         sin_frase = [t for t, r in brain.TOOL_RISK.items() if r == "DESTRUCTIVE" and t not in brain.CONFIRM_PHRASES]
-        self.assertEqual(set(sin_frase), {"borrar_multiples_emails"})
-        for tool in sin_frase:
-            res = brain._gate(tool, {"indice": 0, "cantidad": 3}, "borra")
-            self.assertTrue(bloqueado(res), tool)
-            self.assertIn("frase de confirmación", res)
-            self.assertIsNone(brain._pendiente)              # no arma nada
+        self.assertEqual(set(sin_frase), set())
+        with patch.dict(brain.CONFIRM_PHRASES):
+            del brain.CONFIRM_PHRASES["apagar_pc"]
+            res = brain._gate("apagar_pc", {"accion": "apagar"}, "apaga")
+        self.assertTrue(bloqueado(res))
+        self.assertIn("frase de confirmación", res)
+        self.assertIsNone(brain._pendiente)                  # no arma nada
 
     def test_destructive_sin_frase_no_gasta_un_pendiente_ajeno(self):
         brain._gate("borrar_archivo", {"ruta": FILE_A}, "borra el informe")     # arma pendiente legítimo

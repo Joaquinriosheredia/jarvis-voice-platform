@@ -7,6 +7,7 @@ import time
 import unicodedata
 import webbrowser
 import urllib.parse
+from email.utils import parseaddr
 import anthropic
 
 # ── CLIENTE ───────────────────────────────────────────────────────
@@ -77,10 +78,11 @@ TOOLS = [
     },
     {
         "name": "borrar_multiples_emails",
-        "description": "Borra varios emails de golpe. Solo usar tras confirmación.",
+        "description": "Mueve a la papelera varios emails ya listados. El gate pide confirmación al usuario.",
         "input_schema": {"type": "object", "properties": {
-            "cantidad": {"type": "integer", "description": "Número de emails a borrar"}
-        }, "required": ["cantidad"]}
+            "msg_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10,
+                        "description": "IDs de los emails: los valores [id=...] del último listado"}
+        }, "required": ["msg_ids"]}
     },
     {
         "name": "archivar_email",
@@ -242,6 +244,7 @@ COMPORTAMIENTO:
 - Para música: usa reproducir_musica (reproduce con VLC, no abre navegador)
 - Para abrir YouTube en navegador: usa abrir_youtube
 - Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
+- Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
 - Para cerrar Jarvis (adiós, hasta luego, apágate, desconéctate): usa cerrar_jarvis
 - Para apagar el PC: solo con "confirmo apagado del pc"
 - Para info actual: usa buscar_en_web
@@ -363,6 +366,7 @@ CONFIRM_PHRASES   = {
     "apagar_pc":      "confirmo apagado del pc",
     "borrar_archivo": "confirmo borrado",
     "borrar_email":   "confirmo borrado de correo",
+    "borrar_multiples_emails": "confirmo borrado de correos",
 }
 CONFIRM_TTL       = 120
 MAX_BORRAR_EMAILS = 10
@@ -457,7 +461,26 @@ def _firma(nombre, parametros):
         return (nombre, _real(parametros.get('ruta', '')))
     if nombre == "borrar_email":  # el ID real de Gmail, nunca la posición en la lista
         return (nombre, parametros.get("msg_id", ""))
+    if nombre == "borrar_multiples_emails":  # mismo conjunto de IDs = misma firma, sin importar el orden
+        ids = parametros.get("msg_ids")
+        return (nombre, tuple(sorted(set(ids if isinstance(ids, list) else []))))
     return (nombre, repr(sorted(parametros.items())))
+
+
+def _resumen_remitentes(entradas):
+    """'3 emails de David Pérez' o '3 emails: 2 de David Pérez y 1 de Ana'
+    (nombre visible del From, sin la dirección, para que se pueda leer en voz alta)."""
+    cuenta = {}
+    for e in entradas:
+        nombre, direccion = parseaddr(e.get("remitente", ""))
+        quien = nombre or direccion or e.get("remitente") or "desconocido"
+        cuenta[quien] = cuenta.get(quien, 0) + 1
+    total = len(entradas)
+    emails = "email" if total == 1 else "emails"
+    if len(cuenta) == 1:
+        return f"{total} {emails} de {next(iter(cuenta))}"
+    partes = [f"{n} de {quien}" for quien, n in cuenta.items()]
+    return f"{total} {emails}: {', '.join(partes[:-1])} y {partes[-1]}"
 
 
 def _gate_core(nombre, parametros, texto_usuario="", email=None):
@@ -477,12 +500,19 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
         return bloqueo
 
     if nombre == "borrar_multiples_emails":
-        try:
-            cantidad = int(parametros.get('cantidad', 1))
-        except (TypeError, ValueError):
-            return "BLOQUEADO: cantidad de emails no válida."
-        if cantidad < 1 or cantidad > MAX_BORRAR_EMAILS:
-            return f"BLOQUEADO: máximo {MAX_BORRAR_EMAILS} emails por operación (pedidos: {cantidad})."
+        # email = {"entradas", "faltan", "caducados"} de la caché de gmail (lo resuelve _ejecutar).
+        # Cualquier fallo bloquea sin armar ni gastar ninguna confirmación.
+        ids = parametros.get("msg_ids")
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            return "BLOQUEADO: borrar_multiples_emails necesita los msg_ids de emails listados. Lee primero los emails."
+        if len(ids) > MAX_BORRAR_EMAILS:
+            return f"BLOQUEADO: máximo {MAX_BORRAR_EMAILS} emails por operación (pedidos: {len(ids)})."
+        if len(set(ids)) != len(ids):
+            return "BLOQUEADO: hay msg_ids repetidos. Pasa cada email una sola vez."
+        if not email or email["faltan"]:
+            return "BLOQUEADO: algún email no está en la última lista leída. Lee primero los emails."
+        if email["caducados"]:
+            return "BLOQUEADO: la lista de emails está desactualizada. Lee los emails de nuevo."
 
     if nombre == "borrar_email":
         # email = entrada de la caché de gmail para ese msg_id (la resuelve _ejecutar).
@@ -516,7 +546,12 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
 
     _pendiente = {"firma": firma, "ts": ahora}
     frase = CONFIRM_PHRASES[nombre]
-    objeto = f"email de {email['remitente']}: {email['asunto']}" if nombre == "borrar_email" else firma[1]
+    if nombre == "borrar_email":
+        objeto = f"email de {email['remitente']}: {email['asunto']}"
+    elif nombre == "borrar_multiples_emails":
+        objeto = _resumen_remitentes(email["entradas"])
+    else:
+        objeto = firma[1]
     return (f"BLOQUEADO: '{nombre}' ({objeto}) es irreversible y requiere confirmación del usuario. "
             f"Dile exactamente qué se va a hacer y que responda solo: \"{frase}\". "
             f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
@@ -535,6 +570,8 @@ def _params_desde_firma(firma):
         return {"accion": firma[1]}
     if firma[0] == "borrar_email":
         return {"msg_id": firma[1]}
+    if firma[0] == "borrar_multiples_emails":
+        return {"msg_ids": list(firma[1])}
     return {}
 
 
@@ -591,7 +628,10 @@ def _envolver(texto):
 # ── EJECUTOR ──────────────────────────────────────────────────────
 def _email_en_cache(nombre, parametros, skills):
     """Entrada de la caché de gmail para borrar_email (o None). Da remitente
-    y asunto al mensaje del gate y prueba que el msg_id salió de un listado."""
+    y asunto al mensaje del gate y prueba que el msg_id salió de un listado.
+    Para borrar_multiples_emails: {"entradas", "faltan", "caducados"} (o None)."""
+    if nombre == "borrar_multiples_emails":
+        return _emails_en_cache(parametros, skills)
     if nombre != "borrar_email":
         return None
     try:
@@ -599,6 +639,32 @@ def _email_en_cache(nombre, parametros, skills):
     except Exception:
         return None
     return email if isinstance(email, dict) else None
+
+
+def _emails_en_cache(parametros, skills):
+    """Clasifica los msg_ids contra la caché de gmail. La caducidad usa
+    gmail.CACHE_TTL (única fuente); si no es un número, falla cerrado (None)."""
+    ids = parametros.get("msg_ids")
+    if not isinstance(ids, list):
+        return None
+    try:
+        gmail = skills.get('gmail')
+        ttl   = gmail.CACHE_TTL
+        if isinstance(ttl, bool) or not isinstance(ttl, (int, float)):
+            return None
+        ahora = time.time()
+        res   = {"entradas": [], "faltan": [], "caducados": []}
+        for msg_id in ids:
+            e = gmail.info_email(msg_id) if isinstance(msg_id, str) else None
+            if not isinstance(e, dict):
+                res["faltan"].append(msg_id)
+                continue
+            if ahora - e.get('ts', 0) > ttl:
+                res["caducados"].append(msg_id)
+            res["entradas"].append(e)
+        return res
+    except Exception:
+        return None
 
 
 def _ejecutar(nombre, parametros, skills, texto_usuario=""):
@@ -659,7 +725,8 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
             return _ok(msg) if ok else _err(msg, "borrado_rechazado")
 
         if nombre == "borrar_multiples_emails":
-            return _envolver(gmail.borrar_multiples(parametros.get('cantidad', 1)))
+            ok, msg = gmail.borrar_multiples(parametros.get("msg_ids", []))
+            return _ok(msg) if ok else _err(msg, "borrado_rechazado")
 
         if nombre == "archivar_email":
             return _envolver(gmail.archivar_email(parametros.get('indice', 0)))
