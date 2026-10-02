@@ -12,7 +12,8 @@ from skills import musica, sistema, webs, authority, tareas, gmail
 
 # ── CARGAR MODELOS ────────────────────────────────────────────────
 print("🤖 Cargando Jarvis...")
-whisper_model = whisper.load_model("small")
+whisper_model = whisper.load_model("small")  # usa cuda si torch lo detecta
+print(f"🎙️ Whisper en {whisper_model.device}")
 print("✅ Jarvis listo")
 
 # ── MEMORIA ───────────────────────────────────────────────────────
