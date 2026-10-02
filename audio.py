@@ -7,9 +7,7 @@ import tempfile
 import os
 import wave
 from piper.voice import PiperVoice
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from pycaw.pycaw import AudioUtilities
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
@@ -41,16 +39,15 @@ def _get_vol_control():
     if _VOL_CONTROL:
         return _VOL_CONTROL
     try:
-        devices   = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        _VOL_CONTROL = cast(interface, POINTER(IAudioEndpointVolume))
+        _VOL_CONTROL = AudioUtilities.GetSpeakers().EndpointVolume
         return _VOL_CONTROL
-    except Exception:
+    except Exception as e:
+        _print_seguro(f"[VOL] Error inicializando control de volumen: {e}")
         return None
 
 def get_volumen():
     vol = _get_vol_control()
-    return int(vol.GetMasterVolumeLevelScalar() * 100) if vol else 50
+    return round(vol.GetMasterVolumeLevelScalar() * 100) if vol else 50
 
 def set_volumen(pct):
     vol = _get_vol_control()
