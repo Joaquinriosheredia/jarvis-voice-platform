@@ -3,16 +3,23 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import unicodedata
 import webbrowser
 import urllib.parse
+import urllib.request
 from email.utils import parseaddr
 import anthropic
+import requests
 
 # ── CLIENTE ───────────────────────────────────────────────────────
 cliente = anthropic.Anthropic()
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+OLLAMA_URL     = "http://localhost:11434"
+OLLAMA_MODEL   = "qwen2.5:7b"
+OLLAMA_TIMEOUT = 8
+OLLAMA_KEEP    = "10m"
 DESCARGAS    = r"E:\descargas ryzen"
 
 # ── HERRAMIENTAS ──────────────────────────────────────────────────
@@ -928,6 +935,157 @@ def _detectar_d1(traza, pendiente_firma, texto_usuario):
     return pendiente_firma[0] not in ejecutadas
 
 
+# ── ROUTER EN 3 CAPAS: atajo (sin modelo) / local (Ollama) / claude ──
+# Ante la duda, siempre "claude": es la única capa con tools y gate completo.
+
+# Frases (normalizadas, sin tildes) que disparan una tool directa
+ATAJOS = [
+    (("que hora", "la hora", "hora"),                               "hora"),
+    (("a que dia estamos", "que dia", "que fecha", "fecha"),        "fecha"),
+    (("que tiempo hace", "tiempo", "clima", "temperatura"),         "tiempo"),
+    (("sube el volumen", "sube volumen", "mas volumen"),            "volumen_subir"),
+    (("baja el volumen", "baja volumen", "menos volumen"),          "volumen_bajar"),
+    (("para la musica", "para musica", "stop musica"),              "parar_musica"),
+    (("lista de tareas", "lista tareas", "mis tareas", "que tengo"), "listar_tareas"),
+    (("cierra jarvis", "cierra", "apagate"),                        "cerrar_jarvis"),
+]
+# Lo único que puede acompañar a la frase del atajo; cualquier otra palabra
+# ("a qué hora sale el tren", "cierra el navegador") → claude
+RELLENO_ATAJO = {
+    "es", "son", "hoy", "ahora", "ya", "jarvis", "oye", "por", "favor", "porfa",
+    "un", "poco", "mas", "el", "la", "los", "las", "de", "del", "en", "me", "dime",
+    "que", "hace", "estamos", "sevilla", "actual", "pendientes", "vale",
+}
+# Raíces de verbos de acción (cualquier conjugación) → claude
+_RE_ACCION = re.compile(
+    r"\b(borr|elimin|quit|muev|mov|busc|encuentr|lee|leer|lei|mand|envi|respond|contest|"
+    r"abr|cre[ao]|crear|organiz|apag|encend|reproduc|pon|escuch|archiv|anot|apunt|"
+    r"recuerd|record|guard|instal|ejecut|cierr|cerr|sub[ei]|baj[ao]|descarg|copi|"
+    r"renombr|haz|hazlo|confirm|cancel)\w*")
+# Temas que requieren tools, datos actuales o la persona de JARVIS → claude
+_RE_DOMINIO = re.compile(
+    r"\b(emails?|correos?|gmail|archivos?|ficheros?|carpetas?|descargas|escritorio|"
+    r"musica|cancion\w*|youtube|web|pc|ordenador|volumen|tareas?|recordatorios?|notas?|"
+    r"pomodoro|racha|authority|noticias|hoy|ahora|actual\w*|precio\w*|ultim\w*|"
+    r"jarvis|eres|llamas|nombre|ia|inteligencia|claude|anthropic|qwen|modelo)\b")
+# La capa local solo acepta preguntas/explicaciones que empiezan así
+_RE_PREGUNTA = re.compile(
+    r"^(oye )?(que|quien|quienes|como|por que|porque|cual|cuales|cuanto|cuanta|cuantos|"
+    r"cuantas|cuando|donde|explica\w*|define|definicion|significa|diferencia|hola|buenas|gracias)\b")
+
+
+def _match_atajo(t):
+    """Nombre de la tool si el texto normalizado es solo un atajo + relleno."""
+    for frases, tool in ATAJOS:
+        for frase in frases:
+            if re.search(rf"\b{frase}\b", t):
+                resto = re.sub(rf"\b{frase}\b", " ", t, count=1).split()
+                if all(p in RELLENO_ATAJO for p in resto):
+                    return tool
+    return None
+
+
+def _clasificar_peticion(texto):
+    """"atajo" | "local" | "claude". Reglas simples, sin modelo."""
+    if hay_pendiente():
+        return "claude"
+    t = _normalizar(texto)
+    if not t:
+        return "claude"
+    if _match_atajo(t):
+        return "atajo"
+    if _RE_ACCION.search(t) or _RE_DOMINIO.search(t):
+        return "claude"
+    if _RE_PREGUNTA.match(t):
+        return "local"
+    return "claude"
+
+
+def _ejecutar_atajo(nombre_tool, skills, texto_usuario=""):
+    """Mensaje de la tool, o None si no se pudo (→ claude)."""
+    try:
+        res = _ejecutar(nombre_tool, {}, skills, texto_usuario)
+        return res.get("message") or None
+    except Exception as e:
+        _print_seguro(f"[ROUTER] atajo {nombre_tool} falló: {e}")
+        return None
+
+
+def _limpiar_local(texto):
+    """Respuesta apta para voz, o None (→ claude): sin caracteres no latinos
+    (qwen a veces cambia al chino) y cortada en la última frase completa."""
+    texto = (texto or "").strip()
+    if not texto or any(ord(c) > 1000 for c in texto):
+        return None
+    fin = max(texto.rfind(p) for p in ".!?")
+    return texto[:fin + 1].strip() if fin > 0 else None
+
+
+def _llamar_ollama(texto):
+    """Respuesta de qwen sin tools, o None si Ollama falla, tarda o la
+    respuesta no es usable (→ claude)."""
+    try:
+        r = requests.post(f"{OLLAMA_URL}/api/generate", json={
+            "model":      OLLAMA_MODEL,
+            "prompt":     ("Eres JARVIS. Responde SOLO en español. Máximo 2 frases completas. "
+                           "No uses caracteres que no sean letras españolas. "
+                           f"Pregunta: {texto}"),
+            "stream":     False,
+            "keep_alive": OLLAMA_KEEP,
+            "options":    {"num_predict": 80},
+        }, timeout=OLLAMA_TIMEOUT)
+        r.raise_for_status()
+        respuesta = _limpiar_local(r.json().get("response"))
+        if respuesta is None:
+            _print_seguro("[ROUTER] respuesta local descartada (idioma o frase incompleta)")
+        return respuesta
+    except Exception as e:
+        _print_seguro(f"[ROUTER] ollama no disponible: {e}")
+        return None
+
+
+def _precargar_ollama():
+    """Carga el modelo en VRAM para que la primera pregunta local no pague
+    la carga. urllib (no requests) para no interferir con mocks de tests."""
+    try:
+        cuerpo = json.dumps({"model": OLLAMA_MODEL, "prompt": "", "stream": False,
+                             "keep_alive": OLLAMA_KEEP, "options": {"num_predict": 1}}).encode()
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/generate", data=cuerpo,
+                                     headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=60).close()
+    except Exception:
+        pass
+
+
+threading.Thread(target=_precargar_ollama, daemon=True, name="precarga-ollama").start()
+
+
+def _enrutar(texto, skills, traza):
+    """Respuesta de las capas atajo/local, o None para seguir con Claude."""
+    if not skills:  # sin skills (tests, compatibilidad) → comportamiento previo
+        return None
+    clase = _clasificar_peticion(texto)
+    if clase == "atajo":
+        tool_atajo = _match_atajo(_normalizar(texto))
+        _print_seguro(f"[ROUTER] atajo={tool_atajo}")
+        t_tool    = time.monotonic()
+        resultado = _ejecutar_atajo(tool_atajo, skills, texto)
+        if resultado:
+            traza["tools_ejecutadas"].append({
+                "i": 0, "tool_use_id": None, "stop_reason": "atajo", "nombre": tool_atajo,
+                "input": {}, "resultado": resultado, "ms": int((time.monotonic() - t_tool) * 1000)})
+            traza["stop_final"] = "atajo"
+            return resultado
+    elif clase == "local":
+        _print_seguro("[ROUTER] local")
+        resultado = _llamar_ollama(texto)
+        if resultado:
+            traza["stop_final"] = "local"
+            return resultado
+    _print_seguro("[ROUTER] claude")
+    return None
+
+
 # ── AGENTE PRINCIPAL ──────────────────────────────────────────────
 def pensar(texto, contexto="", skills=None):
     global _ultima_traza
@@ -955,6 +1113,10 @@ def _pensar_impl(texto, contexto, skills, traza):
 
     if skills is None:
         skills = {}
+
+    respuesta_router = _enrutar(texto, skills, traza)
+    if respuesta_router:
+        return respuesta_router
 
     messages = [{"role": "user", "content": texto}]
     if contexto:
