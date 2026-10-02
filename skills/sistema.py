@@ -32,7 +32,7 @@ def estado_gpu():
 # ── OLLAMA ────────────────────────────────────────────────────────
 def estado_ollama():
     try:
-        r = req.get("http://localhost:11434/api/tags", timeout=3)
+        r = req.get("http://127.0.0.1:11434/api/tags", timeout=3)
         if r.status_code == 200:
             modelos = [m["name"] for m in r.json().get("models", [])]
             return f"Ollama activo con {len(modelos)} modelos cargados"

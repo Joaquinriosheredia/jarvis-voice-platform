@@ -16,7 +16,7 @@ import requests
 # ── CLIENTE ───────────────────────────────────────────────────────
 cliente = anthropic.Anthropic()
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-OLLAMA_URL     = "http://localhost:11434"
+OLLAMA_URL     = "http://127.0.0.1:11434"
 OLLAMA_MODEL   = "qwen2.5:3b"
 OLLAMA_TIMEOUT = 8
 OLLAMA_KEEP    = "10m"
