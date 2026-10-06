@@ -59,7 +59,7 @@ TOOLS = [
     },
     {
         "name": "buscar_en_web",
-        "description": "Busca información actual en internet con DuckDuckGo. Úsala para noticias, precios, datos actualizados, cualquier pregunta sobre el mundo real.",
+        "description": "Busca información actual en internet con DuckDuckGo. Úsala para noticias, precios, datos actualizados, cualquier pregunta sobre el mundo real. Para preguntas sobre definiciones, biografías o historia, incluye en la query las palabras 'qué es', 'quién es' o 'historia de' para activar Wikipedia automáticamente.",
         "input_schema": {"type": "object", "properties": {
             "query": {"type": "string", "description": "Búsqueda"}
         }, "required": ["query"]}
