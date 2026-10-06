@@ -59,7 +59,7 @@ TOOLS = [
     },
     {
         "name": "buscar_en_web",
-        "description": "Busca información en internet. Usa Wikipedia para definiciones y biografías (incluye 'qué es' o 'quién es' en la query), DuckDuckGo para búsquedas generales y Tavily como respaldo. Máximo 500 caracteres.",
+        "description": "Busca información en internet: noticias, precios, datos actualizados, definiciones y biografías. Usa Wikipedia para definiciones y biografías (incluye 'qué es' o 'quién es' en la query), DuckDuckGo para búsquedas generales y Tavily como respaldo.",
         "input_schema": {"type": "object", "properties": {
             "query": {"type": "string", "description": "Búsqueda"}
         }, "required": ["query"]}
