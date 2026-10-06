@@ -17,7 +17,15 @@ VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
 # Vocabulario habitual: orienta a Whisper hacia las órdenes de JARVIS
 WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cómo estás, qué tal, "
                   "confirmo borrado, confirmo envío, apágate, hasta luego, adiós, descargas, "
-                  "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover, crear")
+                  "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover")
+
+# Frases que Whisper inventa ante silencio o ruido (subtítulos de YouTube)
+FRASES_ALUCINACION = [
+    "suscríbete", "suscribete", "gracias por ver",
+    "no olvides", "dale like", "próximo vídeo",
+    "próximo video", "hasta la próxima",
+]
+NO_SPEECH_MAX = 0.7     # por encima en TODOS los segmentos → no había voz
 
 # ── MICRÓFONO ─────────────────────────────────────────────────────
 def _buscar_microfono():
@@ -251,6 +259,19 @@ def _lineas_log_audio(frames, fin_captura, t_whisper, resultado, texto):
     except Exception as e:
         return [f"[AUDIO] error generando log: {e}"]
 
+# ── FILTRO DE ALUCINACIONES ───────────────────────────────────────
+def _filtrar_transcripcion(resultado):
+    """Texto de Whisper, o "" si no había voz o es una alucinación conocida."""
+    texto = resultado['text'].strip()
+    segs  = resultado.get('segments') or []
+    if segs and all((s.get('no_speech_prob') or 0) > NO_SPEECH_MAX for s in segs):
+        _print_seguro(f"[AUDIO] sin voz (no_speech_prob > {NO_SPEECH_MAX}): {texto}")
+        return ""
+    if any(f in texto.lower() for f in FRASES_ALUCINACION):
+        _print_seguro(f"[AUDIO] alucinación detectada: {texto}")
+        return ""
+    return texto
+
 # ── ESCUCHAR ──────────────────────────────────────────────────────
 def escuchar(whisper_model):
     global JARVIS_HABLANDO
@@ -322,6 +343,7 @@ def escuchar(whisper_model):
     texto = resultado['text'].strip()
     for linea in _lineas_log_audio(frames, fin_captura, t_whisper, resultado, texto):
         _print_seguro(linea)
+    texto = _filtrar_transcripcion(resultado)
     if len(texto) < 2:
         print("🤷 No entendido")
         ui_bridge.emit("state", state="not_understood")
