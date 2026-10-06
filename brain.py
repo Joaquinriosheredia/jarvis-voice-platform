@@ -297,24 +297,6 @@ def _print_seguro(texto):
     except Exception:
         pass
 
-# ── BÚSQUEDA WEB ──────────────────────────────────────────────────
-def _buscar_web(query):
-    try:
-        import urllib.request
-        import json as _json
-        q   = urllib.parse.quote(query)
-        url = f"https://api.duckduckgo.com/?q={q}&format=json&no_html=1&skip_disambig=1"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Jarvis/1.0'})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            data = _json.loads(r.read().decode())
-        if data.get('AbstractText'):
-            return data['AbstractText'][:500]
-        textos = [r['Text'] for r in data.get('RelatedTopics', [])[:3]
-                  if isinstance(r, dict) and r.get('Text')]
-        return ' | '.join(textos)[:500] if textos else f"Sin resultados para: {query}"
-    except Exception as e:
-        return f"Error web: {e}"
-
 # ── ORGANIZAR DIRECTORIO ──────────────────────────────────────────
 def _organizar_directorio(ruta):
     if not os.path.exists(ruta):
@@ -805,7 +787,7 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
 
         if nombre == "buscar_en_web":
             _print_seguro(f"🌐 Buscando: {parametros.get('query', '')}")
-            return _envolver(_buscar_web(parametros.get('query', '')))
+            return _envolver(webs.buscar_en_web(parametros.get('query', '')))
 
         # ── GMAIL ─────────────────────────────────────────────────
         if nombre == "leer_emails":
