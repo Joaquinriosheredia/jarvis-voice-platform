@@ -120,6 +120,8 @@ def _d1_fix(texto):
 
 # ── MAIN LOOP ─────────────────────────────────────────────────────
 def main():
+    import ui_bridge
+    ui_bridge.start()
     brain.cargar_destinatarios_permitidos(SKILLS)
     audio.hablar(resumen_diario())
 

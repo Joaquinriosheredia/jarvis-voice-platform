@@ -75,4 +75,5 @@ typing_extensions==4.15.0
 uritemplate==4.2.0
 urllib3==2.6.3
 webrtcvad==2.0.10
+websockets==17.2
 yt-dlp==2026.8.19

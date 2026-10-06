@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src ws://127.0.0.1:8765">
+  <title>JARVIS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="barra">
+    <div class="marca">J.A.R.V.I.S.</div>
+    <div id="estado" class="estado" data-state="disconnected">
+      <span class="punto"></span>
+      <span id="estado-texto">Desconectado</span>
+    </div>
+  </header>
+
+  <main id="chat" class="chat">
+    <p id="vacio" class="vacio">Esperando conversación…</p>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

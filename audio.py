@@ -8,6 +8,7 @@ import os
 import wave
 from piper.voice import PiperVoice
 from pycaw.pycaw import AudioUtilities
+import ui_bridge
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
@@ -139,6 +140,8 @@ def _monitor_barge_in():
 def hablar(texto):
     global JARVIS_HABLANDO, _INTERRUMPIR
     print(f"🔊 Jarvis: {texto}")
+    ui_bridge.emit("state", state="responding")
+    ui_bridge.emit("assistant_message", text=texto)
     ducking_on()
     JARVIS_HABLANDO = True
     _INTERRUMPIR    = False
@@ -168,6 +171,7 @@ def hablar(texto):
             if _INTERRUMPIR and BARGE_IN_ACTIVO:
                 sd.stop()
                 print("⏹️  Jarvis interrumpido")
+                ui_bridge.emit("state", state="interrupted")
                 break
             time.sleep(0.05)
 
@@ -179,6 +183,7 @@ def hablar(texto):
             _rms_salida = 0.0
         ducking_off()
         hilo_monitor.join(timeout=0.5)
+        ui_bridge.emit("state", state="idle")
 
 # ── LOG DE DIAGNÓSTICO DE AUDIO ───────────────────────────────────
 def _print_seguro(texto):
@@ -227,6 +232,7 @@ def escuchar(whisper_model):
         return ""
 
     print("🎤 Escuchando...")
+    ui_bridge.emit("state", state="listening")
     ducking_on()
 
     frames       = []
@@ -259,6 +265,7 @@ def escuchar(whisper_model):
                     frames.append(np.frombuffer(fb, dtype=np.int16))
                     if silencio >= SILENCIO_FRAMES:
                         print("⏸️  Procesando...")
+                        ui_bridge.emit("state", state="processing")
                         fin_captura = "silencio"
                         break
 
@@ -266,6 +273,7 @@ def escuchar(whisper_model):
 
     if not frames or len(frames) < FRAMES_INICIO:
         print("🤷 No entendido")
+        ui_bridge.emit("state", state="not_understood")
         return ""
 
     audio_data = np.concatenate(frames)
@@ -290,6 +298,8 @@ def escuchar(whisper_model):
         _print_seguro(linea)
     if len(texto) < 2:
         print("🤷 No entendido")
+        ui_bridge.emit("state", state="not_understood")
         return ""
     print(f"👂 Tú: {texto}")
+    ui_bridge.emit("user_message", text=texto)
     return texto
