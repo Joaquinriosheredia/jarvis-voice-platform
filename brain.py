@@ -59,7 +59,7 @@ TOOLS = [
     },
     {
         "name": "buscar_en_web",
-        "description": "Busca información actual en internet con DuckDuckGo. Úsala para noticias, precios, datos actualizados, cualquier pregunta sobre el mundo real. Para preguntas sobre definiciones, biografías o historia, incluye en la query las palabras 'qué es', 'quién es' o 'historia de' para activar Wikipedia automáticamente.",
+        "description": "Busca información en internet. Usa Wikipedia para definiciones y biografías (incluye 'qué es' o 'quién es' en la query), DuckDuckGo para búsquedas generales y Tavily como respaldo. Máximo 500 caracteres.",
         "input_schema": {"type": "object", "properties": {
             "query": {"type": "string", "description": "Búsqueda"}
         }, "required": ["query"]}
