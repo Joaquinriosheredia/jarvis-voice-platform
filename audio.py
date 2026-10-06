@@ -1,3 +1,4 @@
+import re
 import time
 import threading
 import sounddevice as sd
@@ -12,6 +13,31 @@ import ui_bridge
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
+
+# Vocabulario habitual: orienta a Whisper hacia las órdenes de JARVIS
+WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cómo estás, qué tal, "
+                  "confirmo borrado, confirmo envío, apágate, hasta luego, adiós, descargas, "
+                  "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover, crear")
+
+# ── MICRÓFONO ─────────────────────────────────────────────────────
+def _buscar_microfono():
+    """Índice del Blue Yeti por nombre (el índice cambia si se conectan otros
+    dispositivos). "blue" como palabra completa para no coger "Bluetooth".
+    None = dispositivo predeterminado de Windows."""
+    try:
+        for i, d in enumerate(sd.query_devices()):
+            if d['max_input_channels'] > 0 and re.search(r"\bblue\b|yeti", d['name'], re.IGNORECASE):
+                try:
+                    print(f"[AUDIO] Micrófono: {i} {d['name']}")
+                except Exception:
+                    pass
+                return i
+    except Exception:
+        pass
+    print("[AUDIO] Blue Yeti no encontrado, usando dispositivo predeterminado")
+    return None
+
+MICROFONO = _buscar_microfono()
 
 # ── DETECCIÓN POR ENERGÍA RMS ─────────────────────────────────────
 FRAME_MS        = 30
@@ -118,7 +144,7 @@ def _monitor_barge_in():
     voz_frames = 0
     try:
         with sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1,
-                               dtype='int16', blocksize=FRAME_SIZE, device=1) as stream:
+                               dtype='int16', blocksize=FRAME_SIZE, device=MICROFONO) as stream:
             while JARVIS_HABLANDO:
                 frame, _ = stream.read(FRAME_SIZE)
                 rms_mic  = _rms(bytes(frame))
@@ -245,7 +271,7 @@ def escuchar(whisper_model):
     umbral       = UMBRAL_RMS * 3 if _vlc_activo() else UMBRAL_RMS
 
     with sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1,
-                           dtype='int16', blocksize=FRAME_SIZE, device=1) as stream:
+                           dtype='int16', blocksize=FRAME_SIZE, device=MICROFONO) as stream:
         while total < MAX_FRAMES:
             frame, _ = stream.read(FRAME_SIZE)
             fb       = bytes(frame)
@@ -288,7 +314,7 @@ def escuchar(whisper_model):
     wav.write(tmp, SAMPLE_RATE, audio_data)
 
     t0        = time.time()
-    resultado = whisper_model.transcribe(tmp, language='es')
+    resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=WHISPER_PROMPT)
     t_whisper = time.time() - t0
     print(f"⏱️  Whisper: {t_whisper:.2f}s")
 
