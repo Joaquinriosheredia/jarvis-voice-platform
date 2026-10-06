@@ -1,7 +1,7 @@
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 MEMORIA_FILE = r"C:\Jarvis\memoria.json"
 MAX_NOTAS    = 100
@@ -108,6 +108,36 @@ def añadir_al_historial(mem, texto):
 
 def obtener_contexto(mem, limite=5):
     return " | ".join([h["texto"] for h in mem["historial"][-limite:]])
+
+PREFIJO_JARVIS = "Jarvis: "
+
+def _es_jarvis(entrada):
+    return entrada.get("texto", "").startswith(PREFIJO_JARVIS)
+
+def obtener_mensajes(mem, pares=3):
+    """Últimos pares (usuario → JARVIS) del historial como mensajes de la API
+    de Claude, alternando user/assistant. Las entradas sin pareja se ignoran,
+    incluida la pregunta actual (ya añadida al historial, aún sin respuesta)."""
+    hist = mem["historial"]
+    encontrados = [(u, j) for u, j in zip(hist, hist[1:]) if not _es_jarvis(u) and _es_jarvis(j)]
+    mensajes = []
+    for u, j in encontrados[-pares:]:
+        mensajes.append({"role": "user", "content": u["texto"]})
+        mensajes.append({"role": "assistant", "content": j["texto"][len(PREFIJO_JARVIS):]})
+    return mensajes
+
+def conversacion_reciente(mem, minutos=2, ahora=None):
+    """True si JARVIS respondió hace como mucho `minutos` (precisión de
+    minuto: la fecha del historial no guarda segundos)."""
+    ahora = ahora or datetime.now()
+    for h in reversed(mem["historial"]):
+        if _es_jarvis(h):
+            try:
+                fecha = datetime.strptime(h["fecha"], "%Y-%m-%d %H:%M")
+            except Exception:
+                return False
+            return ahora - fecha <= timedelta(minutes=minutos)
+    return False
 
 # ── DOCUMENTO ACTIVO ─────────────────────────────────────────────
 def set_documento_activo(mem, documento):

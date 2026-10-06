@@ -1063,6 +1063,8 @@ _RE_TECNICO = re.compile(
 _RE_PREGUNTA = re.compile(
     r"^(oye )?(que|quien|quienes|como|por que|porque|cual|cuales|cuanto|cuanta|cuantos|"
     r"cuantas|cuando|donde|explica\w*|define|definicion|significa|diferencia|hola|buenas|gracias)\b")
+# Personas: Claude, que puede buscar en Wikipedia (qwen respondería de memoria)
+_RE_QUIEN_ES = re.compile(r"^(oye )?quien es\b")
 
 
 def _match_atajo(t):
@@ -1106,6 +1108,8 @@ def _clasificar_peticion(texto):
     if _es_pregunta_dev(texto):
         return "dev"
     if _RE_DOMINIO.search(t):
+        return "claude"
+    if _RE_QUIEN_ES.match(t):
         return "claude"
     if _RE_PREGUNTA.match(t):
         return "local"
@@ -1171,11 +1175,15 @@ def _precargar_ollama():
 threading.Thread(target=_precargar_ollama, daemon=True, name="precarga-ollama").start()
 
 
-def _enrutar(texto, skills, traza):
+def _enrutar(texto, skills, traza, conversacion_reciente=False):
     """Respuesta de las capas atajo/local, o None para seguir con Claude."""
     if not skills:  # sin skills (tests, compatibilidad) → comportamiento previo
         return None
     clase = _clasificar_peticion(texto)
+    # Seguimiento ("¿dónde nació?"): qwen no ve el historial → Claude
+    if clase == "local" and conversacion_reciente:
+        _print_seguro("[ROUTER] seguimiento de conversación → claude")
+        clase = "claude"
     traza["router"] = clase
     if clase == "dev":
         _print_seguro("[ROUTER] dev")
@@ -1202,7 +1210,9 @@ def _enrutar(texto, skills, traza):
 
 
 # ── AGENTE PRINCIPAL ──────────────────────────────────────────────
-def pensar(texto, contexto="", skills=None):
+def pensar(texto, contexto="", skills=None, conversacion_reciente=False):
+    """contexto: lista de mensajes previos (memoria.obtener_mensajes) que se
+    pasan a Claude como turnos reales, o texto plano (formato antiguo)."""
     global _ultima_traza
     t0              = time.monotonic()
     pendiente_ahora = hay_pendiente()
@@ -1210,7 +1220,7 @@ def pensar(texto, contexto="", skills=None):
     traza = {"texto": texto, "pendiente_al_inicio": pendiente_ahora, "iteraciones": [],
              "tools_ejecutadas": [], "stop_final": None, "respuesta": None}
     try:
-        traza["respuesta"] = _pensar_impl(texto, contexto, skills, traza)
+        traza["respuesta"] = _pensar_impl(texto, contexto, skills, traza, conversacion_reciente)
         return traza["respuesta"]
     finally:
         traza["stop_final"]   = traza["stop_final"] or "excepcion"
@@ -1222,21 +1232,24 @@ def pensar(texto, contexto="", skills=None):
         _log_traza(traza)
 
 
-def _pensar_impl(texto, contexto, skills, traza):
+def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
     global _cerrar
     _cerrar = False
 
     if skills is None:
         skills = {}
 
-    respuesta_router = _enrutar(texto, skills, traza)
+    respuesta_router = _enrutar(texto, skills, traza, conversacion_reciente)
     if respuesta_router:
         return respuesta_router
     system = SYSTEM + "\n\n" + SYSTEM_DEV if traza.get("router") == "dev" else SYSTEM
 
-    messages = [{"role": "user", "content": texto}]
-    if contexto:
-        messages[0]["content"] = f"[Contexto: {contexto}]\n\n{texto}"
+    if isinstance(contexto, list):
+        messages = [dict(m) for m in contexto] + [{"role": "user", "content": texto}]
+    else:
+        messages = [{"role": "user", "content": texto}]
+        if contexto:
+            messages[0]["content"] = f"[Contexto: {contexto}]\n\n{texto}"
 
     for i in range(20):
         try:

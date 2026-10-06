@@ -132,8 +132,9 @@ def main():
                 continue
 
             mem.añadir_al_historial(memoria, texto)
-            contexto  = mem.obtener_contexto(memoria)
-            respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS)
+            contexto  = mem.obtener_mensajes(memoria)
+            respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
+                                     conversacion_reciente=mem.conversacion_reciente(memoria))
             d1_ejecutado = _d1_fix(texto)
 
             # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
