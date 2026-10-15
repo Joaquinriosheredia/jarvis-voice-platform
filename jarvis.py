@@ -8,6 +8,7 @@ from datetime import datetime
 import audio
 import tts_elevenlabs
 import metrics
+import frases
 import brain
 import memoria as mem
 from skills import musica, sistema, webs, authority, tareas, gmail
@@ -131,11 +132,24 @@ def _texto_voz(respuesta):
         return AVISO_PANTALLA
     return respuesta
 
+def _parece_codigo(texto):
+    return "```" in texto or any(l.startswith(("    ", "\t")) for l in texto.splitlines())
+
+def _decir_respuesta(respuesta):
+    """Respuesta final del modelo: por frases (la 1.ª suena mientras se sintetiza
+    la siguiente) si es texto normal; código o textos largos, como siempre."""
+    voz = _texto_voz(respuesta)
+    if brain.streaming_activo() and voz == respuesta and not _parece_codigo(respuesta):
+        audio.hablar_frases(frases.trocear(respuesta), texto_pantalla=respuesta)
+    else:
+        audio.hablar(voz, texto_pantalla=respuesta)
+
 # ── MAIN LOOP ─────────────────────────────────────────────────────
 def main():
     import ui_bridge
     ui_bridge.start()
     audio.hay_confirmacion_pendiente = brain.hay_pendiente  # Whisper estricto si hay que confirmar
+    brain.al_texto_parcial = lambda texto: ui_bridge.emit("assistant_delta", text=texto)
     brain.cargar_destinatarios_permitidos(SKILLS)
     tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
     audio.hablar(resumen_diario())
@@ -176,7 +190,7 @@ def main():
                 if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
                     audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
                     try:
-                        audio.hablar(_texto_voz(respuesta), texto_pantalla=respuesta)
+                        _decir_respuesta(respuesta)
                     finally:
                         audio.BARGE_IN_ACTIVO = True
                     mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")

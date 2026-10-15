@@ -1,6 +1,8 @@
+import queue
 import re
 import time
 import threading
+from contextlib import contextmanager
 import sounddevice as sd
 import numpy as np
 import scipy.io.wavfile as wav
@@ -213,8 +215,9 @@ def _sintetizar(texto):
     return resultado
 
 # ── HABLAR ────────────────────────────────────────────────────────
-def hablar(texto, texto_pantalla=None):
-    """Dice texto por voz; la UI muestra texto_pantalla si se pasa (p. ej. un archivo completo)."""
+@contextmanager
+def _sesion_habla(texto, texto_pantalla):
+    """Estado común de hablar() y hablar_frases(): UI, ducking, flags y monitor de barge-in."""
     global JARVIS_HABLANDO, _INTERRUMPIR, _rms_salida
     print(f"🔊 Jarvis: {texto}")
     ui_bridge.emit("state", state="responding")
@@ -226,24 +229,8 @@ def hablar(texto, texto_pantalla=None):
     # Monitor de barge-in
     hilo_monitor = threading.Thread(target=_monitor_barge_in, daemon=True)
     hilo_monitor.start()
-
     try:
-        data, rate = _sintetizar(texto)
-
-        # Tracker RMS de salida en hilo paralelo
-        hilo_rms = threading.Thread(
-            target=_track_rms_salida, args=(data,), daemon=True
-        )
-        hilo_rms.start()
-
-        sd.play(data, rate)
-        while sd.get_stream().active:
-            if _INTERRUMPIR and BARGE_IN_ACTIVO:
-                sd.stop()
-                print("⏹️  Jarvis interrumpido")
-                ui_bridge.emit("state", state="interrupted")
-                break
-            time.sleep(0.05)
+        yield
     finally:
         JARVIS_HABLANDO = False
         _INTERRUMPIR    = False
@@ -252,6 +239,88 @@ def hablar(texto, texto_pantalla=None):
         ducking_off()
         hilo_monitor.join(timeout=0.5)
         ui_bridge.emit("state", state="idle")
+
+def _interrumpido():
+    return _INTERRUMPIR and BARGE_IN_ACTIVO
+
+def _reproducir(data, rate):
+    """Reproduce un audio; True si el usuario interrumpió (antes o durante)."""
+    if _interrumpido():
+        return True
+    # Tracker RMS de salida en hilo paralelo
+    hilo_rms = threading.Thread(
+        target=_track_rms_salida, args=(data,), daemon=True
+    )
+    hilo_rms.start()
+
+    metrics.registrar_primera_voz()
+    sd.play(data, rate)
+    while sd.get_stream().active:
+        if _interrumpido():
+            sd.stop()
+            print("⏹️  Jarvis interrumpido")
+            ui_bridge.emit("state", state="interrupted")
+            return True
+        time.sleep(0.05)
+    return False
+
+def hablar(texto, texto_pantalla=None):
+    """Dice texto por voz; la UI muestra texto_pantalla si se pasa (p. ej. un archivo completo)."""
+    with _sesion_habla(texto, texto_pantalla):
+        data, rate = _sintetizar(texto)
+        _reproducir(data, rate)
+
+def hablar_frases(frases, texto_pantalla=None):
+    """Dice las frases en orden: un hilo sintetiza la N+1 mientras suena la N.
+    Barge-in: corta el audio, vacía la cola y no dice nada más. Si falla la
+    síntesis de una frase, se conserva lo ya dicho y se avisa en la UI."""
+    frases = [f.strip() for f in frases if f and f.strip()]
+    if not frases:
+        return
+    with _sesion_habla(" ".join(frases), texto_pantalla):
+        cola     = queue.Queue(maxsize=2)
+        cancelar = threading.Event()
+
+        def poner(item):
+            while not cancelar.is_set():
+                try:
+                    cola.put(item, timeout=0.1)
+                    return True
+                except queue.Full:
+                    pass
+            return False
+
+        def productor():
+            try:
+                for frase in frases:
+                    if cancelar.is_set() or not poner(("audio", _sintetizar(frase))):
+                        return
+            except Exception as e:
+                poner(("error", e))
+                return
+            poner(("fin", None))
+
+        hilo = threading.Thread(target=productor, daemon=True, name="voz-frases")
+        hilo.start()
+        try:
+            while True:
+                tipo, valor = cola.get()
+                if tipo == "fin":
+                    break
+                if tipo == "error":
+                    _print_seguro(f"[VOZ] fallo sintetizando una frase: {type(valor).__name__}")
+                    ui_bridge.emit("error", message="No he podido decir el resto de la respuesta.")
+                    break
+                if _reproducir(*valor):
+                    break
+        finally:
+            cancelar.set()
+            hilo.join(timeout=1)  # el productor sale en cuanto ve cancelar
+            while True:           # la cola queda vacía pase lo que pase
+                try:
+                    cola.get_nowait()
+                except queue.Empty:
+                    break
 
 # ── LOG DE DIAGNÓSTICO DE AUDIO ───────────────────────────────────
 def _print_seguro(texto):

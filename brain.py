@@ -1442,6 +1442,61 @@ def _enrutar(texto, skills, traza, conversacion_reciente=False):
     return None
 
 
+# ── STREAMING ─────────────────────────────────────────────────────
+# jarvis.py conecta aquí un callable(texto_acumulado) que pinta el texto en la
+# UI mientras Claude lo genera ("" = descartar lo mostrado). Sin él (tests,
+# evals) o con JARVIS_STREAMING=0 se usa messages.create como siempre.
+#
+# Regla de seguridad: aquí NO se habla nada. El texto de una iteración se
+# retiene; si empieza un bloque tool_use se descarta (también en pantalla) y
+# la iteración sigue como hoy por el gate y _ejecutar. Solo la respuesta final
+# (end_turn) llega a jarvis.py, que decide qué decir (respuesta, anuncio real
+# del gate, resultado del D1-fix) y la habla por frases.
+al_texto_parcial = None
+
+
+def streaming_activo():
+    return os.environ.get("JARVIS_STREAMING", "1").strip() != "0"
+
+
+def _parcial(texto):
+    try:
+        if al_texto_parcial is not None:
+            al_texto_parcial(texto)
+    except Exception:
+        pass
+
+
+def _llamar_claude_stream(params):
+    """Mismo Message que messages.create, generado por streaming."""
+    t0, acumulado, con_tool = time.monotonic(), "", False
+    with cliente.messages.stream(**params) as stream:
+        for evento in stream:
+            tipo = getattr(evento, "type", None)
+            if tipo == "content_block_start" and getattr(evento.content_block, "type", None) == "tool_use":
+                if acumulado and not con_tool:
+                    _parcial("")  # la iteración usa tools: su texto no se muestra ni se dice
+                con_tool = True
+            elif tipo == "text" and not con_tool:
+                if not acumulado:
+                    metrics.registrar_ttft((time.monotonic() - t0) * 1000)
+                acumulado += evento.text
+                _parcial(acumulado)
+        return stream.get_final_message()
+
+
+def _llamar_claude(params):
+    if al_texto_parcial is None or not streaming_activo():
+        return cliente.messages.create(**params)
+    try:
+        return _llamar_claude_stream(params)
+    except Exception as e:
+        # Aún no se ha dicho nada (solo se habla tras end_turn): se repite sin streaming
+        _print_seguro(f"[STREAM] fallo ({type(e).__name__}); reintento sin streaming")
+        _parcial("")
+        return cliente.messages.create(**params)
+
+
 # ── AGENTE PRINCIPAL ──────────────────────────────────────────────
 def pensar(texto, contexto="", skills=None, conversacion_reciente=False):
     """contexto: lista de mensajes previos (memoria.obtener_mensajes) que se
@@ -1488,14 +1543,14 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
     for i in range(20):
         t_llm = time.monotonic()
         try:
-            respuesta = cliente.messages.create(
+            respuesta = _llamar_claude(dict(
                 model=CLAUDE_MODEL,
                 max_tokens=500,
                 system=[{"type": "text", "text": system, "cache_control": CACHE_EFIMERA},
                         _bloque_fecha()],
                 tools=_tools_con_cache(),
                 messages=messages
-            )
+            ))
         except Exception as e:
             _print_seguro(f"⚠️ Claude API error: {e}")
             traza["stop_final"] = "api_error"

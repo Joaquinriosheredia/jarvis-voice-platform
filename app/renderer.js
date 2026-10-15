@@ -78,8 +78,15 @@ function resumenMetricas(m) {
   return partes.join(' · ');
 }
 
+function desgloseMetricas(m) {
+  const partes = FASES.map((f) => `${f} ${num(m[`${f}_ms`])} ms`);
+  if (typeof m.ttft_ms === 'number') partes.push(`1.er token ${m.ttft_ms} ms`);
+  if (typeof m.primera_voz_ms === 'number') partes.push(`1.ª voz ${m.primera_voz_ms} ms`);
+  return partes.join(' · ');
+}
+
 function metricas(m) {
-  const burbujas = chat.querySelectorAll('.burbuja.jarvis');
+  const burbujas = chat.querySelectorAll('.burbuja.jarvis:not(.parcial)');
   const ultima   = burbujas[burbujas.length - 1];
   if (!ultima) return;
   const siguiente = ultima.nextElementSibling;
@@ -93,10 +100,37 @@ function metricas(m) {
   const detalle = document.createElement('div');
   detalle.className   = 'metricas-detalle';
   detalle.hidden      = true;
-  detalle.textContent = FASES.map((f) => `${f} ${num(m[`${f}_ms`])} ms`).join(' · ');
+  detalle.textContent = desgloseMetricas(m);
   div.append(linea, detalle);
   div.addEventListener('click', () => { detalle.hidden = !detalle.hidden; });
   ultima.after(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// ── Texto de JARVIS mientras Claude lo genera (assistant_delta) ──
+// Una sola burbuja provisional: el assistant_message final la sustituye y ""
+// la descarta (la iteración usó tools). Se quita también al volver a escuchar.
+let parcial = null;
+
+function quitarParcial() {
+  if (parcial) {
+    parcial.remove();
+    parcial = null;
+  }
+}
+
+function textoParcial(texto) {
+  if (typeof texto !== 'string' || !texto) {
+    quitarParcial();
+    return;
+  }
+  if (!parcial) {
+    vacio.hidden = true;
+    parcial = document.createElement('div');
+    parcial.className = 'burbuja jarvis parcial';
+    chat.appendChild(parcial);
+  }
+  parcial.textContent = texto;
   chat.scrollTop = chat.scrollHeight;
 }
 
@@ -104,7 +138,11 @@ function manejar(msg) {
   switch (msg.type) {
     case 'hello':
     case 'state':
+      if (msg.state === 'listening') quitarParcial();
       setEstado(msg.state);
+      break;
+    case 'assistant_delta':
+      textoParcial(msg.text);
       break;
     case 'interrupted':
     case 'not_understood':
@@ -114,6 +152,7 @@ function manejar(msg) {
       burbuja('usuario', msg.text, msg.ts);
       break;
     case 'assistant_message':
+      quitarParcial();
       burbuja('jarvis', msg.text, msg.ts);
       break;
     case 'error':

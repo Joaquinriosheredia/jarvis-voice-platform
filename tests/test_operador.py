@@ -641,8 +641,18 @@ class TestFechaEnSystem(Base):
         import datetime
         with patch("zoneinfo.ZoneInfo", return_value=datetime.timezone.utc):
             ahora, zona = brain._ahora()
+            texto = brain._bloque_fecha()["text"]
         self.assertEqual(zona, "Europe/Madrid")
-        self.assertIn("(Europe/Madrid)", brain._bloque_fecha()["text"])
+        self.assertIn("(Europe/Madrid)", texto)
+
+    def test_zona_no_encontrada_usa_hora_local(self):
+        import zoneinfo
+        with patch("zoneinfo.ZoneInfo", side_effect=zoneinfo.ZoneInfoNotFoundError("Europe/Madrid")):
+            ahora, zona = brain._ahora()
+            texto = brain._bloque_fecha()["text"]
+        self.assertEqual(zona, "hora local")
+        self.assertIn("(hora local)", texto)
+        self.assertIsNotNone(ahora.tzinfo)
 
     def test_sin_tzdata_usa_hora_local(self):
         with patch.dict("sys.modules", {"zoneinfo": None}):

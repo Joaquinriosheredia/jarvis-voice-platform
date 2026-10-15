@@ -160,6 +160,11 @@ body {
   opacity: 0.6;
 }
 
+/* Texto de JARVIS mientras Claude lo genera */
+.burbuja.parcial {
+  opacity: 0.75;
+}
+
 /* ── Métricas del turno (clic para ver el desglose por fase) ── */
 .metricas {
   align-self: flex-start;

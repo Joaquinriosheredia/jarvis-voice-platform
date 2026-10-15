@@ -62,7 +62,7 @@ def iniciar_turno():
                 **{f"{f}_ms": 0 for f in FASES},
                 **{t: 0 for t in TOKENS},
                 "tts": set(), "chars_tts": 0, "chars_elevenlabs": 0,
-                "whisper_logprob": None,
+                "whisper_logprob": None, "ttft_ms": None, "t_primera_voz": None,
             }
     except Exception:
         pass
@@ -126,6 +126,22 @@ def registrar_whisper_logprob(logprob):
         _en_turno(f)
 
 
+def registrar_ttft(ms):
+    """Tiempo hasta el primer token de texto de Claude (solo el primero del turno)."""
+    def f(t):
+        if t["ttft_ms"] is None:
+            t["ttft_ms"] = int(ms)
+    _en_turno(f)
+
+
+def registrar_primera_voz():
+    """Momento en que empieza a sonar la primera frase del turno."""
+    def f(t):
+        if t["t_primera_voz"] is None:
+            t["t_primera_voz"] = time.monotonic()
+    _en_turno(f)
+
+
 def registrar_tool(nombre):
     def f(t):
         t["tools"].append(nombre)
@@ -184,8 +200,13 @@ def _registro(t, texto_usuario, respuesta, privado):
         "tts_provider": tts[0] if len(tts) == 1 else ("mixto" if tts else None),
         "chars_tts": t["chars_tts"],
     }
-    if t.get("whisper_logprob") is not None:  # campo opcional del JSONL
+    # Campos opcionales del JSONL: los turnos antiguos no los tienen
+    if t.get("whisper_logprob") is not None:
         reg["whisper_logprob"] = t["whisper_logprob"]
+    if t.get("ttft_ms") is not None:
+        reg["ttft_ms"] = t["ttft_ms"]
+    if t.get("t_primera_voz") is not None:
+        reg["primera_voz_ms"] = int((t["t_primera_voz"] - t["t0"]) * 1000)
     # Turnos con email/agenda o JARVIS_LOG_TEXTO=0 (se lee en cada turno): solo metadatos
     if not privado and os.environ.get("JARVIS_LOG_TEXTO", "1").strip() != "0":
         reg["texto_usuario"] = _truncar(texto_usuario)
