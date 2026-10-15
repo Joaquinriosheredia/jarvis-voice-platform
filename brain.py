@@ -1168,7 +1168,7 @@ ATAJOS = [
     (("que tiempo hace", "tiempo", "clima", "temperatura"),         "tiempo"),
     (("sube el volumen", "sube volumen", "mas volumen"),            "volumen_subir"),
     (("baja el volumen", "baja volumen", "menos volumen"),          "volumen_bajar"),
-    (("para la musica", "para musica", "stop musica"),              "parar_musica"),
+    (("para la musica", "para musica", "stop musica", "para", "silencio"), "parar_musica"),
     (("lista de tareas", "lista tareas", "mis tareas", "que tengo"), "listar_tareas"),
     (("cierra jarvis", "cierra", "apagate"),                        "cerrar_jarvis"),
 ]
@@ -1196,18 +1196,22 @@ _RE_DOMINIO = re.compile(
 # necesitan otra débil o un inicio técnico.
 _RE_DEV_FUERTE = re.compile(
     r"\b(exception\w*|excepcion\w*|traceback|stack ?trace|null ?pointer\w*|import ?error|"
-    r"syntax ?error|bugs?|falla mi|error en mi|por que falla)\b")
+    r"syntax ?error|bugs?|falla mi|error en mi|por que falla|"
+    r"deadlocks?|race ?conditions?|condicion(?:es)? de carrera|mutex(?:es)?)\b")
 _RE_DEV_DEBIL = re.compile(
     r"\b(clases?|lineas?|errore?s?|funcion(?:es)?|metodos?|codigos?|404|500)\b")
 _RE_DEV_INICIO = re.compile(r"^(oye )?(por que|como funciona|que hace|explica\w*)\b")
 _RE_TECNICO = re.compile(
     r"\b(api|rest|http|endpoint|java|jvm|spring|python|kafka|docker|kubernetes|k8s|sql|query|"
     r"json|git|maven|gradle|thread|hilo|lambda|stream|null|compila\w*|servidor|backend|"
-    r"microservicio\w*|base de datos|cache|transaccion\w*|async\w*|concurrencia)\b")
+    r"microservicio\w*|base de datos|cache|transaccion\w*|async\w*|concurrencia|"
+    r"semaforos?|monitor(?:es)?)\b")
 # La capa local solo acepta preguntas/explicaciones que empiezan así
 _RE_PREGUNTA = re.compile(
     r"^(oye )?(que|quien|quienes|como|por que|porque|cual|cuales|cuanto|cuanta|cuantos|"
     r"cuantas|cuando|donde|explica\w*|define|definicion|significa|diferencia|hola|buenas|gracias)\b")
+# Preguntas sobre el propio JARVIS: necesitan su persona y sus tools → claude
+_RE_META = re.compile(r"\b(que puedes|para que sirves|que sabes hacer|que eres|quien eres)\b")
 # Personas: Claude, que puede buscar en Wikipedia (qwen respondería de memoria)
 _RE_QUIEN_ES = re.compile(r"^(oye )?quien es\b")
 
@@ -1252,7 +1256,7 @@ def _clasificar_peticion(texto):
         return "claude"
     if _es_pregunta_dev(texto):
         return "dev"
-    if _RE_DOMINIO.search(t):
+    if _RE_DOMINIO.search(t) or _RE_META.search(t):
         return "claude"
     if _RE_QUIEN_ES.match(t):
         return "claude"
