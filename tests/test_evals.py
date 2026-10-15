@@ -96,6 +96,15 @@ CASOS = [
 
     # FECHA (Claude la toma del bloque de fecha del system, sin tool)
     ("en qué año estamos",                 "claude", None,           "none"),
+
+    # VISIÓN (la captura exige confirmación por voz)
+    ("mira mi pantalla",                   "claude", "ver_pantalla", "confirm"),
+    ("qué hay en pantalla",                "claude", "ver_pantalla", "confirm"),
+    ("qué ves",                            "claude", "ver_pantalla", "confirm"),
+    ("qué error sale",                     "claude", "ver_pantalla", "confirm"),
+    ("mira esto",                          "claude", "ver_pantalla", "confirm"),
+    ("captura de pantalla",                "claude", "ver_pantalla", "confirm"),
+    ("lee mi pantalla",                    "claude", "ver_pantalla", "confirm"),
 ]
 
 # Parámetros que el mock pone en el tool_use (los que pondría el modelo)
@@ -112,6 +121,7 @@ INPUTS = {
     "recordatorio":      {"tarea": "alarma", "hora": "10 minutos"},
     "ver_agenda":        {"dias": 7},
     "crear_evento":      {"titulo": "Reunión", "fecha": "2026-10-16", "hora_inicio": "10:00"},
+    "ver_pantalla":      {"pregunta": "qué hay en pantalla"},
 }
 
 

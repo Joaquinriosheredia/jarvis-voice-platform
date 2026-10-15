@@ -20,7 +20,7 @@ VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
 
 # Vocabulario habitual: orienta a Whisper hacia las órdenes de JARVIS
 WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cómo estás, qué tal, "
-                  "confirmo borrado, confirmo envío, apágate, hasta luego, adiós, descargas, "
+                  "confirmo borrado, confirmo envío, confirmo captura, apágate, hasta luego, adiós, descargas, "
                   "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover")
 
 # Frases que Whisper inventa ante silencio o ruido (subtítulos de YouTube)

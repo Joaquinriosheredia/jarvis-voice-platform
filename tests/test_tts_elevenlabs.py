@@ -232,7 +232,7 @@ class TestPrivacidad(Base):
     def test_todas_las_tools_privadas_marcan_el_turno(self):
         self.assertEqual(brain.TOOLS_PRIVADAS, {
             "leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "borrar_email",
-            "borrar_multiples_emails", "archivar_email", "enviar_email", "ver_agenda"})
+            "borrar_multiples_emails", "archivar_email", "enviar_email", "ver_agenda", "ver_pantalla"})
         for tool in brain.TOOLS_PRIVADAS:
             tts_elevenlabs.nuevo_turno()
             with patch("builtins.print"):
