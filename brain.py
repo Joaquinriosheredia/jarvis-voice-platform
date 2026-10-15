@@ -13,7 +13,7 @@ from email.utils import parseaddr
 import anthropic
 import requests
 
-from skills import operador
+from skills import calendario, operador
 
 # ── CLIENTE ───────────────────────────────────────────────────────
 cliente = anthropic.Anthropic()
@@ -313,6 +313,24 @@ TOOLS = [
                          "description": "Alias del proyecto (ver listar_proyectos)"},
             "filtro":   {"type": "string", "description": "Solo los tests cuyo nombre contenga este texto, p. ej. test_gate (opcional)"}
         }, "required": ["proyecto"]}
+    },
+    {
+        "name": "ver_agenda",
+        "description": "Muestra los eventos del calendario de Google para los próximos N días (máx 7).",
+        "input_schema": {"type": "object", "properties": {
+            "dias": {"type": "integer", "description": "Número de días a consultar (1-7)", "default": 1}
+        }, "required": []}
+    },
+    {
+        "name": "crear_evento",
+        "description": "Crea un evento en Google Calendar (zona Europe/Madrid).",
+        "input_schema": {"type": "object", "properties": {
+            "titulo":       {"type": "string"},
+            "fecha":        {"type": "string", "description": "YYYY-MM-DD"},
+            "hora_inicio":  {"type": "string", "description": "HH:MM, 24 h"},
+            "duracion_min": {"type": "integer", "description": "Duración en minutos (5-480)", "default": 60},
+            "descripcion":  {"type": "string", "default": ""}
+        }, "required": ["titulo", "fecha", "hora_inicio"]}
     }
 ]
 
@@ -347,6 +365,9 @@ COMPORTAMIENTO:
 - Para info actual: usa buscar_en_web
 - Para analizar proyectos: usa listar_proyectos para ver los disponibles, leer_archivo para leer código, git_estado para ver cambios pendientes, git_diff para ver el diff, git_log para el historial y buscar_en_codigo para localizar texto en el código.
 - Para ejecutar tests de un proyecto usa ejecutar_tests. Muestra el resumen tal cual sin parafrasear.
+- Para la agenda usa ver_agenda; para crear eventos usa crear_evento con fecha YYYY-MM-DD (si la fecha es relativa, como "mañana", consulta antes fecha).
+- Cuando el usuario pregunte "qué tengo" (hoy, mañana, esta semana, pendiente), llama a ver_agenda Y a listar_tareas y responde combinando ambas: primero la agenda, luego las tareas. Si pregunta solo por agenda, calendario, reunión o cita, usa solo ver_agenda. Si pregunta solo por tareas, usa solo listar_tareas.
+- Para "mañana" o "esta semana", llama primero a fecha y calcula con ella los días que pasas a ver_agenda.
 - Cuando el usuario pida 'muéstrame', 'lee' o 'abre' un archivo o código, presenta el contenido tal cual, sin resumir ni parafrasear. Si el contenido es código o texto técnico, inclúyelo completo en tu respuesta (esto prevalece sobre el límite de 2 frases y la regla sin markdown).
 - Antes de borrar, mover o actuar sobre un archivo sin ruta exacta, usa buscar_archivo (nunca listar_directorio).
   - 0 resultados: informa e intenta con otra palabra clave.
@@ -426,11 +447,12 @@ TOOL_RISK = {
     "buscar_archivo": "READ", "listar_tareas": "READ",
     "estado_authority": "READ", "get_mi_email": "READ",
     "listar_proyectos": "READ", "leer_archivo": "READ", "git_estado": "READ",
-    "git_diff": "READ", "git_log": "READ", "buscar_en_codigo": "READ",
+    "git_diff": "READ", "git_log": "READ", "buscar_en_codigo": "READ", "ver_agenda": "READ",
     # WRITE: modifican estado interno de JARVIS (memoria, tareas, notas, ciclo de vida)
     "recordatorio": "WRITE", "nota": "WRITE", "cerrar_jarvis": "WRITE",
     # EXTERNAL: producen efecto fuera de JARVIS (archivos, email, sistema, audio)
     "reproducir_musica": "EXTERNAL", "parar_musica": "EXTERNAL", "ejecutar_tests": "EXTERNAL",
+    "crear_evento": "EXTERNAL",
     "abrir_youtube": "EXTERNAL", "abrir_web": "EXTERNAL", "abrir_app": "EXTERNAL",
     "organizar_directorio": "EXTERNAL", "crear_carpeta": "EXTERNAL",
     "mover_archivo": "EXTERNAL", "archivar_email": "EXTERNAL",
@@ -1041,6 +1063,18 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
             ok, msg = operador.ejecutar_tests(parametros.get("proyecto", ""), parametros.get("filtro"))
             return _ok(msg) if ok else _err(msg, "tests_fallo")
 
+        # ── CALENDARIO ────────────────────────────────────────────
+        if nombre == "ver_agenda":
+            ok, msg = calendario.ver_agenda(parametros.get("dias", 1))
+            return _ok(msg) if ok else _err(msg, "calendario_fallo")
+
+        if nombre == "crear_evento":
+            ok, msg = calendario.crear_evento(parametros.get("titulo", ""), parametros.get("fecha", ""),
+                                              parametros.get("hora_inicio", ""),
+                                              parametros.get("duracion_min", 60),
+                                              parametros.get("descripcion", ""))
+            return _ok(msg) if ok else _err(msg, "calendario_fallo")
+
         # ── TAREAS ────────────────────────────────────────────────
         if nombre == "recordatorio":
             return _envolver(tareas.añadir_recordatorio(memoria, audio.hablar, parametros.get('tarea', ''), hora_str=parametros.get('hora', '')))
@@ -1169,7 +1203,7 @@ ATAJOS = [
     (("sube el volumen", "sube volumen", "mas volumen"),            "volumen_subir"),
     (("baja el volumen", "baja volumen", "menos volumen"),          "volumen_bajar"),
     (("para la musica", "para musica", "stop musica", "para", "silencio"), "parar_musica"),
-    (("lista de tareas", "lista tareas", "mis tareas", "que tengo"), "listar_tareas"),
+    (("lista de tareas", "lista tareas", "mis tareas"),             "listar_tareas"),
     (("cierra jarvis", "cierra", "apagate"),                        "cerrar_jarvis"),
 ]
 # Lo único que puede acompañar a la frase del atajo; cualquier otra palabra
@@ -1190,6 +1224,7 @@ _RE_DOMINIO = re.compile(
     r"\b(emails?|correos?|gmail|archivos?|ficheros?|carpetas?|descargas|escritorio|"
     r"musica|cancion\w*|youtube|web|pc|ordenador|volumen|tareas?|recordatorios?|notas?|"
     r"pomodoro|racha|authority|noticias|hoy|ahora|actual\w*|precio\w*|ultim\w*|"
+    r"agenda|calendario|eventos?|reunion(?:es)?|citas?|"
     r"jarvis|eres|llamas|nombre|ia|inteligencia|claude|anthropic|qwen|modelo)\b")
 # Modo desarrollador: errores, código o preguntas técnicas → claude con SYSTEM_DEV
 # Fuertes: bastan solas. Débiles: ambiguas ("clase de vino", "500 euros"),
@@ -1212,6 +1247,8 @@ _RE_PREGUNTA = re.compile(
     r"cuantas|cuando|donde|explica\w*|define|definicion|significa|diferencia|hola|buenas|gracias)\b")
 # Preguntas sobre el propio JARVIS: necesitan su persona y sus tools → claude
 _RE_META = re.compile(r"\b(que puedes|para que sirves|que sabes hacer|que eres|quien eres)\b")
+# "qué tengo (hoy|mañana|esta semana|pendiente)": agenda + tareas → claude (nunca atajo ni local)
+_RE_QUE_TENGO = re.compile(r"\bque tengo\b")
 # Personas: Claude, que puede buscar en Wikipedia (qwen respondería de memoria)
 _RE_QUIEN_ES = re.compile(r"^(oye )?quien es\b")
 
@@ -1256,7 +1293,7 @@ def _clasificar_peticion(texto):
         return "claude"
     if _es_pregunta_dev(texto):
         return "dev"
-    if _RE_DOMINIO.search(t) or _RE_META.search(t):
+    if _RE_DOMINIO.search(t) or _RE_META.search(t) or _RE_QUE_TENGO.search(t):
         return "claude"
     if _RE_QUIEN_ES.match(t):
         return "claude"

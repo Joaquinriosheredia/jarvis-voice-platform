@@ -81,6 +81,14 @@ CASOS = [
     ("busca en google colchones baratos", "claude", "buscar_en_web", "none"),
     ("pon una alarma en 10 minutos",      "claude", "recordatorio",  "none"),
     ("lista mis emails",                  "claude", "leer_emails",   "none"),
+
+    # CALENDARIO
+    ("qué tengo en la agenda esta semana", "claude", "ver_agenda",   "none"),
+    ("crea una reunión mañana a las 10",   "claude", "crear_evento", "none"),
+    ("qué tengo hoy",                      "claude", "ver_agenda",   "none"),
+    ("qué tengo mañana",                   "claude", "ver_agenda",   "none"),
+    ("crea un evento mañana a las 10 reunión con Beatriz", "claude", "crear_evento", "none"),
+    ("qué tareas tengo",                   "claude", "listar_tareas", "none"),
 ]
 
 # Parámetros que el mock pone en el tool_use (los que pondría el modelo)
@@ -95,6 +103,8 @@ INPUTS = {
     "reproducir_musica": {"query": "música de fondo"},
     "buscar_en_web":     {"query": "colchones baratos"},
     "recordatorio":      {"tarea": "alarma", "hora": "10 minutos"},
+    "ver_agenda":        {"dias": 7},
+    "crear_evento":      {"titulo": "Reunión", "fecha": "2026-10-16", "hora_inicio": "10:00"},
 }
 
 

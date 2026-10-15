@@ -19,19 +19,25 @@ MAX_ADJUNTO      = 20 * 1024 * 1024  # bytes
 _mi_email        = None  # caché de getProfile
 
 # ── AUTENTICACIÓN ─────────────────────────────────────────────────
-def get_service():
+def credenciales(scopes, token_file):
+    """OAuth con el credentials.json de JARVIS. Cada token_file guarda solo
+    sus scopes: añadir uno a un token existente haría fallar su refresco
+    (invalid_scope), por eso Calendar usa su propio token."""
     creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    if os.path.exists(token_file):
+        creds = Credentials.from_authorized_user_file(token_file, scopes)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow  = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            flow  = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, scopes)
             creds = flow.run_local_server(port=8080, open_browser=True)
-        with open(TOKEN_FILE, 'w') as f:
+        with open(token_file, 'w') as f:
             f.write(creds.to_json())
-    return build('gmail', 'v1', credentials=creds)
+    return creds
+
+def get_service():
+    return build('gmail', 'v1', credentials=credenciales(SCOPES, TOKEN_FILE))
 
 # ── OBTENER HEADERS ───────────────────────────────────────────────
 def _get_headers(service, msg_id):
