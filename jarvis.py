@@ -6,6 +6,7 @@ import atexit
 from datetime import datetime
 
 import audio
+import tts_elevenlabs
 import brain
 import memoria as mem
 from skills import musica, sistema, webs, authority, tareas, gmail
@@ -132,6 +133,7 @@ def main():
     import ui_bridge
     ui_bridge.start()
     brain.cargar_destinatarios_permitidos(SKILLS)
+    tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
     audio.hablar(resumen_diario())
 
     while True:

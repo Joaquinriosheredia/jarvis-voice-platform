@@ -10,6 +10,7 @@ import wave
 from piper.voice import PiperVoice
 from pycaw.pycaw import AudioUtilities
 import ui_bridge
+import tts_elevenlabs
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
@@ -170,10 +171,31 @@ def _monitor_barge_in():
     except Exception:
         pass
 
+# ── SÍNTESIS ──────────────────────────────────────────────────────
+def _sintetizar_piper(texto):
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        tmp = f.name
+    try:
+        with wave.open(tmp, 'wb') as wf:
+            voice.synthesize_wav(texto, wf)
+        with wave.open(tmp, 'rb') as wf:
+            frames = wf.readframes(wf.getnframes())
+            rate   = wf.getframerate()
+    finally:
+        os.unlink(tmp)
+    return np.frombuffer(frames, dtype=np.int16), rate
+
+def _sintetizar(texto):
+    """(muestras int16, frecuencia): ElevenLabs si está activo y responde, si no Piper."""
+    pcm = tts_elevenlabs.sintetizar(texto)
+    if pcm is not None:
+        return np.frombuffer(pcm, dtype=np.int16), tts_elevenlabs.PCM_RATE
+    return _sintetizar_piper(texto)
+
 # ── HABLAR ────────────────────────────────────────────────────────
 def hablar(texto, texto_pantalla=None):
     """Dice texto por voz; la UI muestra texto_pantalla si se pasa (p. ej. un archivo completo)."""
-    global JARVIS_HABLANDO, _INTERRUMPIR
+    global JARVIS_HABLANDO, _INTERRUMPIR, _rms_salida
     print(f"🔊 Jarvis: {texto}")
     ui_bridge.emit("state", state="responding")
     ui_bridge.emit("assistant_message", text=texto_pantalla or texto)
@@ -186,14 +208,7 @@ def hablar(texto, texto_pantalla=None):
     hilo_monitor.start()
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            tmp = f.name
-        with wave.open(tmp, 'wb') as wf:
-            voice.synthesize_wav(texto, wf)
-        with wave.open(tmp, 'rb') as wf:
-            frames = wf.readframes(wf.getnframes())
-            rate   = wf.getframerate()
-            data   = np.frombuffer(frames, dtype=np.int16)
+        data, rate = _sintetizar(texto)
 
         # Tracker RMS de salida en hilo paralelo
         hilo_rms = threading.Thread(
@@ -209,8 +224,6 @@ def hablar(texto, texto_pantalla=None):
                 ui_bridge.emit("state", state="interrupted")
                 break
             time.sleep(0.05)
-
-        os.unlink(tmp)
     finally:
         JARVIS_HABLANDO = False
         _INTERRUMPIR    = False

@@ -14,6 +14,7 @@ import anthropic
 import requests
 
 from skills import calendario, operador
+import tts_elevenlabs
 
 # ── CLIENTE ───────────────────────────────────────────────────────
 cliente = anthropic.Anthropic()
@@ -832,6 +833,10 @@ def _envolver(texto):
 
 
 # ── EJECUTOR ──────────────────────────────────────────────────────
+# Su resultado (emails, agenda) nunca se sintetiza con un TTS externo: el turno va con Piper
+TOOLS_PRIVADAS = {"leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "borrar_email",
+                  "borrar_multiples_emails", "archivar_email", "enviar_email", "ver_agenda"}
+
 def _email_en_cache(nombre, parametros, skills):
     """Entrada de la caché de gmail para borrar_email (o None). Da remitente
     y asunto al mensaje del gate y prueba que el msg_id salió de un listado.
@@ -875,6 +880,8 @@ def _emails_en_cache(parametros, skills):
 
 def _ejecutar(nombre, parametros, skills, texto_usuario=""):
     global _cerrar
+    if nombre in TOOLS_PRIVADAS:  # antes del gate: un bloqueo también puede citar el email
+        tts_elevenlabs.marcar_privado()
     try:
         if nombre == "enviar_email":
             cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
@@ -1400,6 +1407,7 @@ def pensar(texto, contexto="", skills=None, conversacion_reciente=False):
     """contexto: lista de mensajes previos (memoria.obtener_mensajes) que se
     pasan a Claude como turnos reales, o texto plano (formato antiguo)."""
     global _ultima_traza
+    tts_elevenlabs.nuevo_turno()
     t0              = time.monotonic()
     pendiente_ahora = hay_pendiente()
     pendiente_firma = _pendiente["firma"] if pendiente_ahora else None
