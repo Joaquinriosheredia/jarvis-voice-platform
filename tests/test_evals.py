@@ -89,6 +89,10 @@ CASOS = [
     ("qué tengo mañana",                   "claude", "ver_agenda",   "none"),
     ("crea un evento mañana a las 10 reunión con Beatriz", "claude", "crear_evento", "none"),
     ("qué tareas tengo",                   "claude", "listar_tareas", "none"),
+
+    # MÉTRICAS
+    ("cuánto he gastado hoy",              "claude", "gasto_hoy",    "none"),
+    ("cuánto llevo gastado",               "claude", "gasto_hoy",    "none"),
 ]
 
 # Parámetros que el mock pone en el tool_use (los que pondría el modelo)

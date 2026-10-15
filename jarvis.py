@@ -7,6 +7,7 @@ from datetime import datetime
 
 import audio
 import tts_elevenlabs
+import metrics
 import brain
 import memoria as mem
 from skills import musica, sistema, webs, authority, tareas, gmail
@@ -112,7 +113,9 @@ def _d1_fix(texto):
     if traza and traza.get("d1_detectado"):
         info = brain.pendiente_info()
         if info and info["tool"] in ("borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails", "enviar_email"):
-            res = brain._ejecutar(info["tool"], info["params"], SKILLS, texto)
+            with metrics.cronometro("tools"):
+                res = brain._ejecutar(info["tool"], info["params"], SKILLS, texto)
+            metrics.registrar_tool(info["tool"])
             audio.hablar(res["message"])
             brain.consumir_pendiente()
             brain._print_seguro(f"[D1-FIX] ejecutado tool={info['tool']} ok={res['ok']}")
@@ -140,39 +143,44 @@ def main():
         try:
             texto = audio.escuchar(whisper_model)
             if not texto:
+                metrics.descartar_turno()
                 continue
 
-            mem.añadir_al_historial(memoria, texto)
-            contexto  = mem.obtener_mensajes(memoria)
-            respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
-                                     conversacion_reciente=mem.conversacion_reciente(memoria))
-            d1_ejecutado = _d1_fix(texto)
+            respuesta = None
+            try:
+                mem.añadir_al_historial(memoria, texto)
+                contexto  = mem.obtener_mensajes(memoria)
+                respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
+                                         conversacion_reciente=mem.conversacion_reciente(memoria))
+                d1_ejecutado = _d1_fix(texto)
 
-            # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
-            # no la paráfrasis del modelo, que podría estar manipulada
-            anuncio = brain.anuncio_confirmacion()
-            if anuncio:
-                audio.BARGE_IN_ACTIVO = False
-                try:
-                    audio.hablar(anuncio)
-                finally:
-                    audio.BARGE_IN_ACTIVO = True
-                mem.añadir_al_historial(memoria, f"Jarvis: {anuncio}")
+                # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
+                # no la paráfrasis del modelo, que podría estar manipulada
+                anuncio = brain.anuncio_confirmacion()
+                if anuncio:
+                    audio.BARGE_IN_ACTIVO = False
+                    try:
+                        audio.hablar(anuncio)
+                    finally:
+                        audio.BARGE_IN_ACTIVO = True
+                    mem.añadir_al_historial(memoria, f"Jarvis: {anuncio}")
 
-            # El agente activa el flag si quiere cerrar
-            if brain.debe_cerrar():
-                audio.hablar("Hasta luego Joaquín. Que tengas un buen día.")
-                break
+                # El agente activa el flag si quiere cerrar
+                if brain.debe_cerrar():
+                    audio.hablar("Hasta luego Joaquín. Que tengas un buen día.")
+                    break
 
-            # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
-            # del modelo de este turno se descarta (puede afirmar algo falso).
-            if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
-                audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
-                try:
-                    audio.hablar(_texto_voz(respuesta), texto_pantalla=respuesta)
-                finally:
-                    audio.BARGE_IN_ACTIVO = True
-                mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")
+                # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
+                # del modelo de este turno se descarta (puede afirmar algo falso).
+                if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
+                    audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
+                    try:
+                        audio.hablar(_texto_voz(respuesta), texto_pantalla=respuesta)
+                    finally:
+                        audio.BARGE_IN_ACTIVO = True
+                    mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")
+            finally:
+                metrics.cerrar_turno(texto, respuesta)
 
         except KeyboardInterrupt:
             audio.hablar("Cerrando Jarvis.")

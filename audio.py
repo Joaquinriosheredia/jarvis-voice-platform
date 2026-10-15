@@ -11,6 +11,7 @@ from piper.voice import PiperVoice
 from pycaw.pycaw import AudioUtilities
 import ui_bridge
 import tts_elevenlabs
+import metrics
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
@@ -187,10 +188,14 @@ def _sintetizar_piper(texto):
 
 def _sintetizar(texto):
     """(muestras int16, frecuencia): ElevenLabs si está activo y responde, si no Piper."""
+    t0  = time.monotonic()
     pcm = tts_elevenlabs.sintetizar(texto)
     if pcm is not None:
-        return np.frombuffer(pcm, dtype=np.int16), tts_elevenlabs.PCM_RATE
-    return _sintetizar_piper(texto)
+        resultado, proveedor = (np.frombuffer(pcm, dtype=np.int16), tts_elevenlabs.PCM_RATE), "elevenlabs"
+    else:
+        resultado, proveedor = _sintetizar_piper(texto), "piper"
+    metrics.registrar_tts(proveedor, len(texto), (time.monotonic() - t0) * 1000)
+    return resultado
 
 # ── HABLAR ────────────────────────────────────────────────────────
 def hablar(texto, texto_pantalla=None):
@@ -348,9 +353,11 @@ def escuchar(whisper_model):
         tmp = f.name
     wav.write(tmp, SAMPLE_RATE, audio_data)
 
+    metrics.iniciar_turno()  # el turno (y su total_ms) empieza con Whisper
     t0        = time.time()
     resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=WHISPER_PROMPT)
     t_whisper = time.time() - t0
+    metrics.marcar("whisper", t_whisper * 1000)
     print(f"⏱️  Whisper: {t_whisper:.2f}s")
 
     os.unlink(tmp)

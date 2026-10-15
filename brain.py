@@ -14,6 +14,7 @@ import anthropic
 import requests
 
 from skills import calendario, operador
+import metrics
 import tts_elevenlabs
 
 # ── CLIENTE ───────────────────────────────────────────────────────
@@ -332,6 +333,11 @@ TOOLS = [
             "duracion_min": {"type": "integer", "description": "Duración en minutos (5-480)", "default": 60},
             "descripcion":  {"type": "string", "default": ""}
         }, "required": ["titulo", "fecha", "hora_inicio"]}
+    },
+    {
+        "name": "gasto_hoy",
+        "description": "Turnos de hoy, coste estimado de la API y tiempo medio de respuesta de JARVIS",
+        "input_schema": {"type": "object", "properties": {}}
     }
 ]
 
@@ -369,6 +375,7 @@ COMPORTAMIENTO:
 - Para la agenda usa ver_agenda; para crear eventos usa crear_evento con fecha YYYY-MM-DD (si la fecha es relativa, como "mañana", consulta antes fecha).
 - Cuando el usuario pregunte "qué tengo" (hoy, mañana, esta semana, pendiente), llama a ver_agenda Y a listar_tareas y responde combinando ambas: primero la agenda, luego las tareas. Si pregunta solo por agenda, calendario, reunión o cita, usa solo ver_agenda. Si pregunta solo por tareas, usa solo listar_tareas.
 - Para "mañana" o "esta semana", llama primero a fecha y calcula con ella los días que pasas a ver_agenda.
+- Si pregunta cuánto ha gastado o cuánto cuesta JARVIS hoy, usa gasto_hoy.
 - Cuando el usuario pida 'muéstrame', 'lee' o 'abre' un archivo o código, presenta el contenido tal cual, sin resumir ni parafrasear. Si el contenido es código o texto técnico, inclúyelo completo en tu respuesta (esto prevalece sobre el límite de 2 frases y la regla sin markdown).
 - Antes de borrar, mover o actuar sobre un archivo sin ruta exacta, usa buscar_archivo (nunca listar_directorio).
   - 0 resultados: informa e intenta con otra palabra clave.
@@ -449,6 +456,7 @@ TOOL_RISK = {
     "estado_authority": "READ", "get_mi_email": "READ",
     "listar_proyectos": "READ", "leer_archivo": "READ", "git_estado": "READ",
     "git_diff": "READ", "git_log": "READ", "buscar_en_codigo": "READ", "ver_agenda": "READ",
+    "gasto_hoy": "READ",
     # WRITE: modifican estado interno de JARVIS (memoria, tareas, notas, ciclo de vida)
     "recordatorio": "WRITE", "nota": "WRITE", "cerrar_jarvis": "WRITE",
     # EXTERNAL: producen efecto fuera de JARVIS (archivos, email, sistema, audio)
@@ -1070,6 +1078,11 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
             ok, msg = operador.ejecutar_tests(parametros.get("proyecto", ""), parametros.get("filtro"))
             return _ok(msg) if ok else _err(msg, "tests_fallo")
 
+        # ── MÉTRICAS ──────────────────────────────────────────────
+        if nombre == "gasto_hoy":
+            ok, msg = metrics.gasto_hoy()
+            return _ok(msg) if ok else _err(msg, "metricas_fallo")
+
         # ── CALENDARIO ────────────────────────────────────────────
         if nombre == "ver_agenda":
             ok, msg = calendario.ver_agenda(parametros.get("dias", 1))
@@ -1231,7 +1244,7 @@ _RE_DOMINIO = re.compile(
     r"\b(emails?|correos?|gmail|archivos?|ficheros?|carpetas?|descargas|escritorio|"
     r"musica|cancion\w*|youtube|web|pc|ordenador|volumen|tareas?|recordatorios?|notas?|"
     r"pomodoro|racha|authority|noticias|hoy|ahora|actual\w*|precio\w*|ultim\w*|"
-    r"agenda|calendario|eventos?|reunion(?:es)?|citas?|"
+    r"agenda|calendario|eventos?|reunion(?:es)?|citas?|gastad\w*|gasto|coste|"
     r"jarvis|eres|llamas|nombre|ia|inteligencia|claude|anthropic|qwen|modelo)\b")
 # Modo desarrollador: errores, código o preguntas técnicas → claude con SYSTEM_DEV
 # Fuertes: bastan solas. Débiles: ambiguas ("clase de vino", "500 euros"),
@@ -1372,12 +1385,14 @@ def _enrutar(texto, skills, traza, conversacion_reciente=False):
     """Respuesta de las capas atajo/local, o None para seguir con Claude."""
     if not skills:  # sin skills (tests, compatibilidad) → comportamiento previo
         return None
-    clase = _clasificar_peticion(texto)
+    with metrics.cronometro("router"):
+        clase = _clasificar_peticion(texto)
     # Seguimiento ("¿dónde nació?"): qwen no ve el historial → Claude
     if clase == "local" and conversacion_reciente:
         _print_seguro("[ROUTER] seguimiento de conversación → claude")
         clase = "claude"
     traza["router"] = clase
+    metrics.registrar_ruta(clase)
     if clase == "dev":
         _print_seguro("[ROUTER] dev")
         return None
@@ -1386,7 +1401,9 @@ def _enrutar(texto, skills, traza, conversacion_reciente=False):
         _print_seguro(f"[ROUTER] atajo={tool_atajo}")
         t_tool    = time.monotonic()
         resultado = _ejecutar_atajo(tool_atajo, skills, texto)
+        metrics.marcar("tools", (time.monotonic() - t_tool) * 1000)
         if resultado:
+            metrics.registrar_tool(tool_atajo)
             traza["tools_ejecutadas"].append({
                 "i": 0, "tool_use_id": None, "stop_reason": "atajo", "nombre": tool_atajo,
                 "input": {}, "resultado": resultado, "ms": int((time.monotonic() - t_tool) * 1000)})
@@ -1394,7 +1411,8 @@ def _enrutar(texto, skills, traza, conversacion_reciente=False):
             return resultado
     elif clase == "local":
         _print_seguro("[ROUTER] local")
-        resultado = _llamar_ollama(texto)
+        with metrics.cronometro("llm"):
+            resultado = _llamar_ollama(texto)
         if resultado:
             traza["stop_final"] = "local"
             return resultado
@@ -1446,6 +1464,7 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
             messages[0]["content"] = f"[Contexto: {contexto}]\n\n{texto}"
 
     for i in range(20):
+        t_llm = time.monotonic()
         try:
             respuesta = cliente.messages.create(
                 model=CLAUDE_MODEL,
@@ -1458,8 +1477,11 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
             _print_seguro(f"⚠️ Claude API error: {e}")
             traza["stop_final"] = "api_error"
             return "No puedo responder ahora mismo."
+        finally:
+            metrics.marcar("llm", (time.monotonic() - t_llm) * 1000)
 
         _reg_iteracion(traza, i, respuesta)
+        metrics.registrar_uso_llm(getattr(respuesta, "usage", None))
         leidos = getattr(getattr(respuesta, "usage", None), "cache_read_input_tokens", None)
         if isinstance(leidos, int) and leidos > 0:
             _print_seguro(f"[CACHE] hit={leidos} tok guardados")
@@ -1479,6 +1501,8 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
                     _print_seguro(f"🔧 {bloque.name} {bloque.input}")
                     t_tool    = time.monotonic()
                     res       = _ejecutar(bloque.name, bloque.input, skills, texto)
+                    metrics.marcar("tools", (time.monotonic() - t_tool) * 1000)
+                    metrics.registrar_tool(bloque.name)
                     resultado = res.get("message")
                     _reg_tool(traza, i, bloque, respuesta.stop_reason, resultado,
                               int((time.monotonic() - t_tool) * 1000))

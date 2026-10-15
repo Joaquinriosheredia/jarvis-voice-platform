@@ -15,3 +15,4 @@ test_voz3.py
 *.bak_vad
 *.bak_f3
 app/node_modules/
+logs/

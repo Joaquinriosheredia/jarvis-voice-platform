@@ -159,3 +159,20 @@ body {
   font-size: 11px;
   opacity: 0.6;
 }
+
+/* ── Métricas del turno (clic para ver el desglose por fase) ── */
+.metricas {
+  align-self: flex-start;
+  max-width: 75%;
+  margin-top: -6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--texto-suave);
+  cursor: pointer;
+  user-select: none;
+}
+
+.metricas-detalle {
+  margin-top: 2px;
+  opacity: 0.85;
+}

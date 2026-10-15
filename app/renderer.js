@@ -63,6 +63,43 @@ function burbuja(clase, texto, ts) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// ── Métricas del turno: línea discreta bajo la última burbuja de JARVIS ──
+const FASES = ['whisper', 'router', 'llm', 'tools', 'tts'];
+
+function num(v) {
+  return typeof v === 'number' && isFinite(v) ? v : 0;
+}
+
+function resumenMetricas(m) {
+  const partes = [String(m.ruta || '?'), `${(num(m.total_ms) / 1000).toFixed(1)} s`,
+                  `$${num(m.coste_usd).toFixed(4)}`];
+  const entrada = num(m.input) + num(m.cache_read) + num(m.cache_creation);
+  if (entrada > 0) partes.push(`cache ${Math.round(num(m.cache_read) * 100 / entrada)}%`);
+  return partes.join(' · ');
+}
+
+function metricas(m) {
+  const burbujas = chat.querySelectorAll('.burbuja.jarvis');
+  const ultima   = burbujas[burbujas.length - 1];
+  if (!ultima) return;
+  const siguiente = ultima.nextElementSibling;
+  if (siguiente && siguiente.classList.contains('metricas')) siguiente.remove();
+
+  const div = document.createElement('div');
+  div.className = 'metricas';
+  const linea = document.createElement('span');
+  linea.className   = 'metricas-linea';
+  linea.textContent = resumenMetricas(m);
+  const detalle = document.createElement('div');
+  detalle.className   = 'metricas-detalle';
+  detalle.hidden      = true;
+  detalle.textContent = FASES.map((f) => `${f} ${num(m[`${f}_ms`])} ms`).join(' · ');
+  div.append(linea, detalle);
+  div.addEventListener('click', () => { detalle.hidden = !detalle.hidden; });
+  ultima.after(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
 function manejar(msg) {
   switch (msg.type) {
     case 'hello':
@@ -81,6 +118,9 @@ function manejar(msg) {
       break;
     case 'error':
       burbuja('error', msg.message, msg.ts);
+      break;
+    case 'metrics':
+      metricas(msg);
       break;
   }
 }
