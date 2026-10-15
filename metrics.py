@@ -62,6 +62,7 @@ def iniciar_turno():
                 **{f"{f}_ms": 0 for f in FASES},
                 **{t: 0 for t in TOKENS},
                 "tts": set(), "chars_tts": 0, "chars_elevenlabs": 0,
+                "whisper_logprob": None,
             }
     except Exception:
         pass
@@ -114,6 +115,14 @@ def registrar_uso_llm(usage):
             if isinstance(valor, int):
                 t[clave] += valor
     if usage is not None:
+        _en_turno(f)
+
+
+def registrar_whisper_logprob(logprob):
+    """Confianza media de Whisper en el turno (media de avg_logprob de los segmentos)."""
+    def f(t):
+        t["whisper_logprob"] = round(logprob, 3)
+    if isinstance(logprob, (int, float)):
         _en_turno(f)
 
 
@@ -175,6 +184,8 @@ def _registro(t, texto_usuario, respuesta, privado):
         "tts_provider": tts[0] if len(tts) == 1 else ("mixto" if tts else None),
         "chars_tts": t["chars_tts"],
     }
+    if t.get("whisper_logprob") is not None:  # campo opcional del JSONL
+        reg["whisper_logprob"] = t["whisper_logprob"]
     # Turnos con email/agenda o JARVIS_LOG_TEXTO=0 (se lee en cada turno): solo metadatos
     if not privado and os.environ.get("JARVIS_LOG_TEXTO", "1").strip() != "0":
         reg["texto_usuario"] = _truncar(texto_usuario)

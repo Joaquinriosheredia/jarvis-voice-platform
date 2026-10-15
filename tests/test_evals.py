@@ -93,6 +93,9 @@ CASOS = [
     # MÉTRICAS
     ("cuánto he gastado hoy",              "claude", "gasto_hoy",    "none"),
     ("cuánto llevo gastado",               "claude", "gasto_hoy",    "none"),
+
+    # FECHA (Claude la toma del bloque de fecha del system, sin tool)
+    ("en qué año estamos",                 "claude", None,           "none"),
 ]
 
 # Parámetros que el mock pone en el tool_use (los que pondría el modelo)

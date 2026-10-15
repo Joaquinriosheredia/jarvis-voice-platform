@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import re
@@ -344,6 +345,27 @@ TOOLS = [
 # Breakpoint de prompt caching en la última tool: cachea el bloque de tools
 # aunque el system cambie (modo dev). TOOLS no se modifica.
 CACHE_EFIMERA = {"type": "ephemeral"}
+
+DIAS_SEMANA = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+
+
+def _ahora():
+    """(datetime, etiqueta de zona). Sin tzdata (Windows) → hora local del sistema."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("Europe/Madrid")), "Europe/Madrid"
+    except Exception:
+        return datetime.datetime.now().astimezone(), "hora local"
+
+
+def _bloque_fecha():
+    """Segundo bloque de system, SIN cache_control: va después del prefijo
+    cacheado (tools + system), así recalcularlo en cada turno no invalida la caché."""
+    ahora, zona = _ahora()
+    return {"type": "text",
+            "text": (f"Fecha y hora actuales: {DIAS_SEMANA[ahora.weekday()]} "
+                     f"{ahora:%d/%m/%Y %H:%M} ({zona}). Usa siempre esta fecha como hoy; "
+                     f"no uses tu fecha de entrenamiento.")}
 
 
 def _tools_con_cache():
@@ -1469,7 +1491,8 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
             respuesta = cliente.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=500,
-                system=[{"type": "text", "text": system, "cache_control": CACHE_EFIMERA}],
+                system=[{"type": "text", "text": system, "cache_control": CACHE_EFIMERA},
+                        _bloque_fecha()],
                 tools=_tools_con_cache(),
                 messages=messages
             )

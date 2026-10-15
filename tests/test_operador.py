@@ -568,18 +568,19 @@ class TestEjecutarTests(Base):
 
 
 class TestPromptCaching(Base):
-    def llamar(self, usage=None):
+    def llamar(self, usage=None, texto="explícame el patrón outbox"):
         from types import SimpleNamespace as NS
         fin = NS(stop_reason="end_turn", content=[NS(type="text", text="hola")], usage=usage)
         with patch.object(brain.cliente.messages, "create", return_value=fin) as create, \
              patch("brain._enrutar", return_value=None):
-            brain.pensar("explícame el patrón outbox")
+            brain.pensar(texto)
         return create.call_args.kwargs
 
     def test_system_lleva_cache_control(self):
         kw = self.llamar()
-        self.assertEqual(kw["system"], [{"type": "text", "text": brain.SYSTEM,
-                                         "cache_control": {"type": "ephemeral"}}])
+        self.assertEqual(kw["system"][0], {"type": "text", "text": brain.SYSTEM,
+                                           "cache_control": {"type": "ephemeral"}})
+        self.assertEqual(len(kw["system"]), 2)
 
     def test_ultima_tool_lleva_cache_control_sin_tocar_tools(self):
         kw = self.llamar()
@@ -596,6 +597,58 @@ class TestPromptCaching(Base):
         with patch("brain._print_seguro") as log:
             self.llamar(NS(input_tokens=10, output_tokens=5, cache_read_input_tokens=0))
         self.assertFalse(any("[CACHE]" in c.args[0] for c in log.call_args_list))
+
+
+class TestFechaEnSystem(Base):
+    """El 2.º bloque de system lleva la fecha real y va sin caché; el 1.º no cambia."""
+    llamar = TestPromptCaching.llamar
+
+    def test_segundo_bloque_con_el_ano_actual_y_sin_cache(self):
+        import datetime
+        bloque = self.llamar()["system"][1]
+        self.assertNotIn("cache_control", bloque)
+        self.assertIn(str(datetime.date.today().year), bloque["text"])
+        self.assertIn("Usa siempre esta fecha como hoy; no uses tu fecha de entrenamiento.", bloque["text"])
+
+    def test_bloque_1_identico_y_bloque_2_recalculado(self):
+        import datetime
+        momentos = [(datetime.datetime(2026, 10, 15, 9, 5), "Europe/Madrid"),
+                    (datetime.datetime(2026, 10, 16, 23, 59), "Europe/Madrid")]
+        with patch("brain._ahora", side_effect=momentos):
+            kw1, kw2 = self.llamar(), self.llamar()
+        self.assertEqual(kw1["system"][0], kw2["system"][0])
+        self.assertEqual(kw1["tools"], kw2["tools"])
+        con_cache = [b for b in kw1["system"] if "cache_control" in b]
+        self.assertEqual(con_cache, [kw1["system"][0]])
+        self.assertIn("jueves 15/10/2026 09:05 (Europe/Madrid)", kw1["system"][1]["text"])
+        self.assertIn("viernes 16/10/2026 23:59 (Europe/Madrid)", kw2["system"][1]["text"])
+
+    def test_modo_dev_tambien_lleva_la_fecha(self):
+        from types import SimpleNamespace as NS
+        fin = NS(stop_reason="end_turn", content=[NS(type="text", text="ok")], usage=None)
+
+        def enrutar(texto, skills, traza, conversacion_reciente=False):
+            traza["router"] = "dev"
+        with patch.object(brain.cliente.messages, "create", return_value=fin) as create, \
+             patch("brain._enrutar", side_effect=enrutar):
+            brain.pensar("por qué falla kafka")
+        system = create.call_args.kwargs["system"]
+        self.assertIn(brain.SYSTEM_DEV, system[0]["text"])
+        self.assertIn("Fecha y hora actuales:", system[1]["text"])
+        self.assertNotIn("cache_control", system[1])
+
+    def test_con_zona_disponible_la_etiqueta_es_europe_madrid(self):
+        import datetime
+        with patch("zoneinfo.ZoneInfo", return_value=datetime.timezone.utc):
+            ahora, zona = brain._ahora()
+        self.assertEqual(zona, "Europe/Madrid")
+        self.assertIn("(Europe/Madrid)", brain._bloque_fecha()["text"])
+
+    def test_sin_tzdata_usa_hora_local(self):
+        with patch.dict("sys.modules", {"zoneinfo": None}):
+            ahora, zona = brain._ahora()
+        self.assertEqual(zona, "hora local")
+        self.assertIsNotNone(ahora.tzinfo)
 
 
 if __name__ == "__main__":

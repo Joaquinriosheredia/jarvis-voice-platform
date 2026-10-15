@@ -29,6 +29,21 @@ FRASES_ALUCINACION = [
 ]
 NO_SPEECH_MAX = 0.7     # por encima en TODOS los segmentos → no había voz
 
+# ── CONFIANZA DE WHISPER ──────────────────────────────────────────
+def _umbral(nombre, defecto):
+    """Umbral sobrescribible por la variable de entorno del mismo nombre."""
+    try:
+        return float(os.environ.get(nombre, defecto))
+    except (TypeError, ValueError):
+        return defecto
+
+WHISPER_MIN_LOGPROB     = _umbral("WHISPER_MIN_LOGPROB", -1.0)    # media de avg_logprob
+WHISPER_MAX_COMPRESSION = _umbral("WHISPER_MAX_COMPRESSION", 2.4)  # máx. compression_ratio
+# Con una confirmación pendiente en el gate: un texto dudoso nunca debe confirmar
+WHISPER_MIN_LOGPROB_CONFIRMACION = -0.7
+# jarvis.py lo conecta a brain.hay_pendiente (audio no importa brain)
+hay_confirmacion_pendiente = lambda: False
+
 # ── MICRÓFONO ─────────────────────────────────────────────────────
 def _buscar_microfono():
     """Índice del Blue Yeti por nombre (el índice cambia si se conectan otros
@@ -291,6 +306,30 @@ def _filtrar_transcripcion(resultado):
         return ""
     return texto
 
+def _confianza(resultado):
+    """(media de avg_logprob, máximo compression_ratio) de los segmentos; None si faltan."""
+    segs = resultado.get('segments') or []
+    lps  = [s['avg_logprob'] for s in segs if isinstance(s.get('avg_logprob'), (int, float))]
+    crs  = [s['compression_ratio'] for s in segs if isinstance(s.get('compression_ratio'), (int, float))]
+    return (sum(lps) / len(lps) if lps else None), (max(crs) if crs else None)
+
+def _baja_confianza(logprob, compresion):
+    """True si el texto debe tratarse como no entendido. Nunca imprime el texto."""
+    try:
+        pendiente = bool(hay_confirmacion_pendiente())
+    except Exception:
+        pendiente = True  # ante la duda, el criterio estricto
+    minimo = max(WHISPER_MIN_LOGPROB, WHISPER_MIN_LOGPROB_CONFIRMACION) if pendiente else WHISPER_MIN_LOGPROB
+    dudoso = ((logprob is None and pendiente)            # sin métrica no se puede confirmar nada
+              or (logprob is not None and logprob < minimo)
+              or (compresion is not None and compresion > WHISPER_MAX_COMPRESSION))
+    if dudoso:
+        lp = f"{logprob:.2f}" if logprob is not None else "?"
+        cr = f"{compresion:.2f}" if compresion is not None else "?"
+        _print_seguro(f"[WHISPER] descartado por baja confianza logprob={lp} cr={cr}"
+                      + (" (confirmación pendiente)" if pendiente else ""))
+    return dudoso
+
 # ── ESCUCHAR ──────────────────────────────────────────────────────
 def escuchar(whisper_model):
     global JARVIS_HABLANDO
@@ -365,6 +404,10 @@ def escuchar(whisper_model):
     for linea in _lineas_log_audio(frames, fin_captura, t_whisper, resultado, texto):
         _print_seguro(linea)
     texto = _filtrar_transcripcion(resultado)
+    logprob, compresion = _confianza(resultado)
+    metrics.registrar_whisper_logprob(logprob)
+    if len(texto) >= 2 and _baja_confianza(logprob, compresion):
+        texto = ""
     if len(texto) < 2:
         print("🤷 No entendido")
         ui_bridge.emit("state", state="not_understood")

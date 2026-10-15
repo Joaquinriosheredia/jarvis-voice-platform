@@ -135,6 +135,7 @@ def _texto_voz(respuesta):
 def main():
     import ui_bridge
     ui_bridge.start()
+    audio.hay_confirmacion_pendiente = brain.hay_pendiente  # Whisper estricto si hay que confirmar
     brain.cargar_destinatarios_permitidos(SKILLS)
     tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
     audio.hablar(resumen_diario())
