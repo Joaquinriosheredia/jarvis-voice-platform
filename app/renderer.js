@@ -29,12 +29,32 @@ function hora(ts) {
   return isNaN(d) ? '' : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 }
 
+// Heurística conservadora: solo multilínea con varias líneas claramente de código.
+// Ante la duda devuelve false y se muestra como burbuja normal.
+const LINEA_CODIGO = /^(?:[ \t]+\S|(?:import|from|def|class|public|private|protected|const|var|let|function|return|package)\b|[{}])/;
+
+function esCodigo(texto) {
+  const lineas = texto.split('\n').filter((l) => l.trim());
+  if (lineas.length < 3) return false;
+  const deCodigo = lineas.filter((l) => LINEA_CODIGO.test(l)).length;
+  return deCodigo >= 2 && deCodigo / lineas.length >= 0.3;
+}
+
 function burbuja(clase, texto, ts) {
   if (typeof texto !== 'string' || !texto) return;
   vacio.hidden = true;
   const div = document.createElement('div');
-  div.className   = `burbuja ${clase}`;
-  div.textContent = texto;
+  div.className = `burbuja ${clase}`;
+  if (clase === 'jarvis' && esCodigo(texto)) {
+    div.classList.add('con-codigo');
+    const pre  = document.createElement('pre');
+    const code = document.createElement('code');
+    code.textContent = texto;
+    pre.appendChild(code);
+    div.appendChild(pre);
+  } else {
+    div.textContent = texto;
+  }
   const h = document.createElement('span');
   h.className   = 'hora';
   h.textContent = hora(ts);

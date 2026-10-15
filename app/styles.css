@@ -123,6 +123,28 @@ body {
   border-bottom-left-radius: 4px;
 }
 
+.burbuja.con-codigo {
+  max-width: 90%;
+}
+
+.burbuja pre {
+  margin: 0;
+  max-height: 400px;
+  overflow: auto;
+  padding: 12px;
+  background: #05080e;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  white-space: pre;
+  font: 13px/1.45 Consolas, "Cascadia Code", "Courier New", monospace;
+}
+
+.burbuja code {
+  color: #d4d4d4;
+  background: #05080e;
+  font-family: inherit;
+}
+
 .burbuja.error {
   align-self: center;
   background: transparent;
