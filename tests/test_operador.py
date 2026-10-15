@@ -472,5 +472,131 @@ class TestIntegracionBrainFase6b(ProyectoTemporal):
         self.assertEqual((res["ok"], res["error"]), (False, "busqueda_rechazada"))
 
 
+def completado(salida, codigo=0):
+    return subprocess.CompletedProcess([], codigo, salida, None)
+
+
+class TestEjecutarTests(Base):
+    def test_proyecto_invalido_error_claro(self):
+        with patch("skills.operador.subprocess.run") as run:
+            ok, msg = operador.ejecutar_tests("windows")
+        self.assertFalse(ok)
+        self.assertIn("Proyecto desconocido", msg)
+        run.assert_not_called()
+
+    def test_proyecto_sin_suite_configurada(self):
+        with patch("skills.operador.subprocess.run") as run:
+            ok, msg = operador.ejecutar_tests("dam")
+        self.assertFalse(ok)
+        self.assertIn("no tiene suite de tests configurada", msg)
+        run.assert_not_called()
+
+    def test_filtro_con_inyeccion_rechazado(self):
+        with patch("skills.operador.subprocess.run") as run:
+            for filtro in ("a;rm -rf /", "a && b", "a|b", "$(x)", "-x", "--co", "a b", "x" * 81, "a\n", 5):
+                ok, msg = operador.ejecutar_tests("jarvis", filtro)
+                self.assertFalse(ok, repr(filtro))
+                self.assertIn("filtro no válido", msg, repr(filtro))
+        run.assert_not_called()
+
+    def test_filtro_vacio_equivale_a_sin_filtro(self):
+        with patch("skills.operador.subprocess.run", return_value=completado("1 passed\n")) as run:
+            ok, msg = operador.ejecutar_tests("authority", "")
+        self.assertTrue(ok, msg)
+        self.assertNotIn("-k", run.call_args.args[0])
+
+    def test_timeout_error_claro(self):
+        with patch("skills.operador.subprocess.run", side_effect=subprocess.TimeoutExpired("x", 300)):
+            ok, msg = operador.ejecutar_tests("authority")
+        self.assertFalse(ok)
+        self.assertIn("superaron 300 s", msg)
+
+    def test_comando_jarvis_sin_shell_y_con_filtro(self):
+        with patch("skills.operador.subprocess.run",
+                   return_value=completado("....\nRan 4 tests in 0.1s\n\nOK\n")) as run:
+            ok, msg = operador.ejecutar_tests("jarvis", "test_gate")
+        cmd, kw = run.call_args.args[0], run.call_args.kwargs
+        self.assertEqual(cmd[0], os.path.join("C:\\Jarvis", "venv\\Scripts\\python.exe"))
+        self.assertEqual(cmd[-2:], ["-k", "test_gate"])
+        self.assertEqual(kw["cwd"], "C:\\Jarvis")
+        self.assertEqual(kw["timeout"], 300)
+        self.assertEqual(kw["stderr"], subprocess.STDOUT)
+        self.assertNotIn("shell", kw)
+        self.assertTrue(ok)
+        self.assertTrue(msg.startswith("Tests de jarvis [filtro test_gate]: PASAN. Ran 4 tests in 0.1s | OK"), msg)
+
+    def test_comando_wsl_y_fallo_con_resumen(self):
+        salida = "F.\nFAILED tests/test_x.py::test_a - assert 1 == 2\n1 failed, 1 passed in 0.2s\n"
+        with patch("skills.operador.subprocess.run", return_value=completado(salida, 1)) as run:
+            ok, msg = operador.ejecutar_tests("authority")
+        cmd, kw = run.call_args.args[0], run.call_args.kwargs
+        self.assertEqual(cmd[:5], ["wsl.exe", "-d", "Ubuntu", "--cd",
+                                   "/home/usuariojoaquin/AuthorityEngine/jarvis-runtime"])
+        self.assertIsNone(kw["cwd"])
+        self.assertFalse(ok)
+        self.assertIn("FALLAN (código 1)", msg)
+        self.assertIn("1 failed, 1 passed", msg)
+
+    def test_filtro_maven_usa_dtest(self):
+        with patch.dict(operador.COMANDOS_TEST, {"java-labs": ["wsl.exe", "--", "mvn", "-q", "test"]}), \
+             patch("skills.operador.subprocess.run", return_value=completado("BUILD SUCCESS\n")) as run:
+            operador.ejecutar_tests("java-labs", "RateLimiterTest")
+        self.assertEqual(run.call_args.args[0][-1], "-Dtest=RateLimiterTest")
+
+    def test_salida_limitada_a_ultimos_4_kb(self):
+        salida = "INICIO\n" + "x" * 20000 + "\nRan 1 test in 0.1s\nOK\n"
+        with patch("skills.operador.subprocess.run", return_value=completado(salida)):
+            ok, msg = operador.ejecutar_tests("jarvis")
+        self.assertNotIn("INICIO", msg)
+        self.assertIn("(…)", msg)
+        self.assertLessEqual(len(msg.encode("utf-8")), operador.MAX_COLA_TEST + 300)
+        self.assertTrue(msg.rstrip().endswith("OK"))
+
+    def test_riesgo_external_schema_y_dispatcher(self):
+        self.assertEqual(brain.TOOL_RISK["ejecutar_tests"], "EXTERNAL")
+        schema = {t["name"]: t["input_schema"] for t in brain.TOOLS}["ejecutar_tests"]
+        self.assertEqual(schema["properties"]["proyecto"]["enum"],
+                         ["jarvis", "authority", "java-labs", "dam", "vibe-guard"])
+        self.assertEqual(schema["required"], ["proyecto"])
+        self.assertIn("ejecutar_tests", brain.SYSTEM)
+        with patch("skills.operador.subprocess.run", return_value=completado("1 failed\n", 1)):
+            res = brain._ejecutar("ejecutar_tests", {"proyecto": "authority"}, {})
+        self.assertEqual((res["ok"], res["error"]), (False, "tests_fallo"))
+        with patch("skills.operador.subprocess.run", return_value=completado("1 passed\n")):
+            res = brain._ejecutar("ejecutar_tests", {"proyecto": "authority", "filtro": "router"}, {})
+        self.assertTrue(res["ok"], res)
+
+
+class TestPromptCaching(Base):
+    def llamar(self, usage=None):
+        from types import SimpleNamespace as NS
+        fin = NS(stop_reason="end_turn", content=[NS(type="text", text="hola")], usage=usage)
+        with patch.object(brain.cliente.messages, "create", return_value=fin) as create, \
+             patch("brain._enrutar", return_value=None):
+            brain.pensar("explícame el patrón outbox")
+        return create.call_args.kwargs
+
+    def test_system_lleva_cache_control(self):
+        kw = self.llamar()
+        self.assertEqual(kw["system"], [{"type": "text", "text": brain.SYSTEM,
+                                         "cache_control": {"type": "ephemeral"}}])
+
+    def test_ultima_tool_lleva_cache_control_sin_tocar_tools(self):
+        kw = self.llamar()
+        self.assertEqual(kw["tools"][-1]["cache_control"], {"type": "ephemeral"})
+        self.assertTrue(all("cache_control" not in t for t in kw["tools"][:-1]))
+        self.assertTrue(all("cache_control" not in t for t in brain.TOOLS))
+        self.assertEqual([t["name"] for t in kw["tools"]], [t["name"] for t in brain.TOOLS])
+
+    def test_log_cache_solo_si_hay_lectura(self):
+        from types import SimpleNamespace as NS
+        with patch("brain._print_seguro") as log:
+            self.llamar(NS(input_tokens=10, output_tokens=5, cache_read_input_tokens=4200))
+        self.assertIn("[CACHE] hit=4200 tok guardados", [c.args[0] for c in log.call_args_list])
+        with patch("brain._print_seguro") as log:
+            self.llamar(NS(input_tokens=10, output_tokens=5, cache_read_input_tokens=0))
+        self.assertFalse(any("[CACHE]" in c.args[0] for c in log.call_args_list))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,23 @@ GLOB_VALIDO = re.compile(r"\*\.[A-Za-z0-9]{1,10}")
 EXCLUIR_SECRETOS = [f":(exclude,icase,glob)**/{patron}{sufijo}"
                     for patron in SECRETOS for sufijo in ("", "/**")]
 
+# Comando fijo por proyecto (el modelo solo elige alias y filtro).
+# jarvis: el venv no tiene pytest -> unittest (también admite -k).
+# authority: la suite vive en jarvis-runtime y usa su propio venv (en WSL no hay 'python').
+# java-labs, dam y vibe-guard no tienen suite ejecutable en la raíz: sin entrada.
+COMANDOS_TEST = {
+    "jarvis":    ["venv\\Scripts\\python.exe", "-m", "unittest", "discover", "-s", "tests"],
+    "authority": ["wsl.exe", "-d", "Ubuntu", "--cd",
+                  "/home/usuariojoaquin/AuthorityEngine/jarvis-runtime",
+                  "--", "venv/bin/python", "-m", "pytest", "-q", "--tb=short"],
+}
+TESTS_TIMEOUT = 300
+MAX_COLA_TEST = 4 * 1024
+FILTRO_VALIDO = re.compile(r"[\w/._-]{1,80}", re.ASCII)
+# Líneas de resumen de pytest, unittest y maven
+RESUMEN_TEST  = re.compile(r"\b\d+ (passed|failed|errors?|skipped)\b|no tests ran|^Ran \d+ tests?"
+                           r"|^(OK|FAILED)\b|Tests run:|BUILD (SUCCESS|FAILURE)")
+
 
 def listar_proyectos():
     return "Proyectos: " + "; ".join(f"{alias} ({ruta})" for alias, ruta in PROYECTOS.items())
@@ -314,3 +331,43 @@ def buscar_en_codigo(proyecto, patron, glob=None):
     recortadas = [l if len(l) <= MAX_ANCHO_LINEA else l[:MAX_ANCHO_LINEA] + "…" for l in lineas]
     aviso = f" (mostrando las primeras {MAX_COINCIDENCIAS})" if hay_mas else ""
     return True, f"{proyecto}, coincidencias de '{patron}'{aviso}:\n" + "\n".join(recortadas)
+
+
+def ejecutar_tests(proyecto, filtro=None):
+    """(True, resumen) si la suite pasa; (False, motivo o resumen) si falla o no se pudo ejecutar."""
+    base, error = _base(proyecto)
+    if error:
+        return False, error
+    if proyecto not in COMANDOS_TEST:
+        return False, f"{proyecto} no tiene suite de tests configurada. Con tests: {', '.join(COMANDOS_TEST)}."
+    if filtro == "":  # vacío = sin filtro
+        filtro = None
+    if filtro is not None:
+        if not isinstance(filtro, str) or filtro.startswith("-") or not FILTRO_VALIDO.fullmatch(filtro):
+            return False, f"BLOQUEADO: filtro no válido: {filtro!r}"
+
+    cmd = list(COMANDOS_TEST[proyecto])
+    en_wsl = cmd[0] == "wsl.exe"
+    if not en_wsl:  # ejecutable relativo al proyecto (en Windows no se resuelve contra cwd)
+        cmd[0] = os.path.join(base, cmd[0])
+    if filtro:
+        cmd += [f"-Dtest={filtro}"] if "mvn" in cmd else ["-k", filtro]
+    try:
+        # cwd de WSL lo fija --cd; una UNC como cwd de un proceso Windows falla
+        r = subprocess.run(cmd, cwd=None if en_wsl else base, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                           errors="replace", timeout=TESTS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False, f"Los tests de {proyecto} superaron {TESTS_TIMEOUT} s y se cancelaron"
+    except OSError as e:
+        return False, f"No se pudieron ejecutar los tests de {proyecto}: {e}"
+
+    salida = (r.stdout or "").strip()
+    resumen = " | ".join([l.strip() for l in salida.splitlines() if RESUMEN_TEST.search(l.strip())][-3:])
+    cola = salida.encode("utf-8")[-MAX_COLA_TEST:].decode("utf-8", "ignore")
+    if len(salida.encode("utf-8")) > MAX_COLA_TEST:
+        cola = "(…)\n" + cola
+    estado = "PASAN" if r.returncode == 0 else f"FALLAN (código {r.returncode})"
+    filtro_txt = f" [filtro {filtro}]" if filtro else ""
+    return r.returncode == 0, (f"Tests de {proyecto}{filtro_txt}: {estado}. "
+                               f"{resumen or 'sin línea de resumen'}\n{cola}")

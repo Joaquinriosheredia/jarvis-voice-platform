@@ -165,7 +165,7 @@ class TestDev(Base):
              contextlib.redirect_stdout(io.StringIO()) as out:
             brain.pensar("tengo un NullPointerException", skills=skills())
         post.assert_not_called()
-        self.assertIn(brain.SYSTEM_DEV, create.call_args.kwargs["system"])
+        self.assertIn(brain.SYSTEM_DEV, create.call_args.kwargs["system"][0]["text"])
         self.assertIn("[ROUTER] dev", out.getvalue())
 
     def test_no_dev_usa_system_normal(self):
@@ -173,7 +173,7 @@ class TestDev(Base):
                           return_value=resp("end_turn", [NS(type="text", text="ok")])) as create, \
              contextlib.redirect_stdout(io.StringIO()):
             brain.pensar("borra el archivo", skills=skills())
-        self.assertEqual(create.call_args.kwargs["system"], brain.SYSTEM)
+        self.assertEqual(create.call_args.kwargs["system"][0]["text"], brain.SYSTEM)
 
 
 class TestLimpiarLocal(unittest.TestCase):
