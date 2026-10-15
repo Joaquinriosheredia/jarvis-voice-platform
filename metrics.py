@@ -36,6 +36,7 @@ MAX_BYTES_LOG = 5 * 1024 * 1024
 MAX_TEXTO     = 500
 # Turnos con estas tools se guardan sin respuesta: no volcar código ni salidas de tests a disco
 TOOLS_SIN_RESPUESTA = {"leer_archivo", "git_diff", "buscar_en_codigo", "ejecutar_tests", "ver_pantalla"}
+RUTAS_SIN_RESPUESTA = {"review"}  # la respuesta de una review cita código
 FASES         = ("whisper", "router", "llm", "tools", "tts")
 TOKENS        = ("input", "output", "cache_read", "cache_creation")
 
@@ -210,7 +211,7 @@ def _registro(t, texto_usuario, respuesta, privado):
     # Turnos con email/agenda o JARVIS_LOG_TEXTO=0 (se lee en cada turno): solo metadatos
     if not privado and os.environ.get("JARVIS_LOG_TEXTO", "1").strip() != "0":
         reg["texto_usuario"] = _truncar(texto_usuario)
-        if not TOOLS_SIN_RESPUESTA.intersection(t["tools"]):
+        if not TOOLS_SIN_RESPUESTA.intersection(t["tools"]) and t["ruta"] not in RUTAS_SIN_RESPUESTA:
             reg["respuesta"] = _truncar(respuesta)
     return reg
 

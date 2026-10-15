@@ -126,8 +126,23 @@ def _d1_fix(texto):
 # ── Voz: no leer en alto archivos ni código largos ──
 AVISO_PANTALLA = "Te muestro el contenido en pantalla."
 
+AVISO_DETALLE  = "El detalle está en pantalla."
+
+def _turno_review():
+    return (brain.ultima_traza() or {}).get("router") == "review"
+
+def _resumen_review(respuesta):
+    """Las 2 primeras frases (el resumen que SYSTEM_REVIEW pone al principio) + aviso."""
+    todas = frases.trocear(respuesta, minimo=1)
+    if len(todas) <= 2:
+        return respuesta
+    return " ".join(todas[:2]) + " " + AVISO_DETALLE
+
 def _texto_voz(respuesta):
-    """El texto completo va a la UI; por voz solo un aviso si es largo y multilínea."""
+    """El texto completo va a la UI; por voz solo un aviso si es largo y multilínea.
+    En una review (marca del turno, no heurística) solo se dice el resumen."""
+    if _turno_review():
+        return _resumen_review(respuesta)
     if len(respuesta) > 300 and respuesta.count("\n") >= 3:
         return AVISO_PANTALLA
     return respuesta

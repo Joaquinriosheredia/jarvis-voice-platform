@@ -105,6 +105,13 @@ CASOS = [
     ("mira esto",                          "claude", "ver_pantalla", "confirm"),
     ("captura de pantalla",                "claude", "ver_pantalla", "confirm"),
     ("lee mi pantalla",                    "claude", "ver_pantalla", "confirm"),
+
+    # CODE REVIEW (ruta review = Claude con SYSTEM_DEV + SYSTEM_REVIEW)
+    ("revisa mis cambios",                 "review", "git_diff",     "none"),
+    ("haz code review de jarvis",          "review", "git_estado",   "none"),
+    ("revisa el último commit",            "review", "git_diff",     "none"),
+    ("revisa mi correo",                   "claude", "leer_emails",  "none"),
+    ("revisa mi agenda",                   "claude", "ver_agenda",   "none"),
 ]
 
 # Parámetros que el mock pone en el tool_use (los que pondría el modelo)
