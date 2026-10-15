@@ -171,11 +171,12 @@ def _monitor_barge_in():
         pass
 
 # ── HABLAR ────────────────────────────────────────────────────────
-def hablar(texto):
+def hablar(texto, texto_pantalla=None):
+    """Dice texto por voz; la UI muestra texto_pantalla si se pasa (p. ej. un archivo completo)."""
     global JARVIS_HABLANDO, _INTERRUMPIR
     print(f"🔊 Jarvis: {texto}")
     ui_bridge.emit("state", state="responding")
-    ui_bridge.emit("assistant_message", text=texto)
+    ui_bridge.emit("assistant_message", text=texto_pantalla or texto)
     ducking_on()
     JARVIS_HABLANDO = True
     _INTERRUMPIR    = False

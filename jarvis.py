@@ -118,6 +118,15 @@ def _d1_fix(texto):
             return True
     return False
 
+# ── Voz: no leer en alto archivos ni código largos ──
+AVISO_PANTALLA = "Te muestro el contenido en pantalla."
+
+def _texto_voz(respuesta):
+    """El texto completo va a la UI; por voz solo un aviso si es largo y multilínea."""
+    if len(respuesta) > 300 and respuesta.count("\n") >= 3:
+        return AVISO_PANTALLA
+    return respuesta
+
 # ── MAIN LOOP ─────────────────────────────────────────────────────
 def main():
     import ui_bridge
@@ -158,7 +167,7 @@ def main():
             if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
                 audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
                 try:
-                    audio.hablar(respuesta)
+                    audio.hablar(_texto_voz(respuesta), texto_pantalla=respuesta)
                 finally:
                     audio.BARGE_IN_ACTIVO = True
                 mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")
