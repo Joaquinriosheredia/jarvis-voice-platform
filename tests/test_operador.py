@@ -253,5 +253,224 @@ class TestIntegracionBrain(ProyectoTemporal):
         self.assertTrue(res["ok"])
 
 
+class RepoTemporal(ProyectoTemporal):
+    """Repo git real en el proyecto temporal 'tmp'."""
+    def git(self, *args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        *args], cwd=self.dir, check=True, capture_output=True)
+
+    def setUp(self):
+        super().setUp()
+        self.git("init", "-q")
+
+    def commit(self, ruta, contenido, mensaje):
+        self.escribir(ruta, contenido)
+        self.git("add", "-f", ruta)
+        self.git("commit", "-q", "-m", mensaje)
+
+
+class TestGitDiff(RepoTemporal):
+    def test_repo_limpio_diff_vacio_ok(self):
+        self.commit("a.py", "x = 1\n", "inicial")
+        self.assertEqual(operador.git_diff("tmp"), (True, "tmp: sin diferencias"))
+
+    def test_muestra_cambios_staged_y_ref(self):
+        self.commit("a.py", "x = 1\n", "inicial")
+        self.escribir("a.py", "x = 2\n")
+        ok, msg = operador.git_diff("tmp")
+        self.assertTrue(ok, msg)
+        self.assertIn("+x = 2", msg)
+        self.assertEqual(operador.git_diff("tmp", staged=True), (True, "tmp: sin diferencias"))
+        self.git("branch", "base")
+        self.git("add", "a.py")
+        self.assertIn("+x = 2", operador.git_diff("tmp", staged=True)[1])
+        self.git("commit", "-q", "-m", "dos")
+        ok, msg = operador.git_diff("tmp", ref="base", ruta="a.py")
+        self.assertTrue(ok, msg)
+        self.assertIn("-x = 1", msg)
+
+    def test_ref_head_tilde_y_caret_validas(self):
+        self.commit("a.py", "x = 1\n", "uno")
+        self.commit("a.py", "x = 2\n", "dos")
+        for ref in ("HEAD~1", "HEAD^"):
+            ok, msg = operador.git_diff("tmp", ref=ref)
+            self.assertTrue(ok, (ref, msg))
+            self.assertIn("-x = 1", msg, ref)
+            self.assertIn("+x = 2", msg, ref)
+
+    def test_ref_invalida_rechazada_sin_ejecutar_git(self):
+        with patch("skills.operador.subprocess.run") as run:
+            for ref in ("-main", "--output=/tmp/x", "--ext-diff", "a b", "main;rm", "x" * 65, "", 7):
+                ok, msg = operador.git_diff("tmp", ref=ref)
+                self.assertFalse(ok, ref)
+                self.assertIn("ref no válida", msg, ref)
+        run.assert_not_called()
+
+    def test_ruta_con_traversal_o_secretos_rechazada(self):
+        for ruta in ("../x", "a/../../b", ".env", "config/.env.local", "id_rsa", "/etc/passwd"):
+            for ok, msg in (operador.git_diff("tmp", ruta=ruta), operador.git_log("tmp", ruta=ruta)):
+                self.assertFalse(ok, ruta)
+                self.assertTrue(msg.startswith("BLOQUEADO"), ruta)
+
+    def test_secretos_versionados_no_aparecen_en_el_diff(self):
+        self.commit(".env", "CLAVE=vieja\n", "inicial")
+        self.commit("conf/aws_credentials.json", "{}\n", "cred")
+        self.escribir(".env", "CLAVE=SECRETO_NUEVO\n")
+        self.escribir("conf/aws_credentials.json", '{"k": "SECRETO_NUEVO"}\n')
+        self.assertEqual(operador.git_diff("tmp"), (True, "tmp: sin diferencias"))
+
+    def test_flags_de_seguridad_y_timeout(self):
+        with patch("skills.operador.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
+            operador.git_diff("jarvis", staged=True, ref="main")
+        cmd, kw = run.call_args.args[0], run.call_args.kwargs
+        for flag in ("core.fsmonitor=", "core.hooksPath=/dev/null", "diff.external=",
+                     "--no-ext-diff", "--no-textconv", "--staged"):
+            self.assertIn(flag, cmd)
+        self.assertLess(cmd.index("main"), cmd.index("--"))
+        self.assertEqual(kw["timeout"], 15)
+        self.assertNotIn("shell", kw)
+
+    def test_salida_maxima_8_kb(self):
+        self.commit("g.txt", "", "vacío")
+        self.escribir("g.txt", ("y" * 99 + "\n") * 300)
+        ok, msg = operador.git_diff("tmp")
+        self.assertTrue(ok)
+        self.assertTrue(msg.endswith("(truncado)"))
+        self.assertLessEqual(len(msg.encode("utf-8")), operador.MAX_BYTES + 100)
+
+
+class TestGitLog(RepoTemporal):
+    def test_devuelve_n_commits(self):
+        for i in range(5):
+            self.commit("a.txt", f"{i}\n", f"commit {i}")
+        ok, msg = operador.git_log("tmp", n=3)
+        self.assertTrue(ok, msg)
+        lineas = msg.split(":\n", 1)[1].splitlines()
+        self.assertEqual(len(lineas), 3)
+        self.assertIn("commit 4", lineas[0])
+
+    def test_n_mayor_de_30_limitado_a_30(self):
+        with patch("skills.operador.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0, "abc uno\n", "")) as run:
+            operador.git_log("jarvis", n=500)
+        cmd, kw = run.call_args.args[0], run.call_args.kwargs
+        self.assertEqual(cmd[cmd.index("-n") + 1], "30")
+        self.assertEqual(kw["timeout"], 10)
+
+    def test_n_invalido(self):
+        for n in (0, -1, "5", True, 2.5):
+            self.assertFalse(operador.git_log("tmp", n=n)[0], repr(n))
+
+    def test_filtra_por_ruta(self):
+        self.commit("a.txt", "1\n", "toca a")
+        self.commit("b.txt", "1\n", "toca b")
+        ok, msg = operador.git_log("tmp", ruta="a.txt")
+        self.assertTrue(ok, msg)
+        self.assertIn("toca a", msg)
+        self.assertNotIn("toca b", msg)
+
+    def test_repo_jarvis_real(self):
+        ok, msg = operador.git_log("jarvis", n=50)
+        self.assertTrue(ok, msg)
+        self.assertLessEqual(len(msg.split(":\n", 1)[1].splitlines()), 30)
+
+
+class TestBuscarEnCodigo(RepoTemporal):
+    def setUp(self):
+        super().setUp()
+        self.commit("src/app.py", "def pensar(texto):\n    return texto\n", "app")
+        self.commit("src/App.java", "class App { void pensar() {} }\n", "java")
+
+    def test_encuentra_patron(self):
+        ok, msg = operador.buscar_en_codigo("tmp", "pensar")
+        self.assertTrue(ok, msg)
+        self.assertIn("src/app.py:1:def pensar(texto):", msg)
+        self.assertIn("src/App.java:1:", msg)
+
+    def test_glob_filtra_por_extension(self):
+        ok, msg = operador.buscar_en_codigo("tmp", "pensar", glob="*.py")
+        self.assertTrue(ok, msg)
+        self.assertIn("src/app.py", msg)
+        self.assertNotIn("App.java", msg)
+        for glob in ("../*.py", "*", "*.py;rm", "--no-index", "**/*.py"):
+            self.assertFalse(operador.buscar_en_codigo("tmp", "x", glob=glob)[0], glob)
+
+    def test_patron_no_encontrado_ok_vacio(self):
+        self.assertEqual(operador.buscar_en_codigo("tmp", "no_existe_xyz"),
+                         (True, "tmp: sin coincidencias para 'no_existe_xyz'"))
+
+    def test_patron_con_guiones_se_busca_literal_no_como_opcion(self):
+        # -O / --open-files-in-pager harían que git grep ejecutase un programa
+        self.commit("raro.txt", "flag --open-files-in-pager=calc y -O y -e y --no-index\n", "raro")
+        for patron in ("--open-files-in-pager=calc", "-O", "--", "-e", "--no-index"):
+            ok, msg = operador.buscar_en_codigo("tmp", patron)
+            self.assertTrue(ok, (patron, msg))
+            self.assertIn("raro.txt:1:", msg, patron)
+        with patch("skills.operador.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0, "true\n", "")) as run:
+            operador.buscar_en_codigo("tmp", "-O")
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("-e") + 1], "-O")
+        self.assertLess(cmd.index("-e"), cmd.index("--"))
+        self.assertIn("-F", cmd)
+
+    def test_patron_invalido_rechazado(self):
+        for patron in ("", "   ", None, 5, "a\nb", "a\x00b", "x" * 201):
+            ok, msg = operador.buscar_en_codigo("tmp", patron)
+            self.assertFalse(ok, repr(patron))
+            self.assertTrue(msg.startswith("BLOQUEADO"), repr(patron))
+
+    def test_secretos_versionados_no_se_buscan(self):
+        self.commit(".env", "PATRON_SECRETO=1\n", "env")
+        self.commit("tokens/a.txt", "PATRON_SECRETO=2\n", "tok")
+        self.assertEqual(operador.buscar_en_codigo("tmp", "PATRON_SECRETO"),
+                         (True, "tmp: sin coincidencias para 'PATRON_SECRETO'"))
+
+    def test_maximo_50_coincidencias_y_200_caracteres(self):
+        self.commit("muchas.txt", "".join(f"aguja {'z' * 300}\n" for _ in range(80)), "muchas")
+        ok, msg = operador.buscar_en_codigo("tmp", "aguja")
+        self.assertTrue(ok)
+        self.assertIn("mostrando las primeras 50", msg)
+        lineas = msg.split(":\n", 1)[1].splitlines()
+        self.assertEqual(len(lineas), 50)
+        self.assertTrue(all(len(l) <= 201 for l in lineas))
+
+
+class TestBuscarSinGit(ProyectoTemporal):
+    def test_fallback_python_sin_repo(self):
+        self.escribir("a.py", "import os\n")
+        self.escribir(".env", "import os\n")
+        self.escribir(os.path.join("node_modules", "x.js"), "import os\n")
+        self.escribir("img.bin", b"import os\x00", "wb")
+        ok, msg = operador.buscar_en_codigo("tmp", "import os")
+        self.assertTrue(ok, msg)
+        self.assertIn("a.py:1:import os", msg)
+        for fuera in (".env", "node_modules", "img.bin"):
+            self.assertNotIn(fuera, msg)
+        self.assertEqual(operador.buscar_en_codigo("tmp", "nada_de_nada"),
+                         (True, "tmp: sin coincidencias para 'nada_de_nada'"))
+
+
+class TestIntegracionBrainFase6b(ProyectoTemporal):
+    def test_riesgo_read_schema_y_dispatcher(self):
+        schemas = {t["name"]: t["input_schema"] for t in brain.TOOLS}
+        for tool in ("git_diff", "git_log", "buscar_en_codigo"):
+            self.assertEqual(brain.TOOL_RISK[tool], "READ")
+            self.assertIsNone(brain._gate(tool, {}, "x"))
+            self.assertEqual(schemas[tool]["properties"]["proyecto"]["enum"],
+                             ["jarvis", "authority", "java-labs", "dam", "vibe-guard"])
+            self.assertIn(tool, brain.SYSTEM)
+        self.escribir("a.py", "hola\n")
+        res = brain._ejecutar("buscar_en_codigo", {"proyecto": "tmp", "patron": "hola"}, {})
+        self.assertTrue(res["ok"], res)
+        res = brain._ejecutar("git_diff", {"proyecto": "tmp", "ref": "-main"}, {})
+        self.assertEqual((res["ok"], res["error"]), (False, "git_fallo"))
+        res = brain._ejecutar("git_log", {"proyecto": "nada"}, {})
+        self.assertEqual((res["ok"], res["error"]), (False, "git_fallo"))
+        res = brain._ejecutar("buscar_en_codigo", {"proyecto": "tmp", "patron": ""}, {})
+        self.assertEqual((res["ok"], res["error"]), (False, "busqueda_rechazada"))
+
+
 if __name__ == "__main__":
     unittest.main()

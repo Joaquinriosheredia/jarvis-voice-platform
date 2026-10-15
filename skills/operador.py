@@ -7,6 +7,7 @@ import fnmatch
 import os
 import re
 import subprocess
+import time
 
 PROYECTOS = {
     "jarvis":     "C:\\Jarvis",
@@ -22,6 +23,23 @@ GIT_TIMEOUT = 10
 # Se comprueban contra CADA componente de la ruta (carpeta o archivo).
 # .git: su config puede llevar tokens en la URL del remoto.
 SECRETOS    = (".env*", "*.pem", "*.key", "id_rsa*", "*credential*", "*token*", ".git")
+
+DIFF_TIMEOUT      = 15
+BUSQUEDA_TIMEOUT  = 15
+MAX_LOG           = 30
+MAX_COINCIDENCIAS = 50
+MAX_ANCHO_LINEA   = 200
+MAX_PATRON        = 200
+MAX_ARCHIVO_BUSQ  = 1024 * 1024
+# Solo en la búsqueda sin git (en git, el .gitignore ya los deja fuera)
+IGNORAR_DIRS      = {"node_modules", "venv", ".venv", "__pycache__"}
+
+REF_VALIDA  = re.compile(r"[\w./~^-]{1,64}", re.ASCII)  # ~ y ^: HEAD~1, HEAD^
+GLOB_VALIDO = re.compile(r"\*\.[A-Za-z0-9]{1,10}")
+# Pathspecs que dejan los secretos fuera de diff y grep dentro del propio git:
+# su contenido nunca sale del proceso.
+EXCLUIR_SECRETOS = [f":(exclude,icase,glob)**/{patron}{sufijo}"
+                    for patron in SECRETOS for sufijo in ("", "/**")]
 
 
 def listar_proyectos():
@@ -115,30 +133,184 @@ def leer_archivo(proyecto, ruta_relativa, desde=None, hasta=None):
     return True, f"{proyecto}/{ruta_relativa} líneas {desde}-{ultima}{aviso}:\n{''.join(lineas)}"
 
 
+def _truncar(salida):
+    if len(salida.encode("utf-8")) > MAX_BYTES:
+        return salida.encode("utf-8")[:MAX_BYTES].decode("utf-8", "ignore") + "\n(truncado)"
+    return salida
+
+
+def _git(proyecto, base, accion, args, timeout=GIT_TIMEOUT, config=()):
+    """(CompletedProcess, None) o (None, mensaje de error). Nunca usa shell."""
+    # safe.directory: git de Windows rechaza los repos de \\wsl.localhost por
+    # "dubious ownership"; se exime solo esta ruta fija, nunca '*'.
+    # --no-optional-locks: no reescribe el índice (lectura pura).
+    cmd = ["git", "--no-pager", "--no-optional-locks",
+           "-c", "safe.directory=" + base.replace("\\", "/"),
+           "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null"]
+    for valor in config:
+        cmd += ["-c", valor]
+    try:
+        r = subprocess.run(cmd + list(args), cwd=base, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, f"git {accion} de {proyecto} superó {timeout} s"
+    except OSError as e:  # git no instalado, carpeta inexistente...
+        return None, f"No se pudo ejecutar git en {proyecto}: {e}"
+    return r, None
+
+
+def _fallo(r, proyecto, accion):
+    detalle = (r.stderr.strip().splitlines() or ["sin detalle"])[0]
+    return f"git {accion} falló en {proyecto}: {detalle}"
+
+
+def _pathspec_ruta(base, ruta):
+    """([pathspec], None) o (None, error). Sin ruta: [] (todo el proyecto)."""
+    if ruta is None:
+        return [], None
+    _, error = _validar_relativa(base, ruta)
+    if error:
+        return None, f"BLOQUEADO: {error}"
+    # literal: '*' o '[' en la ruta no se interpretan como comodines
+    return [":(literal)" + ruta.replace("\\", "/")], None
+
+
 def git_estado(proyecto):
     base, error = _base(proyecto)
     if error:
         return False, error
-    # safe.directory: git de Windows rechaza los repos de \\wsl.localhost por
-    # "dubious ownership"; se exime solo esta ruta fija, nunca '*'.
-    # --no-optional-locks: status no reescribe el índice (lectura pura).
-    cmd = ["git", "--no-pager", "--no-optional-locks",
-           "-c", "safe.directory=" + base.replace("\\", "/"),
-           "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null",
-           "status", "--short"]
-    try:
-        r = subprocess.run(cmd, cwd=base, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return False, f"git status de {proyecto} superó {GIT_TIMEOUT} s"
-    except OSError as e:  # git no instalado, carpeta inexistente...
-        return False, f"No se pudo ejecutar git en {proyecto}: {e}"
+    r, error = _git(proyecto, base, "status", ["status", "--short"])
+    if error:
+        return False, error
     if r.returncode != 0:
-        detalle = (r.stderr.strip().splitlines() or ["sin detalle"])[0]
-        return False, f"git status falló en {proyecto}: {detalle}"
+        return False, _fallo(r, proyecto, "status")
     salida = r.stdout.strip()
     if not salida:
         return True, f"{proyecto}: sin cambios pendientes"
-    if len(salida.encode("utf-8")) > MAX_BYTES:
-        salida = salida.encode("utf-8")[:MAX_BYTES].decode("utf-8", "ignore") + "\n(truncado)"
-    return True, f"{proyecto}, cambios pendientes:\n{salida}"
+    return True, f"{proyecto}, cambios pendientes:\n{_truncar(salida)}"
+
+
+def git_diff(proyecto, staged=False, ref=None, ruta=None):
+    base, error = _base(proyecto)
+    if error:
+        return False, error
+    if ref is not None:
+        if not isinstance(ref, str) or ref.startswith("-") or not REF_VALIDA.fullmatch(ref):
+            return False, f"BLOQUEADO: ref no válida: {ref!r}"
+    pathspec, error = _pathspec_ruta(base, ruta)
+    if error:
+        return False, error
+    args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color"]
+    if staged is True:
+        args.append("--staged")
+    if ref is not None:
+        args.append(ref)
+    args += ["--", *(pathspec or ["."]), *EXCLUIR_SECRETOS]
+    r, error = _git(proyecto, base, "diff", args, DIFF_TIMEOUT, config=["diff.external="])
+    if error:
+        return False, error
+    if r.returncode != 0:
+        return False, _fallo(r, proyecto, "diff")
+    salida = r.stdout.strip()
+    if not salida:
+        return True, f"{proyecto}: sin diferencias"
+    return True, f"{proyecto}, diff:\n{_truncar(salida)}"
+
+
+def git_log(proyecto, n=10, ruta=None):
+    base, error = _base(proyecto)
+    if error:
+        return False, error
+    if n is None:
+        n = 10
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        return False, "'n' debe ser un entero >= 1"
+    n = min(n, MAX_LOG)
+    pathspec, error = _pathspec_ruta(base, ruta)
+    if error:
+        return False, error
+    args = ["log", "--oneline", "--no-decorate", "--no-color", "-n", str(n)]
+    if pathspec:
+        args += ["--", *pathspec]
+    r, error = _git(proyecto, base, "log", args, config=["log.showSignature=false"])
+    if error:
+        return False, error
+    if r.returncode != 0:
+        return False, _fallo(r, proyecto, "log")
+    salida = r.stdout.strip()
+    if not salida:
+        return True, f"{proyecto}: sin commits" + (f" que toquen {ruta}" if ruta else "")
+    return True, f"{proyecto}, últimos {len(salida.splitlines())} commits:\n{_truncar(salida)}"
+
+
+def _es_secreto(nombre):
+    return any(fnmatch.fnmatch(nombre.lower(), patron) for patron in SECRETOS)
+
+
+def _buscar_sin_git(base, patron, glob):
+    """Búsqueda literal en Python (en Windows no hay grep en el PATH).
+    Devuelve (lineas, hay_mas, error)."""
+    limite = time.monotonic() + BUSQUEDA_TIMEOUT
+    lineas = []
+    for raiz, dirs, archivos in os.walk(base):
+        dirs[:] = sorted(d for d in dirs if d not in IGNORAR_DIRS and not _es_secreto(d))
+        for nombre in sorted(archivos):
+            if time.monotonic() > limite:
+                return None, False, f"la búsqueda superó {BUSQUEDA_TIMEOUT} s"
+            if _es_secreto(nombre) or (glob and not fnmatch.fnmatch(nombre.lower(), glob.lower())):
+                continue
+            completa = os.path.join(raiz, nombre)
+            try:
+                if os.path.islink(completa) or os.path.getsize(completa) > MAX_ARCHIVO_BUSQ:
+                    continue
+                with open(completa, "rb") as f:
+                    datos = f.read()
+            except OSError:
+                continue
+            if b"\x00" in datos[:1024]:
+                continue
+            rel = os.path.relpath(completa, base).replace("\\", "/")
+            for n, linea in enumerate(datos.decode("utf-8", "replace").splitlines(), start=1):
+                if patron in linea:
+                    if len(lineas) == MAX_COINCIDENCIAS:
+                        return lineas, True, None
+                    lineas.append(f"{rel}:{n}:{linea}")
+    return lineas, False, None
+
+
+def buscar_en_codigo(proyecto, patron, glob=None):
+    base, error = _base(proyecto)
+    if error:
+        return False, error
+    if not isinstance(patron, str) or not patron.strip():
+        return False, "BLOQUEADO: patrón vacío o no válido"
+    if len(patron) > MAX_PATRON or any(c in patron for c in "\x00\r\n"):
+        return False, f"BLOQUEADO: el patrón debe ser una sola línea de hasta {MAX_PATRON} caracteres"
+    if glob is not None and (not isinstance(glob, str) or not GLOB_VALIDO.fullmatch(glob)):
+        return False, f"BLOQUEADO: glob no válido: {glob!r} (usa la forma *.py)"
+
+    r, error = _git(proyecto, base, "rev-parse", ["rev-parse", "--is-inside-work-tree"])
+    if error and "superó" in error:
+        return False, error
+    if r is not None and r.returncode == 0 and r.stdout.strip() == "true":
+        # -e: el patrón nunca se interpreta como opción (p. ej. -O ejecuta un programa)
+        positivos = [f":(glob)**/{glob}"] if glob else ["."]
+        args = ["grep", "-n", "-F", "-I", "--no-color", "-e", patron,
+                "--", *positivos, *EXCLUIR_SECRETOS]
+        r, error = _git(proyecto, base, "grep", args, BUSQUEDA_TIMEOUT)
+        if error:
+            return False, error
+        if r.returncode not in (0, 1):  # 1 = sin coincidencias
+            return False, _fallo(r, proyecto, "grep")
+        todas = r.stdout.splitlines()
+        lineas, hay_mas = todas[:MAX_COINCIDENCIAS], len(todas) > MAX_COINCIDENCIAS
+    else:
+        lineas, hay_mas, error = _buscar_sin_git(base, patron, glob)
+        if error:
+            return False, f"{proyecto}: {error}"
+
+    if not lineas:
+        return True, f"{proyecto}: sin coincidencias para '{patron}'"
+    recortadas = [l if len(l) <= MAX_ANCHO_LINEA else l[:MAX_ANCHO_LINEA] + "…" for l in lineas]
+    aviso = f" (mostrando las primeras {MAX_COINCIDENCIAS})" if hay_mas else ""
+    return True, f"{proyecto}, coincidencias de '{patron}'{aviso}:\n" + "\n".join(recortadas)

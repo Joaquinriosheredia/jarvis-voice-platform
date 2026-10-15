@@ -235,13 +235,13 @@ class TestIntegracionDispatcher(Base):
 
     def test_toda_tool_del_schema_tiene_riesgo(self):
         nombres = {t["name"] for t in brain.TOOLS}
-        self.assertEqual(len(nombres), 38)
+        self.assertEqual(len(nombres), 41)
         self.assertEqual(nombres, set(brain.TOOL_RISK))
         self.assertTrue(set(brain.TOOL_RISK.values()) <= {"READ", "WRITE", "EXTERNAL", "DESTRUCTIVE"})
         por_nivel = {n: {t for t, r in brain.TOOL_RISK.items() if r == n}
                      for n in ("READ", "WRITE", "EXTERNAL", "DESTRUCTIVE")}
         self.assertEqual({n: len(v) for n, v in por_nivel.items()},
-                         {"READ": 17, "WRITE": 3, "EXTERNAL": 13, "DESTRUCTIVE": 5})
+                         {"READ": 20, "WRITE": 3, "EXTERNAL": 13, "DESTRUCTIVE": 5})
         self.assertEqual(por_nivel["DESTRUCTIVE"],
                          {"borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails",
                           "enviar_email"})
