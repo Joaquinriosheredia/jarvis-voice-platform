@@ -1,0 +1,12 @@
+# Mínimo para ejecutar la suite con mocks (sin micrófono, modelos, Ollama ni red).
+# whisper, piper, sounddevice, pycaw y python-dotenv no hacen falta: los tests los
+# sustituyen con patch.dict(sys.modules, ...) al importar audio.py y jarvis.py.
+anthropic==0.89.0          # brain.py crea el cliente al importar (sin llamadas: mockeado)
+numpy==2.4.4               # audio.py
+scipy==1.17.1              # audio.py (scipy.io.wavfile); un test lo importa sin stub
+pillow==12.3.0             # skills/pantalla.py y test_pantalla
+websockets==17.2           # ui_bridge.py
+requests==2.33.1           # tts_elevenlabs.py, skills/webs.py, skills/sistema.py
+google-api-python-client==2.193.0  # skills/calendario.py, skills/gmail.py (importados por brain)
+google-auth==2.49.1
+google-auth-oauthlib==1.3.1

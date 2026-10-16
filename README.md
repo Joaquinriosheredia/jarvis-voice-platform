@@ -1,5 +1,7 @@
 # JARVIS
 
+[![CI](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml)
+
 Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 46 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
 
 **Stack:** Python · Electron · Claude Haiku 4.5 · Ollama (qwen2.5:3b) · Whisper · Piper (ElevenLabs opcional)
@@ -99,8 +101,9 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 ## Calidad
 
-- **Tests:** 440 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 440 tests ... OK`
+- **Tests:** 442 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 442 tests ... OK`
+- **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red) y escaneo de secretos con gitleaks.
 - **Evals:** 49 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 49/49, Tool 49/49, Gate 49/49, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.

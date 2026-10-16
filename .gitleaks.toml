@@ -1,0 +1,8 @@
+# gitleaks: reglas por defecto. Solo se eximen los dos archivos con claves FALSAS
+# sembradas a propósito para probar el enmascarado de secretos y la review.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures de tests con secretos falsos"
+paths = ['''^tests/test_secretos\.py$''', '''^tests/test_evals\.py$''']
