@@ -5,10 +5,35 @@ trozos cortos se juntan con el siguiente) y sin cortar decimales (3.5) ni
 abreviaturas (p.ej., etc., Sr.). Lo que quede al final es un último trozo,
 aunque sea corto o no acabe en puntuación.
 """
+import re
+
 MIN_CHARS    = 20
 FINALES      = ".?!"
 ABREVIATURAS = {"p.ej", "ej", "etc", "sr", "sra", "srta", "dr", "dra", "ud", "uds", "pág", "pag",
                 "aprox", "núm", "num", "vs", "admin", "dpto", "av", "c"}
+
+
+# ── Saneado de markdown para la voz (la pantalla recibe el texto original) ──
+_RE_ENLACE   = re.compile(r"\[([^\]]+)\]\((?:https?://)?[^)\s]+\)")
+_RE_URL      = re.compile(r"https?://\S{20,}")
+_RE_TITULO   = re.compile(r"^[ \t]*#+[ \t]*", re.M)
+_RE_VINETA   = re.compile(r"^[ \t]*[-*][ \t]+", re.M)
+_RE_ENFASIS  = re.compile(r"\*\*|__|`")
+_RE_ESPACIOS = re.compile(r"[ \t]{2,}")
+
+
+def limpiar_para_voz(texto):
+    """Quita **, __, `, # de título, viñetas '- ' / '* ', enlaces [texto](url) → texto
+    y URLs sueltas largas. Solo para lo que se sintetiza."""
+    if not texto:
+        return texto
+    t = _RE_ENLACE.sub(r"\1", texto)
+    t = _RE_URL.sub("", t)
+    t = _RE_TITULO.sub("", t)
+    t = _RE_VINETA.sub("", t)
+    t = _RE_ENFASIS.sub("", t)
+    t = _RE_ESPACIOS.sub(" ", t)
+    return "\n".join(l.strip() for l in t.splitlines()).strip()
 
 
 def _es_abreviatura(texto, i):

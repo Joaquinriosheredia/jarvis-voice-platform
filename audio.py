@@ -14,6 +14,7 @@ from pycaw.pycaw import AudioUtilities
 import ui_bridge
 import tts_elevenlabs
 import metrics
+import frases
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
@@ -206,6 +207,7 @@ def _sintetizar_piper(texto):
 def _sintetizar(texto):
     """(muestras int16, frecuencia): ElevenLabs si está activo y responde, si no Piper."""
     t0  = time.monotonic()
+    texto = frases.limpiar_para_voz(texto) or texto  # sin markdown en la voz; la UI ya tiene el original
     pcm = tts_elevenlabs.sintetizar(texto)
     if pcm is not None:
         resultado, proveedor = (np.frombuffer(pcm, dtype=np.int16), tts_elevenlabs.PCM_RATE), "elevenlabs"

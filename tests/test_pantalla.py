@@ -194,6 +194,33 @@ class TestToolResultImagen(Base):
         self.assertIn("BLOQUEADO", json.loads(segundo["content"])["message"])
         self.assertFalse(brain.hay_pendiente())  # en un turno de confirmación no se re-arma
 
+    def test_confirmo_captura_sin_pendiente_no_captura_ni_arma(self):
+        """Documenta el gate tal cual: 'confirmo captura' sin ver_pantalla previo. El modelo
+        llama a ver_pantalla en ese turno (y lo reintenta): el gate gasta la frase, bloquea
+        las dos llamadas y no arma pendiente, así que no se captura en el mismo turno y el
+        usuario tiene que volver a pedir que mire la pantalla y confirmar después."""
+        uso = lambda i: NS(type="tool_use", name="ver_pantalla", id=f"t{i}", input={})  # noqa: E731
+        respuestas = [NS(stop_reason="tool_use", content=[uso(1)], usage=None),
+                      NS(stop_reason="tool_use", content=[uso(2)], usage=None),
+                      NS(stop_reason="end_turn", content=[NS(type="text", text="Pídemelo otra vez.")],
+                         usage=None)]
+        self.assertFalse(brain.hay_pendiente())
+        self.assertEqual(brain._clasificar_peticion("confirmo captura"), "claude")
+        with patch.object(brain.cliente.messages, "create", side_effect=respuestas) as create, \
+             patch.object(pantalla, "capturar_pantalla", return_value=(True, IMG_B64)) as captura, \
+             patch("PIL.ImageGrab.grab", side_effect=AssertionError("captura real")):
+            brain.pensar("confirmo captura", skills={"x": 1})
+        captura.assert_not_called()
+        self.assertEqual(create.call_count, 3)
+        for i in (1, 2):
+            resultado = create.call_args_list[i].kwargs["messages"][-1]["content"][0]
+            self.assertTrue(resultado["is_error"])
+            self.assertIsInstance(resultado["content"], str)  # sin imagen
+            self.assertIn("no corresponde a una acción pendiente vigente",
+                          json.loads(resultado["content"])["message"])
+        self.assertFalse(brain.hay_pendiente())  # no pide repetirla: no queda nada armado
+        self.assertFalse(brain.ultima_traza()["d1_detectado"])
+
     def test_turno_privado_sin_textos_ni_imagen_en_log_memoria_ni_traza(self):
         with tempfile.TemporaryDirectory() as tmp:
             ruta = os.path.join(tmp, "t.jsonl")
