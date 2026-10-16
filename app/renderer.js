@@ -135,6 +135,16 @@ function textoParcial(texto) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// Avisos persistentes (autorización de Google...): Python los reenvía al reconectar
+const avisosVistos = new Set();
+
+function aviso(msg) {
+  const clave = `${msg.ts}|${msg.message}`;
+  if (avisosVistos.has(clave)) return;
+  avisosVistos.add(clave);
+  burbuja('aviso', msg.message, msg.ts);
+}
+
 function manejar(msg) {
   switch (msg.type) {
     case 'hello':
@@ -158,6 +168,9 @@ function manejar(msg) {
       break;
     case 'error':
       burbuja('error', msg.message, msg.ts);
+      break;
+    case 'warning':
+      aviso(msg);
       break;
     case 'metrics':
       metricas(msg);

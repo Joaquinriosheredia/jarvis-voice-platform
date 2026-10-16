@@ -12,7 +12,7 @@ import frases
 import parada
 import brain
 import memoria as mem
-from skills import musica, sistema, webs, authority, tareas, gmail
+from skills import musica, sistema, webs, authority, tareas, gmail, google_auth
 
 # ── CARGAR MODELOS ────────────────────────────────────────────────
 print("🤖 Cargando Jarvis...")
@@ -79,8 +79,30 @@ def _resumen_emails_arranque():
     except Exception:
         return ""
 
+# ── AUTORIZACIÓN DE GOOGLE AL ARRANCAR ───────────────────────────
+def _comprobar_autorizacion():
+    """Renueva de verdad los tokens de Gmail y Calendar (en memoria, sin leer correo
+    ni eventos). Devuelve ({servicio: resultado}, aviso), con aviso = (voz, pantalla)
+    si hay que volver a autorizar algo, o None. Si la comprobación misma falla,
+    (None, None): se arranca como antes. Nunca interrumpe el arranque."""
+    try:
+        resultados = google_auth.comprobar_todos()
+        for r in resultados.values():
+            brain._print_seguro(f"[AUTH] {google_auth.mensaje(r)}")
+        return resultados, google_auth.aviso_arranque(resultados)
+    except Exception as e:
+        print(f"[AUTH] no se pudo comprobar la autorización de Google: {type(e).__name__}")
+        return None, None
+
+def _gmail_disponible(autorizacion):
+    """Sin comprobación (None) se intenta como siempre; si se comprobó, solo con token válido.
+    Así un token caducado o ausente no abre el navegador ni falla en el resumen."""
+    if autorizacion is None:
+        return True
+    return bool((autorizacion.get("gmail") or {}).get("ok"))
+
 # ── RESUMEN DIARIO ────────────────────────────────────────────────
-def resumen_diario():
+def resumen_diario(autorizacion=None, aviso=""):
     hora = datetime.now().hour
     if hora < 12:
         saludo = "Buenos días"
@@ -99,9 +121,11 @@ def resumen_diario():
     elif tareas_pend:
         partes.append(f"Tiene {len(tareas_pend)} tareas pendientes.")
 
-    resumen_gmail = _resumen_emails_arranque()
+    resumen_gmail = _resumen_emails_arranque() if _gmail_disponible(autorizacion) else ""
     if resumen_gmail:
         partes.append(resumen_gmail)
+    if aviso:
+        partes.append(aviso)
 
     partes.append("¿Qué puedo hacer por usted hoy?")
     return " ".join(partes)
@@ -189,9 +213,14 @@ def main():
     audio.al_parar.append(brain.cancelar_generacion)
     ui_bridge.al_parar = audio.parar_voz
     brain.al_texto_parcial = lambda texto: ui_bridge.emit("assistant_delta", text=texto)
-    brain.cargar_destinatarios_permitidos(SKILLS)
+    # Una sola vez por arranque: por voz (dentro del resumen) y en la UI (persistente)
+    autorizacion, aviso = _comprobar_autorizacion()
+    if aviso:
+        ui_bridge.avisar(aviso[1])
+    if _gmail_disponible(autorizacion):  # getProfile: con el token caducado no se intenta
+        brain.cargar_destinatarios_permitidos(SKILLS)
     tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
-    audio.hablar(resumen_diario())
+    audio.hablar(resumen_diario(autorizacion, aviso[0] if aviso else ""))
     if audio.apagado_pedido():   # "apágate" durante el resumen de arranque
         _despedirse()
         return

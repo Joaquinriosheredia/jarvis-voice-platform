@@ -114,13 +114,13 @@ Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "�
 | Inyección en comandos | `subprocess` sin shell, argumentos en lista, refs y filtros validados con regex y sin `-` inicial. |
 | Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron. Del cliente solo atiende `{"type": "stop"}` (callar a JARVIS) e ignora el resto. CSP estricta y texto insertado con `textContent`. |
 | Eco del TTS o audio ajeno dando órdenes mientras JARVIS habla | Mientras habla o genera, solo se atiende una orden de parada. Tiene que ser una transcripción corta (≤ 2 s), con confianza de Whisper y sin nada más que la orden, y la voz tiene que dominar sobre el eco esperado, que se estima a partir de lo que JARVIS reproduce. Si lo que dice JARVIS contiene esa misma orden como frase, se descarta como eco. Todo lo demás que se oiga se ignora: nunca llega al modelo ni al gate. Con altavoces, una orden dicha encima de un eco fuerte puede no reconocerse; con auriculares es fiable. El botón y el atajo de teclado no dependen del micrófono. |
-| Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. |
+| Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. Para los logs anteriores a estas reglas, `limpiar_logs.py` (de un solo uso) quita el texto de los turnos que hoy son privados y cambia las direcciones por `<email>`: primero muestra el recuento y pide confirmación, y guarda los originales en `logs/backup-<fecha>/`. |
 | Fuga de credenciales | Secretos fuera del repo, en `C:\Jarvis-secrets`. La clave de ElevenLabs nunca se escribe en logs (hay un test). |
 
 ## Calidad
 
-- **Tests:** 580 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 580 tests ... OK`
+- **Tests:** 634 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 634 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 60 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 60/60, Tool 60/60, Gate 60/60, con umbral mínimo del 80 %.
@@ -157,11 +157,43 @@ WHISPER_MAX_COMPRESSION=2.4     # compression_ratio máximo por segmento
 Google (Gmail y Calendar):
 
 1. Crea un cliente OAuth de tipo escritorio en Google Cloud y guarda el JSON como `C:\Jarvis-secrets\credentials.json`.
-2. La primera llamada a Gmail abre el navegador y guarda `token.json`.
-3. Calendar usa un token propio, `token_calendar.json`. Autorízalo una vez a mano:
+2. Autoriza cada servicio una vez. Gmail guarda `token.json` y Calendar un token propio, `token_calendar.json`:
    ```powershell
-   venv\Scripts\python.exe -c "from skills import calendario; print(calendario.ver_agenda())"
+   venv\Scripts\python.exe reautorizar.py gmail
+   venv\Scripts\python.exe reautorizar.py calendar
    ```
+3. Publica la app OAuth en producción (ver más abajo) para que la autorización no caduque a los 7 días.
+
+### Autorización de Google
+
+Al arrancar, JARVIS comprueba de verdad `token.json` y `token_calendar.json`: renueva el access token con el refresh_token contra Google, sin leer ni enviar correo ni eventos y sin reescribir el archivo. El resultado sale en la consola (`[AUTH] ...`):
+
+| Estado | Qué significa | Qué hace JARVIS |
+|---|---|---|
+| válido | El refresh_token funciona y el access token seguía vigente | Nada |
+| renovado | El access token había caducado y se ha renovado | Nada |
+| caducado o revocado (`invalid_grant`) | Google ya no acepta el refresh_token: app en modo Testing (7 días), acceso retirado, cambio de contraseña o 6 meses sin uso | Avisa |
+| caducado sin refresh_token | El token no se puede renovar | Avisa |
+| no autorizado / dañado | Falta el archivo del token, o está incompleto o con otros permisos | Avisa |
+| sin red | No se pudo hablar con Google: no verificado | Solo lo registra |
+| sin credenciales | Falta `credentials.json` | Avisa |
+
+Google devuelve `invalid_grant` tanto si el refresh_token ha caducado como si se ha revocado, así que esos dos casos salen como un solo estado. Si hay que hacer algo, JARVIS lo dice una sola vez en el resumen de arranque, con la causa, y deja en la UI un aviso fijo con el comando exacto. Con el token de Gmail mal no intenta leer el correo del resumen ni abre el navegador. Para arreglarlo:
+
+```powershell
+venv\Scripts\python.exe reautorizar.py gmail      # o calendar
+```
+
+`reautorizar.py` renombra el token actual con la fecha (`token-caducado-AAAAMMDD-HHMMSS.json`, en `C:\Jarvis-secrets`), abre el flujo OAuth en el navegador pidiendo de nuevo el consentimiento, guarda el token nuevo y confirma que funciona con la misma comprobación. Si el flujo falla o se cancela, el token anterior vuelve a su nombre. No hace falta ningún paso a mano en PowerShell.
+
+**Modo Testing: caducidad a los 7 días.** Una app OAuth de tipo externo con el estado de publicación en Testing ("Prueba") recibe refresh_tokens que Google invalida a los 7 días; a partir de ahí todo falla con `invalid_grant`. Para pasarla a producción:
+
+1. En Google Cloud Console, abre el proyecto del cliente OAuth y ve a *Google Auth Platform → Público* (en la interfaz antigua, *APIs y servicios → Pantalla de consentimiento de OAuth*).
+2. En *Estado de publicación*, pulsa *Publicar app* y confirma. Pasa a *En producción*.
+3. No hace falta verificar la app para uso personal. Como `gmail.modify` es un permiso restringido, al autorizar Google muestra "Google no ha verificado esta app": entra en *Configuración avanzada → Ir a ... (no seguro)*. Una app sin verificar admite hasta 100 usuarios.
+4. Vuelve a ejecutar `reautorizar.py gmail` y `reautorizar.py calendar`: los tokens emitidos en Testing siguen caducando a los 7 días.
+
+Aun en producción, el refresh_token se invalida si retiras el acceso en tu cuenta de Google, si cambias la contraseña (con permisos de Gmail) o tras 6 meses sin usarse. En esos casos, el aviso de arranque y `reautorizar.py` lo resuelven.
 
 Arranque y consulta del log:
 
@@ -177,13 +209,13 @@ venv\Scripts\python.exe replay.py --resumen   # hoy y 7 días: p50/p95, coste, %
 ```powershell
 venv\Scripts\python.exe doctor.py            # tabla legible
 venv\Scripts\python.exe doctor.py --json     # JSON estable (version, estado, resumen, comprobaciones)
-venv\Scripts\python.exe doctor.py --live     # además valida la clave de Anthropic (max_tokens=1) y la voz de ElevenLabs
+venv\Scripts\python.exe doctor.py --live     # además valida la clave de Anthropic (max_tokens=1), la voz de ElevenLabs y los tokens de Google
 ```
 
-Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC, yt-dlp, Node y Electron, Ollama y su modelo, audio, Piper, Whisper y CUDA, credenciales y tokens de Google, `.gitignore` y secretos en git, el puerto 8765, la zona horaria, los proyectos del operador, `logs/` y git. Es de solo lectura: no escribe archivos, no graba audio ni carga modelos, y nunca imprime claves (solo "definida" y su longitud).
+Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC, yt-dlp, Node y Electron, Ollama y su modelo, audio, Piper, Whisper y CUDA, credenciales y tokens de Google, `.gitignore` y secretos en git, el puerto 8765, la zona horaria, los proyectos del operador, `logs/` y git. Es de solo lectura: no escribe archivos, no graba audio ni carga modelos, y nunca imprime claves (solo "definida" y su longitud). Sin `--live` no hay red, así que los tokens de Google salen como "no verificado". Con `--live`, se renuevan en memoria con la misma comprobación que el arranque de JARVIS y salen con su estado real.
 
 - **OK:** correcto.
-- **AVISO:** funciona con limitaciones (sin Ollama todo va a Claude, sin CUDA Whisper va en CPU, token que se renovará…). No cambia el código de salida.
+- **AVISO:** funciona con limitaciones (sin Ollama todo va a Claude, sin CUDA Whisper va en CPU, token de Google sin verificar por falta de red…). No cambia el código de salida.
 - **ERROR:** algo que impide arrancar o una función básica. Cada fallo trae la acción para arreglarlo. Código de salida 1 si hay algún ERROR.
 
 ## Estructura del repo
@@ -197,9 +229,12 @@ parada.py            listas de órdenes de silencio y apagado, filtro de eco y d
 tts_elevenlabs.py    TTS opcional con fallback a Piper y marca de turno privado
 metrics.py           métricas por turno, coste estimado y log JSONL
 replay.py            consulta del log de turnos
+doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
+reautorizar.py       vuelve a autorizar Gmail o Calendar (renombra el token, OAuth y comprobación)
+limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
 ui_bridge.py         servidor WebSocket local para la UI
 memoria.py           historial de conversación
-skills/              gmail, calendario, pantalla, operador, musica, sistema, tareas, webs
+skills/              gmail, calendario, google_auth, pantalla, operador, musica, sistema, tareas, webs
 app/                 UI Electron (main.js, preload.js, renderer.js, index.html, styles.css)
 tests/               tests unitarios y evals (test_evals.py)
 ```

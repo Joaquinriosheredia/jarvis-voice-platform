@@ -7,9 +7,11 @@ para arreglarlo. Código de salida: 0 sin ERROR, 1 con algún ERROR (los AVISO n
 
 Solo lectura: no escribe ni borra archivos, no graba audio, no carga Whisper ni genera
 texto con Ollama. La única red es la local (Ollama en 127.0.0.1) salvo con --live, que
-hace una llamada mínima a Anthropic (max_tokens=1) y, si JARVIS_TTS=elevenlabs, consulta
-la voz configurada sin sintetizar. Nunca imprime valores de claves ni rutas fuera de
-C:\\Jarvis y C:\\Jarvis-secrets.
+hace una llamada mínima a Anthropic (max_tokens=1), renueva en memoria los tokens de
+Gmail y Calendar con su refresh_token (sin leer correo ni eventos y sin guardar nada)
+y, si JARVIS_TTS=elevenlabs, consulta la voz configurada sin sintetizar. Sin --live los
+tokens de Google salen como "no verificado". Nunca imprime valores de claves ni rutas
+fuera de C:\\Jarvis y C:\\Jarvis-secrets.
 """
 import argparse
 import ast
@@ -23,7 +25,6 @@ import socket
 import subprocess
 import sys
 import urllib.request
-from datetime import datetime, timezone
 
 RAIZ      = os.path.dirname(os.path.abspath(__file__))
 SECRETOS  = r"C:\Jarvis-secrets"
@@ -291,33 +292,35 @@ def check_google_credentials():
                      r"Descarga el cliente OAuth de Google Cloud a C:\Jarvis-secrets\credentials.json")
 
 
+def _reautorizar(servicio):
+    return rf"venv\Scripts\python.exe reautorizar.py {servicio}"
+
+
 def _check_token(ruta, servicio, comando):
+    """Sin red: solo si el archivo existe y se puede renovar. Si sirve o no lo dice --live."""
     nombre = os.path.basename(ruta)
     if not os.path.isfile(ruta):
-        return resultado(AVISO, f"No hay {nombre}: {servicio} pedirá autorización en el primer uso", comando)
-    with open(ruta, encoding="utf-8") as f:
-        datos = json.load(f)
-    caducado = False
-    if datos.get("expiry"):
-        fin = datetime.fromisoformat(datos["expiry"].replace("Z", "+00:00"))
-        if fin.tzinfo is None:
-            fin = fin.replace(tzinfo=timezone.utc)
-        caducado = fin <= datetime.now(timezone.utc)
-    if caducado and not datos.get("refresh_token"):
-        return resultado(AVISO, f"{nombre} caducado y sin refresh_token: hay que reautorizar {servicio}",
-                         f"Borra {nombre} de C:\\Jarvis-secrets y ejecuta: {comando}")
-    estado = "caducado, se renovará con refresh_token" if caducado else "vigente"
-    return resultado(OK, f"{nombre} presente ({estado})")
+        return resultado(AVISO, f"No hay {nombre}: {servicio} no está autorizado", comando)
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, ValueError):
+        datos = None
+    if not isinstance(datos, dict):
+        return resultado(AVISO, f"{nombre} está dañado: hay que reautorizar {servicio}", comando)
+    if not datos.get("refresh_token"):
+        return resultado(AVISO, f"{nombre} sin refresh_token: hay que reautorizar {servicio}", comando)
+    return resultado(OK, f"{nombre} presente (no verificado; doctor.py --live lo comprueba con Google)")
 
 
 def check_token_gmail():
     return _check_token(constante(os.path.join("skills", "gmail.py"), "TOKEN_FILE"), "Gmail",
-                        r'venv\Scripts\python.exe -c "from skills import gmail; print(gmail.leer_no_leidos())"')
+                        _reautorizar("gmail"))
 
 
 def check_token_calendar():
     return _check_token(constante(os.path.join("skills", "calendario.py"), "TOKEN_CAL"), "Calendar",
-                        r'venv\Scripts\python.exe -c "from skills import calendario; print(calendario.ver_agenda())"')
+                        _reautorizar("calendar"))
 
 
 def _elevenlabs():
@@ -508,6 +511,27 @@ def check_live_elevenlabs():
     return resultado(ERROR, f"ElevenLabs: HTTP {codigo}", "Revisa ELEVENLABS_API_KEY y ELEVENLABS_VOICE_ID")
 
 
+def _check_live_token(servicio):
+    """La misma comprobación que el arranque de JARVIS: renueva el token en memoria."""
+    from skills import google_auth
+    r = google_auth.comprobar_servicio(servicio)
+    if r["ok"]:
+        estado = OK
+    elif r["estado"] in (google_auth.SIN_RED, google_auth.SIN_TOKEN, google_auth.SIN_CREDENCIALES):
+        estado = AVISO  # sin red no se sabe; sin token o sin credentials.json ya avisan otras líneas
+    else:
+        estado = ERROR
+    return resultado(estado, google_auth.mensaje(r), google_auth.accion(r))
+
+
+def check_live_token_gmail():
+    return _check_live_token("gmail")
+
+
+def check_live_token_calendar():
+    return _check_live_token("calendar")
+
+
 COMPROBACIONES = [
     ("python",            "Python",                       check_python),
     ("dependencias",      "Dependencias",                 check_dependencias),
@@ -541,6 +565,8 @@ COMPROBACIONES = [
 COMPROBACIONES_LIVE = [
     ("live_anthropic",    "API de Anthropic (--live)",    check_live_anthropic),
     ("live_elevenlabs",   "ElevenLabs (--live)",          check_live_elevenlabs),
+    ("live_token_gmail",  "Token de Gmail (--live)",      check_live_token_gmail),
+    ("live_token_calendar","Token de Calendar (--live)",  check_live_token_calendar),
 ]
 
 

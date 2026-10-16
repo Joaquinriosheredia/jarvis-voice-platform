@@ -312,7 +312,7 @@ def enviar_email(destinatario, asunto, cuerpo, adjunto=None):
 # Causa real de un fallo de Gmail → frase para el usuario. Nunca pide que dicte su dirección.
 MENSAJES_CAUSA = {
     "autenticacion": "No puedo obtener tu dirección: la autorización de Gmail ha caducado o se ha "
-                     "revocado. Hay que volver a autorizar a JARVIS en tu cuenta de Google.",
+                     "revocado. Vuelve a autorizar a JARVIS con reautorizar.py gmail.",
     "red":           "No puedo obtener tu dirección: no hay conexión con Gmail. Revisa la red e "
                      "inténtalo de nuevo.",
     "permisos":      "No puedo obtener tu dirección: Gmail ha denegado el permiso para leer el "

@@ -6,7 +6,9 @@ JARVIS); cualquier otro mensaje se ignora. emit() nunca lanza y no hace nada si 
 arrancado o no hay ningún cliente conectado: JARVIS funciona igual sin la app.
 
 Protocolo: {"v": 1, "type": ..., "ts": "ISO8601", ...datos}
-Solo se envía texto que ya se muestra o se habla al usuario."""
+Solo se envía texto que ya se muestra o se habla al usuario. Los avisos de
+avisar() ("warning") se guardan y se reenvían a cada cliente que se conecte
+después (p. ej. la UI abre más tarde que el aviso de arranque)."""
 import asyncio
 import json
 import threading
@@ -23,6 +25,7 @@ _loop     = None
 _clientes = set()       # solo se modifica desde el hilo del event loop
 _estado   = "idle"      # último estado emitido, se envía en el hello
 al_parar  = None        # jarvis.py: audio.parar_voz(origen). Solo calla; nunca confirma nada
+_avisos   = []          # mensajes "warning" ya serializados (con su ts original)
 MAX_MENSAJE = 256
 _lock     = threading.Lock()
 
@@ -60,6 +63,8 @@ async def _handler(ws):
     _clientes.add(ws)
     try:
         await ws.send(_mensaje("hello", state=_estado))
+        for aviso in list(_avisos):
+            await ws.send(aviso)
         async for mensaje in ws:
             recibir(mensaje)
     except Exception:
@@ -101,6 +106,20 @@ def start(host="127.0.0.1", port=8765):
 def _difundir(mensaje):
     from websockets.asyncio.server import broadcast
     broadcast(set(_clientes), mensaje)
+
+def avisar(texto):
+    """Aviso persistente (p. ej. autorización de Google caducada): se muestra ahora
+    y a cada cliente que se conecte más tarde. Nunca lanza."""
+    try:
+        if not isinstance(texto, str) or not texto or any(json.loads(a)["message"] == texto for a in _avisos):
+            return
+        mensaje = _mensaje("warning", message=texto)
+        _avisos.append(mensaje)
+        loop = _loop
+        if loop is not None and _clientes:
+            loop.call_soon_threadsafe(_difundir, mensaje)
+    except Exception:
+        pass
 
 def emit(type, **data):
     """Envía un evento a todos los clientes. Thread-safe, nunca lanza."""

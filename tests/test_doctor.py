@@ -261,17 +261,59 @@ class TestTokens(unittest.TestCase):
                 json.dump(datos, f)
         return doctor._check_token(ruta, "Gmail", "comando-de-reautorizacion")
 
-    def test_estados(self):
+    def test_estados_sin_red(self):
         futuro = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
         pasado = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
-        self.assertEqual(self.token({"token": "x", "expiry": futuro})["estado"], doctor.OK)
-        r = self.token({"token": "x", "expiry": pasado, "refresh_token": "r"})
-        self.assertEqual(r["estado"], doctor.OK)
-        self.assertIn("se renovará", r["detalle"])
+        for expiry in (futuro, pasado):  # sin red no se sabe si sirve: nunca "se renovará"
+            r = self.token({"token": "x", "expiry": expiry, "refresh_token": "r"})
+            self.assertEqual(r["estado"], doctor.OK)
+            self.assertIn("no verificado", r["detalle"])
+            self.assertNotIn("renovará", r["detalle"])
         r = self.token({"token": "x", "expiry": pasado})
         self.assertEqual(r["estado"], doctor.AVISO)
         self.assertIn("comando-de-reautorizacion", r["accion"])
         self.assertEqual(self.token(None)["estado"], doctor.AVISO)
+
+    def test_token_danado_no_rompe_la_comprobacion(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        ruta = os.path.join(tmp.name, "token.json")
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write("{roto")
+        r = doctor._check_token(ruta, "Gmail", "comando-de-reautorizacion")
+        self.assertEqual(r["estado"], doctor.AVISO)
+        self.assertIn("dañado", r["detalle"])
+
+    def test_comando_de_reautorizacion(self):
+        with patch.object(doctor.os.path, "isfile", return_value=False):
+            self.assertEqual(doctor.check_token_gmail()["accion"], r"venv\Scripts\python.exe reautorizar.py gmail")
+            self.assertEqual(doctor.check_token_calendar()["accion"],
+                             r"venv\Scripts\python.exe reautorizar.py calendar")
+
+    def test_live_usa_la_misma_comprobacion_que_el_arranque(self):
+        from skills import google_auth as ga
+        casos = {ga.VALIDO: doctor.OK, ga.RENOVADO: doctor.OK, ga.SIN_RED: doctor.AVISO,
+                 ga.SIN_TOKEN: doctor.AVISO, ga.SIN_CREDENCIALES: doctor.AVISO, ga.REVOCADO: doctor.ERROR,
+                 ga.CADUCADO: doctor.ERROR, ga.INVALIDO: doctor.ERROR, ga.ERROR: doctor.ERROR}
+        for estado, esperado in casos.items():
+            with patch.object(ga, "comprobar_servicio", return_value=ga._resultado("gmail", estado)) as comp:
+                r = doctor.check_live_token_gmail()
+            comp.assert_called_once_with("gmail")
+            self.assertEqual(r["estado"], esperado, estado)
+        with patch.object(ga, "comprobar_servicio", return_value=ga._resultado("calendar", ga.REVOCADO)):
+            r = doctor.check_live_token_calendar()
+        self.assertIn("invalid_grant", r["detalle"])
+        self.assertIn("reautorizar.py calendar", r["accion"])
+
+    def test_sin_live_no_se_renueva_nada(self):
+        from skills import google_auth as ga
+        with patch.object(ga, "comprobar") as comp, patch.object(ga, "comprobar_todos") as todos:
+            doctor.check_token_gmail()
+            doctor.check_token_calendar()
+        comp.assert_not_called()
+        todos.assert_not_called()
+        self.assertNotIn("live_token_gmail", [i for i, _, _ in doctor.COMPROBACIONES])
+        self.assertIn("live_token_gmail", [i for i, _, _ in doctor.COMPROBACIONES_LIVE])
 
     def test_no_imprime_el_token(self):
         r = self.token({"token": "ya29.SECRETO-DEL-TOKEN", "refresh_token": "1//REFRESCO", "expiry": None})

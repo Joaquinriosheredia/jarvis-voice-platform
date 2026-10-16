@@ -166,6 +166,16 @@ body {
   font-family: inherit;
 }
 
+.burbuja.aviso {
+  align-self: stretch;
+  background: transparent;
+  border: 1px solid #e0a030;
+  color: #e0a030;
+  font-size: 13px;
+  white-space: pre-line;
+  user-select: text;
+}
+
 .burbuja.error {
   align-self: center;
   background: transparent;
