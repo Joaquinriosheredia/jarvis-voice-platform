@@ -8,7 +8,9 @@ Asistente de voz personal en español para Windows: escucha por micrófono, deci
 
 ## Demo
 
-<!-- TODO: GIF/captura de la UI -->
+![Demo: JARVIS pide confirmación por voz antes de enviar un correo](docs/demo-jarvis.gif)
+
+Pides por voz que te envíe un correo a tu propia dirección. JARVIS anuncia el destinatario real, que resuelve el sistema y no el modelo, y el correo solo sale cuando dices «confirmo envío» por el micrófono. En el GIF la dirección está difuminada a propósito.
 
 ## Qué hace
 
