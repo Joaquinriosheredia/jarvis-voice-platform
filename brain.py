@@ -14,7 +14,7 @@ from email.utils import parseaddr
 import anthropic
 import requests
 
-from skills import calendario, operador, pantalla, webs
+from skills import calendario, direccion, operador, pantalla, webs
 import metrics
 import tts_elevenlabs
 
@@ -113,9 +113,9 @@ TOOLS = [
     },
     {
         "name": "enviar_email",
-        "description": "Envía un email. SOLO a direcciones confirmadas. Para enviar a ti mismo usa get_mi_email primero. El gate pedirá confirmación con destinatario y adjunto.",
+        "description": "Envía un email. El gate pide confirmación anunciando el destinatario real y el adjunto.",
         "input_schema": {"type": "object", "properties": {
-            "destinatario": {"type": "string"},
+            "destinatario": {"type": "string", "description": "'yo' si el usuario se lo envía a sí mismo (a mí, mi correo, mi dirección, mi propia dirección): el sistema resuelve su dirección. Si no, la dirección que el usuario ha dictado, tal cual la entiendes."},
             "asunto":       {"type": "string"},
             "cuerpo":       {"type": "string"},
             "adjunto":      {"type": "string", "description": "Ruta completa del archivo a adjuntar (opcional)"}
@@ -123,7 +123,7 @@ TOOLS = [
     },
     {
         "name": "get_mi_email",
-        "description": "Devuelve la dirección de email del usuario (la cuenta de Gmail de JARVIS).",
+        "description": "Devuelve la dirección de email del usuario (la cuenta de Gmail de JARVIS). Solo si pregunta cuál es; para enviarle un email usa enviar_email con destinatario 'yo'.",
         "input_schema": {"type": "object", "properties": {}}
     },
     {
@@ -403,7 +403,7 @@ COMPORTAMIENTO:
 - Para abrir YouTube en navegador: usa abrir_youtube
 - Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
 - Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
-- Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario dice 'mándamelo a mí', usa get_mi_email primero para obtener su dirección. El gate pedirá confirmación.
+- Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario se lo envía a sí mismo ('mándamelo a mí', 'a mi correo', 'a mi dirección', 'a mi propia dirección'), usa destinatario 'yo': el sistema obtiene su dirección de la cuenta de Gmail. Nunca le preguntes su propia dirección; si la herramienta falla, dile la causa que devuelve. Si dicta otra dirección, pásala tal cual: el sistema valida el formato y se la deletrea antes de confirmar. El gate pedirá confirmación.
 - Para cerrar Jarvis (adiós, hasta luego, apágate, desconéctate): usa cerrar_jarvis
 - Para apagar el PC llama directamente a apagar_pc. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.
 - Para info actual: usa buscar_en_web
@@ -449,6 +449,7 @@ SYSTEM_DEV = """Eres JARVIS en modo desarrollador. El usuario es un ingeniero ba
 
 # ── PRINT SEGURO (consolas cp1252) ────────────────────────────────
 def _print_seguro(texto):
+    texto = direccion.ocultar(texto)  # la consola acaba en jarvis.log: sin direcciones de email
     try:
         print(texto)
     except UnicodeEncodeError:
@@ -553,8 +554,15 @@ ANUNCIO_CAPTURA = "Voy a capturar tu pantalla y enviarla a Claude. Di confirmo c
 CONFIRM_TTL       = 120
 MAX_BORRAR_EMAILS = 10
 MAX_ADJUNTO       = 20 * 1024 * 1024  # bytes; mismo límite que gmail.MAX_ADJUNTO
-# Fase 5D: solo la dirección propia (gmail.get_mi_email). Vacía = ningún envío.
+# Fase 5D: la dirección propia (gmail.get_mi_email). Vacía = solo direcciones dictadas.
 DESTINATARIOS_PERMITIDOS = []
+# enviar_email con destinatario "yo" (o equivalentes): el sistema pone la dirección propia
+DESTINATARIO_PROPIO = {"yo", "mi", "me", "a mi", "mi correo", "mi email", "mi mail", "mi direccion",
+                       "mi propia direccion", "mi propio correo", "mi correo electronico",
+                       "mi direccion de correo", "mi direccion de email"}
+# Última dirección con formato válido dictada por el micro: {"dir", "ts"} (nunca del modelo)
+DICTADA_TTL = 300
+_dictada    = None
 
 # Última acción destructiva bloqueada: {"firma": (...), "ts": monotonic}
 _pendiente = None
@@ -747,10 +755,15 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
             return "BLOQUEADO: ese email no está en la última lista leída. Lee primero los emails."
 
     if nombre == "enviar_email":
-        # Antes de armar nada: un email leído (inyección) no puede dirigir un envío fuera
+        # Antes de armar nada: un email leído (inyección) no puede dirigir un envío fuera.
+        # Solo la dirección propia o la que el usuario dictó por el micro.
         destinatario = (parametros.get("destinatario") or "").strip().lower()
-        if destinatario not in DESTINATARIOS_PERMITIDOS:
-            return "BLOQUEADO: solo puedes enviar emails a tu propia dirección por ahora."
+        if not direccion.es_valida(destinatario):
+            return ("BLOQUEADO: la dirección de destino no tiene un formato válido (usuario@dominio.tld). "
+                    "Pide al usuario que la dicte de nuevo diciendo 'arroba' y 'punto'.")
+        if not _destinatario_permitido(destinatario, texto_usuario):
+            return ("BLOQUEADO: solo puedes enviar a la dirección del usuario (destinatario 'yo') o a una "
+                    "dirección que el usuario haya dictado por voz. Pídele que la dicte.")
         # La ruta del adjunto ya pasó _gate_rutas (allowlist); aquí existencia y tamaño
         adjunto = parametros.get("adjunto")
         if adjunto:
@@ -806,6 +819,52 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
 
 def hay_pendiente():
     return _pendiente is not None and time.monotonic() - _pendiente["ts"] < CONFIRM_TTL
+
+
+def _registrar_dictada(texto):
+    """Guarda la dirección dictada en este turno (texto del micro). Un turno con una
+    dirección, válida o no, es privado: no va al log de turnos ni a un TTS externo."""
+    global _dictada
+    if not direccion.parece_dictada(texto):
+        return
+    tts_elevenlabs.marcar_privado()
+    d = direccion.dictada(texto)
+    _dictada = {"dir": d, "ts": time.monotonic()} if d else None
+
+
+def _destinatario_permitido(destinatario, texto_usuario):
+    """La propia, la dictada en este turno o hace menos de DICTADA_TTL s, o la del
+    envío ya armado (pasó este mismo control al armarse)."""
+    if destinatario in DESTINATARIOS_PERMITIDOS or destinatario == direccion.dictada(texto_usuario):
+        return True
+    ahora = time.monotonic()
+    if _dictada and _dictada["dir"] == destinatario and ahora - _dictada["ts"] <= DICTADA_TTL:
+        return True
+    pend = _pendiente
+    return bool(pend and pend["firma"][0] == "enviar_email" and pend["firma"][1] == destinatario
+                and ahora - pend["ts"] <= CONFIRM_TTL)
+
+
+def _es_destinatario_propio(destinatario):
+    return isinstance(destinatario, str) and _normalizar(destinatario) in DESTINATARIO_PROPIO
+
+
+def _resolver_mi_email(skills):
+    """(dirección, None) de la cuenta de Gmail autenticada, o (None, mensaje con la
+    causa real: autenticación, red, permisos...). Nunca pide que se dicte."""
+    gmail = skills.get('gmail')
+    try:
+        mi_email, causa = gmail.resolver_mi_email()
+    except Exception:
+        mi_email, causa = None, "desconocida"
+    if direccion.es_valida(mi_email):
+        mi_email = direccion.normalizar(mi_email)
+        if mi_email not in DESTINATARIOS_PERMITIDOS:
+            DESTINATARIOS_PERMITIDOS.append(mi_email)
+        return mi_email, None
+    mensajes = getattr(gmail, "MENSAJES_CAUSA", None)
+    mensaje  = mensajes.get(causa) if isinstance(mensajes, dict) else None
+    return None, mensaje or "No puedo obtener tu dirección por un fallo inesperado de Gmail."
 
 
 def _params_desde_firma(firma):
@@ -864,7 +923,11 @@ def anuncio_confirmacion():
     adjunto      = (_pendiente.get("params") or {}).get("adjunto")
     con_adjunto  = f" con el archivo {os.path.basename(adjunto)}" if adjunto else ""
     frase        = CONFIRM_PHRASES["enviar_email"]
-    return f"Vas a enviar un email a {destinatario}{con_adjunto}. ¿Confirmas con '{frase}'?"
+    if destinatario in DESTINATARIOS_PERMITIDOS:
+        return f"Vas a enviar un email a tu dirección {destinatario}{con_adjunto}. ¿Confirmas con '{frase}'?"
+    # Dictada: se deletrea para que el usuario compruebe lo que entendió Whisper
+    return (f"Vas a enviar un email a {destinatario}{con_adjunto}. Se deletrea: "
+            f"{direccion.deletrear(destinatario)}. ¿Confirmas con '{frase}'?")
 
 
 def consumir_pendiente():
@@ -909,8 +972,8 @@ def _envolver(texto):
 # ── EJECUTOR ──────────────────────────────────────────────────────
 # Su resultado (emails, agenda) nunca se sintetiza con un TTS externo: el turno va con Piper
 TOOLS_PRIVADAS = {"leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "borrar_email",
-                  "borrar_multiples_emails", "archivar_email", "enviar_email", "ver_agenda",
-                  "ver_pantalla"}
+                  "borrar_multiples_emails", "archivar_email", "enviar_email", "get_mi_email",
+                  "ver_agenda", "ver_pantalla"}
 
 def _email_en_cache(nombre, parametros, skills):
     """Entrada de la caché de gmail para borrar_email (o None). Da remitente
@@ -959,7 +1022,14 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
         tts_elevenlabs.marcar_privado()
     try:
         if nombre == "enviar_email":
-            cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
+            if _es_destinatario_propio(parametros.get("destinatario")):
+                # El sistema pone la dirección real: es la que se anuncia y la que se envía
+                mi_email, error = _resolver_mi_email(skills)
+                if error:
+                    return _err(error, "mi_email_no_disponible")
+                parametros = dict(parametros, destinatario=mi_email)
+            else:
+                cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
         bloqueo = _gate(nombre, parametros, texto_usuario, _email_en_cache(nombre, parametros, skills))
         if bloqueo:
             return _envolver(bloqueo)
@@ -1028,8 +1098,8 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
             return _ok(msg) if ok else _err(msg, "envio_rechazado")
 
         if nombre == "get_mi_email":
-            mi_email = gmail.get_mi_email()
-            return _ok(mi_email) if mi_email else _err("No pude obtener tu dirección de email", "no_disponible")
+            mi_email, error = _resolver_mi_email(skills)
+            return _ok(mi_email) if mi_email else _err(error, "no_disponible")
 
         if nombre == "archivar_email":
             return _envolver(gmail.archivar_email(parametros.get('indice', 0)))
@@ -1577,6 +1647,7 @@ def pensar(texto, contexto="", skills=None, conversacion_reciente=False):
     pasan a Claude como turnos reales, o texto plano (formato antiguo)."""
     global _ultima_traza
     tts_elevenlabs.nuevo_turno()
+    _registrar_dictada(texto)
     t0              = time.monotonic()
     pendiente_ahora = hay_pendiente()
     pendiente_firma = _pendiente["firma"] if pendiente_ahora else None

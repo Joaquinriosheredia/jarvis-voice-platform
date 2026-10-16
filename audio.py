@@ -15,6 +15,7 @@ import ui_bridge
 import tts_elevenlabs
 import metrics
 import frases
+from skills import direccion
 
 SAMPLE_RATE  = 16000
 VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
@@ -221,7 +222,7 @@ def _sintetizar(texto):
 def _sesion_habla(texto, texto_pantalla):
     """Estado común de hablar() y hablar_frases(): UI, ducking, flags y monitor de barge-in."""
     global JARVIS_HABLANDO, _INTERRUMPIR, _rms_salida
-    print(f"🔊 Jarvis: {texto}")
+    print(f"🔊 Jarvis: {direccion.ocultar(texto)}")  # la consola va a jarvis.log
     ui_bridge.emit("state", state="responding")
     ui_bridge.emit("assistant_message", text=texto_pantalla or texto)
     ducking_on()
@@ -326,6 +327,7 @@ def hablar_frases(frases, texto_pantalla=None):
 
 # ── LOG DE DIAGNÓSTICO DE AUDIO ───────────────────────────────────
 def _print_seguro(texto):
+    texto = direccion.ocultar(texto)
     try:
         print(texto)
     except UnicodeEncodeError:
@@ -483,6 +485,6 @@ def escuchar(whisper_model):
         print("🤷 No entendido")
         ui_bridge.emit("state", state="not_understood")
         return ""
-    print(f"👂 Tú: {texto}")
+    print(f"👂 Tú: {direccion.ocultar(texto)}")
     ui_bridge.emit("user_message", text=texto)
     return texto

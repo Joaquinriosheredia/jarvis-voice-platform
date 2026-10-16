@@ -193,7 +193,7 @@ def main():
                         audio.hablar(anuncio)
                     finally:
                         audio.BARGE_IN_ACTIVO = True
-                    mem.añadir_al_historial(memoria, f"Jarvis: {anuncio}")
+                    mem.añadir_al_historial(memoria, f"Jarvis: {brain.direccion.ocultar(anuncio)}")
 
                 # El agente activa el flag si quiere cerrar
                 if brain.debe_cerrar():
@@ -216,7 +216,7 @@ def main():
             audio.hablar("Cerrando Jarvis.")
             break
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(f"❌ Error: {brain.direccion.ocultar(str(e))}")
 
 if __name__ == "__main__":
     main()

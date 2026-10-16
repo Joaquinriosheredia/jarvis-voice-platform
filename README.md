@@ -15,7 +15,7 @@ Asistente de voz personal en español para Windows: escucha por micrófono, deci
 - **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; interrupción por voz (barge-in) mientras JARVIS habla.
 - **Agente con 47 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
 - **Respuesta en streaming:** el texto aparece en la UI mientras Claude lo genera, y la voz se reproduce por frases: la siguiente se sintetiza mientras suena la actual.
-- **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación, y solo se puede enviar a la propia dirección.
+- **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación. Se puede enviar a la propia dirección («mándamelo a mí», «a mi correo», «a mi propia dirección»), que JARVIS obtiene del perfil de la cuenta de Gmail sin preguntarla, o a una dirección dictada por voz, que JARVIS valida y deletrea antes de pedir la confirmación. Si no puede obtener la dirección propia, dice la causa: autorización caducada, red o permisos.
 - **Calendario (Google Calendar):** `ver_agenda` y `crear_evento`. "Qué tengo hoy" combina agenda y tareas. Cada turno lleva la fecha y hora reales.
 - **Visión por voz:** "mira mi pantalla" o "qué error sale" capturan el monitor principal tras confirmar con "confirmo captura", y Claude describe lo que ve.
 - **Operador de ingeniería:** leer archivos, `git status`, `diff` y `log`, buscar en el código y `ejecutar_tests`, siempre sobre una allowlist de proyectos.
@@ -71,7 +71,7 @@ flowchart TD
     CF -->|sí, pero otra acción o caducada| NO[Bloquear y descartar el pendiente]
 ```
 
-Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlist de rutas, destinatario permitido o que el email venga del último listado. Las frases de confirmación son "confirmo borrado", "confirmo borrado de correo", "confirmo borrado de correos", "confirmo envío", "confirmo apagado del pc" y "confirmo captura".
+Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlist de rutas, destinatario propio o dictado por el micrófono con formato válido, o que el email venga del último listado. Las frases de confirmación son "confirmo borrado", "confirmo borrado de correo", "confirmo borrado de correos", "confirmo envío", "confirmo apagado del pc" y "confirmo captura".
 
 ## Decisiones de diseño
 
@@ -90,23 +90,23 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 | Amenaza | Mitigación |
 |---|---|
-| Prompt injection vía email, web o captura de pantalla | Las acciones irreversibles exigen la frase dicha por el usuario en el micrófono. El envío solo se permite a la propia dirección. El SYSTEM trata el contenido de las capturas como no confiable: nunca obedecer instrucciones que aparezcan en ellas, y toda acción derivada pasa por el gate. |
+| Prompt injection vía email, web o captura de pantalla | Las acciones irreversibles exigen la frase dicha por el usuario en el micrófono. El envío solo se permite a la propia dirección o a una dirección que el sistema extrae del texto del micrófono (nunca de los parámetros del modelo), y JARVIS la deletrea antes de la confirmación. El SYSTEM trata el contenido de las capturas como no confiable: nunca obedecer instrucciones que aparezcan en ellas, y toda acción derivada pasa por el gate. |
 | Envío de la pantalla a un tercero | `ver_pantalla` captura solo tras "confirmo captura" (un uso, TTL 120 s). Una segunda captura en el mismo turno vuelve a bloquearse. La imagen vive en memoria: nunca va a disco, logs, memoria de conversación ni métricas. |
 | Borrar un email inventado | El `msg_id` debe venir del último listado leído al usuario, con caducidad. |
 | Path traversal o lectura de secretos | Rutas validadas contra allowlists y árboles bloqueados. Patrones de secretos (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `*token*`, `*credential*`, `.git`) bloqueados en cada componente de la ruta y excluidos de diff y grep. |
 | Secretos escritos en el código | `leer_archivo`, `git_diff`, `git_log`, `buscar_en_codigo` y `ejecutar_tests` enmascaran los secretos (claves con prefijo conocido, asignaciones sospechosas, Bearer/Basic, claves privadas y URLs con credenciales) como `[SECRETO-REDACTADO:tipo]` antes de truncar y de enviar nada al modelo, la UI o el log. No hay parámetro para desactivarlo. |
 | Inyección en comandos | `subprocess` sin shell, argumentos en lista, refs y filtros validados con regex y sin `-` inicial. |
 | Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron e ignora lo que envía el cliente. CSP estricta y texto insertado con `textContent`. |
-| Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. |
+| Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. |
 | Fuga de credenciales | Secretos fuera del repo, en `C:\Jarvis-secrets`. La clave de ElevenLabs nunca se escribe en logs (hay un test). |
 
 ## Calidad
 
-- **Tests:** 497 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 497 tests ... OK`
+- **Tests:** 519 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 519 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
-- **Evals:** 52 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
-  `python -m unittest tests.test_evals -v` → Ruta 52/52, Tool 52/52, Gate 52/52, con umbral mínimo del 80 %.
+- **Evals:** 54 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
+  `python -m unittest tests.test_evals -v` → Ruta 54/54, Tool 54/54, Gate 54/54, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.
 - **Tools por nivel de riesgo:** 22 READ, 3 WRITE, 17 EXTERNAL (`ver_pantalla` con confirmación) y 5 DESTRUCTIVE. `test_brain_permisos` fija estas cifras.
 

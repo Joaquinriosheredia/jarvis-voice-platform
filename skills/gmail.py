@@ -309,16 +309,55 @@ def enviar_email(destinatario, asunto, cuerpo, adjunto=None):
         return False, f"Error: {e}"
 
 # ── MI DIRECCIÓN ──────────────────────────────────────────────────
-def get_mi_email():
-    """Dirección de la cuenta autenticada (cacheada), o None si falla."""
+# Causa real de un fallo de Gmail → frase para el usuario. Nunca pide que dicte su dirección.
+MENSAJES_CAUSA = {
+    "autenticacion": "No puedo obtener tu dirección: la autorización de Gmail ha caducado o se ha "
+                     "revocado. Hay que volver a autorizar a JARVIS en tu cuenta de Google.",
+    "red":           "No puedo obtener tu dirección: no hay conexión con Gmail. Revisa la red e "
+                     "inténtalo de nuevo.",
+    "permisos":      "No puedo obtener tu dirección: Gmail ha denegado el permiso para leer el "
+                     "perfil de tu cuenta.",
+    "servicio":      "No puedo obtener tu dirección: Gmail ha devuelto un error del servicio. "
+                     "Inténtalo de nuevo en unos minutos.",
+    "desconocida":   "No puedo obtener tu dirección por un fallo inesperado de Gmail.",
+}
+
+def causa_error(e):
+    """autenticacion | red | permisos | servicio | desconocida, solo por el tipo de la excepción."""
+    from google.auth import exceptions as gexc
+    from googleapiclient.errors import HttpError
+    if isinstance(e, gexc.RefreshError):  # invalid_grant: refresh_token caducado o revocado
+        return "autenticacion"
+    if isinstance(e, HttpError):
+        estado = getattr(getattr(e, "resp", None), "status", None)
+        return {401: "autenticacion", 403: "permisos"}.get(estado, "servicio")
+    if isinstance(e, FileNotFoundError):  # falta credentials.json para autorizar
+        return "autenticacion"
+    if (isinstance(e, (gexc.TransportError, ConnectionError, TimeoutError, OSError))
+            or type(e).__module__.split(".")[0] in ("httplib2", "requests", "urllib3")):
+        return "red"
+    return "desconocida"
+
+def resolver_mi_email():
+    """(dirección, None) de la cuenta autenticada (getProfile, cacheada) o
+    (None, causa) si falla. Solo se registra el tipo de la excepción."""
     global _mi_email
     if _mi_email:
-        return _mi_email
+        return _mi_email, None
     try:
-        _mi_email = get_service().users().getProfile(userId='me').execute()['emailAddress']
-        return _mi_email
-    except Exception:
-        return None
+        direccion = get_service().users().getProfile(userId='me').execute()['emailAddress']
+    except Exception as e:
+        causa = causa_error(e)
+        print(f"[GMAIL] getProfile falló: {type(e).__name__} ({causa})")
+        return None, causa
+    if not isinstance(direccion, str) or "@" not in direccion:
+        return None, "servicio"
+    _mi_email = direccion.strip()
+    return _mi_email, None
+
+def get_mi_email():
+    """Dirección de la cuenta autenticada (cacheada), o None si falla."""
+    return resolver_mi_email()[0]
 
 # ── RESUMEN DIARIO ────────────────────────────────────────────────
 def resumen_diario_gmail():

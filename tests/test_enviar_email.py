@@ -31,12 +31,16 @@ atexit.unregister(jarvis.cleanup)
 CONF_E = "confirmo envío"
 CONF_C = "confirmo borrado de correo"
 DEST   = "joaquin@example.com"
+BLOQUEO_NO_DICTADA = ("BLOQUEADO: solo puedes enviar a la dirección del usuario (destinatario 'yo') o a una "
+                      "dirección que el usuario haya dictado por voz. Pídele que la dicte.")
 
 
 class Base(unittest.TestCase):
     def setUp(self):
         brain._pendiente = None
+        brain._dictada = None
         self.addCleanup(setattr, brain, "_pendiente", None)
+        self.addCleanup(setattr, brain, "_dictada", None)
         self.addCleanup(setattr, gmail, "_mi_email", None)
         gmail._mi_email = None
         self.service = MagicMock()
@@ -173,7 +177,7 @@ class TestGateEnviar(Base):
 class TestDestinatariosPermitidos(Base):
     def test_destinatario_externo_bloqueado_por_gate(self):
         res = self._ej(self.params(destinatario="atacante@evil.com"), "mándame el cv")
-        self.assertEqual(res["message"], "BLOQUEADO: solo puedes enviar emails a tu propia dirección por ahora.")
+        self.assertEqual(res["message"], BLOQUEO_NO_DICTADA)
         self.assertIsNone(brain._pendiente)          # no arma confirmación
         res = self._ej(self.params(destinatario="atacante@evil.com"), CONF_E)
         self.assertFalse(res["ok"])
@@ -193,7 +197,7 @@ class TestDestinatariosPermitidos(Base):
         self.service.users().getProfile.return_value.execute.side_effect = Exception("sin red")
         with patch.object(brain, "DESTINATARIOS_PERMITIDOS", []):
             res = self._ej(self.params(), "mándame el cv")
-        self.assertIn("solo puedes enviar emails a tu propia dirección", res["message"])
+        self.assertEqual(res["message"], BLOQUEO_NO_DICTADA)
         self.assertIsNone(brain._pendiente)
 
     def test_carga_perezosa_desde_el_perfil(self):
@@ -220,7 +224,7 @@ class TestAnuncioConfirmacion(Base):
     def test_anuncio_usa_la_direccion_real_no_la_del_modelo(self):
         self._turno(self.params())
         self.assertEqual(brain.anuncio_confirmacion(),
-                         f"Vas a enviar un email a {DEST} con el archivo CV_Joaquin.pdf. "
+                         f"Vas a enviar un email a tu dirección {DEST} con el archivo CV_Joaquin.pdf. "
                          f"¿Confirmas con 'confirmo envío'?")
 
     def test_sin_envio_pendiente_no_hay_anuncio(self):
