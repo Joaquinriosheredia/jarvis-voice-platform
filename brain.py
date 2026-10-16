@@ -251,11 +251,6 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {}}
     },
     {
-        "name": "cerrar_jarvis",
-        "description": "Cierra Jarvis del todo cuando el usuario se despide o lo pide explícitamente (cierra Jarvis, apaga Jarvis del todo, desconéctate). 'Apágate', 'cállate' o 'para' solo lo callan: no la uses para eso.",
-        "input_schema": {"type": "object", "properties": {}}
-    },
-    {
         "name": "apagar_pc",
         "description": "Apaga o reinicia el ordenador. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.",
         "input_schema": {"type": "object", "properties": {
@@ -405,7 +400,7 @@ COMPORTAMIENTO:
 - Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
 - Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
 - Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario se lo envía a sí mismo ('mándamelo a mí', 'a mi correo', 'a mi dirección', 'a mi propia dirección'), usa destinatario 'yo': el sistema obtiene su dirección de la cuenta de Gmail. Nunca le preguntes su propia dirección; si la herramienta falla, dile la causa que devuelve. Si dicta otra dirección, pásala tal cual: el sistema valida el formato y se la deletrea antes de confirmar. El gate pedirá confirmación.
-- Para cerrar Jarvis del todo (adiós, hasta luego, desconéctate, cierra Jarvis, apaga Jarvis del todo): usa cerrar_jarvis. "Apágate", "cállate", "para" o "silencio" solo te hacen callar: nunca cierres Jarvis por ellas.
+{ORDENES_DE_VOZ}
 - Para apagar el PC llama directamente a apagar_pc. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.
 - Para info actual: usa buscar_en_web
 - Usa buscar_en_navegador cuando el usuario pida buscar en Google, Amazon, YouTube, Wikipedia, Maps o GitHub, o diga "ábreme una búsqueda"; usa buscar_en_web cuando quiera que tú le digas la información. Si dudas, buscar_en_web para preguntas de datos y buscar_en_navegador cuando nombre un sitio o diga "ábreme", "pon" o "muéstrame en el navegador".
@@ -433,6 +428,13 @@ COMPORTAMIENTO:
 
 # Se añade a SYSTEM cuando el router clasifica la petición como "dev"
 # Se añade en un bloque de system aparte (sin caché) cuando el router clasifica la petición como "review"
+# Silenciar y cerrar JARVIS lo decide el sistema antes del modelo; si una pregunta se
+# escapa del atajo de ayuda, el modelo responde con el mismo texto (parada.texto_ayuda)
+SYSTEM = SYSTEM.replace("{ORDENES_DE_VOZ}", (
+    "- Callarte o cerrarte no lo decides tú: el sistema lo hace con frases cortas fijas antes de que "
+    "te llegue el texto, y no tienes ninguna herramienta para cerrarte. Si te preguntan cómo hacerlo, "
+    f"responde exactamente: {parada.texto_ayuda()}"))
+
 SYSTEM_REVIEW = """MODO CODE REVIEW. Este bloque prevalece sobre el límite de frases y la regla sin markdown de las instrucciones anteriores.
 - Proyecto por defecto: jarvis, salvo que el usuario nombre otro alias de listar_proyectos.
 - Flujo: llama primero a git_estado. Después git_diff sin staged, y también con staged=true si hay cambios en ambos. Si pide el último commit, usa git_diff con ref HEAD~1. Opcionalmente git_log con n=5 para contexto, y leer_archivo o buscar_en_codigo solo si hace falta para entender un cambio. Máximo 6 llamadas a tools por review.
@@ -516,7 +518,7 @@ TOOL_RISK = {
     "git_diff": "READ", "git_log": "READ", "buscar_en_codigo": "READ", "ver_agenda": "READ",
     "gasto_hoy": "READ",
     # WRITE: modifican estado interno de JARVIS (memoria, tareas, notas, ciclo de vida)
-    "recordatorio": "WRITE", "nota": "WRITE", "cerrar_jarvis": "WRITE",
+    "recordatorio": "WRITE", "nota": "WRITE",
     # EXTERNAL: producen efecto fuera de JARVIS (archivos, email, sistema, audio)
     "reproducir_musica": "EXTERNAL", "parar_musica": "EXTERNAL", "ejecutar_tests": "EXTERNAL",
     "crear_evento": "EXTERNAL",
@@ -671,12 +673,23 @@ def _normalizar(texto):
     return " ".join(t.split())
 
 
+VERBOS_CONFIRMAR = ("confirmo", "confirma", "confirmar")  # Whisper confunde las tres formas
+
+
+def _variantes_confirmacion(frase):
+    """Formas aceptadas de una frase de CONFIRM_PHRASES, normalizadas y sin espacios:
+    [jarvis] confirmo|confirma|confirmar [el] <acción>. Siempre con verbo y acción."""
+    accion = _normalizar(frase).split()[1:]  # "confirmo envío" → ["envio"]
+    return {prefijo + verbo + articulo + "".join(accion)
+            for prefijo in ("", "jarvis") for verbo in VERBOS_CONFIRMAR for articulo in ("", "el")}
+
+
 def _frase_confirmacion(texto_usuario):
-    """Nombre de la tool cuya frase ES el enunciado completo (o None)."""
+    """Nombre de la tool cuya frase (o una variante) ES el enunciado completo, o None.
+    "sí", "vale" u "ok" nunca valen: falta el verbo confirmar y la acción."""
     texto_norm = _normalizar(texto_usuario).replace(" ", "")
     for tool, frase in CONFIRM_PHRASES.items():
-        frase_norm = _normalizar(frase).replace(" ", "")
-        if texto_norm in (frase_norm, "jarvis" + frase_norm):
+        if texto_norm in _variantes_confirmacion(frase):
             return tool
     return None
 
@@ -1018,7 +1031,6 @@ def _emails_en_cache(parametros, skills):
 
 
 def _ejecutar(nombre, parametros, skills, texto_usuario=""):
-    global _cerrar
     if nombre in TOOLS_PRIVADAS:  # antes del gate: un bloqueo también puede citar el email
         tts_elevenlabs.marcar_privado()
     try:
@@ -1270,10 +1282,6 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
             return _envolver(authority.estado_global())
 
         # ── CONTROL ───────────────────────────────────────────────
-        if nombre == "cerrar_jarvis":
-            _cerrar = True
-            return _envolver("cerrando")
-
         if nombre == "apagar_pc":
             accion = parametros.get('accion', 'apagar')
             cmd = ['shutdown', '/r', '/t', '5'] if accion == 'reiniciar' else ['shutdown', '/s', '/t', '5']
@@ -1373,10 +1381,9 @@ ATAJOS = [
     (("que tiempo hace", "tiempo", "clima", "temperatura"),         "tiempo"),
     (("sube el volumen", "sube volumen", "mas volumen"),            "volumen_subir"),
     (("baja el volumen", "baja volumen", "menos volumen"),          "volumen_bajar"),
-    (("para la musica", "para musica", "stop musica", "para", "silencio"), "parar_musica"),
+    (("para la musica", "para musica", "stop musica"),              "parar_musica"),
     (("lista de tareas", "lista tareas", "mis tareas"),             "listar_tareas"),
-    # "apágate" solo calla (parada.ORDENES); cerrar JARVIS entero exige decirlo explícitamente
-    (("cierra jarvis", "cierra", "apaga jarvis del todo", "apagate del todo"), "cerrar_jarvis"),
+    # Silenciar y cerrar JARVIS no son atajos de ATAJOS: van antes, desde parada.SILENCIO/APAGADO
 ]
 # Lo único que puede acompañar a la frase del atajo; cualquier otra palabra
 # ("a qué hora sale el tren", "cierra el navegador") → claude
@@ -1701,12 +1708,21 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
     if skills is None:
         skills = {}
 
-    # "para", "cállate", "apágate"...: solo callan. Nunca llegan al modelo, al router
-    # ni al gate, así que no confirman ninguna acción pendiente ni cierran JARVIS.
-    if parada.es_orden_parada(texto):
-        traza["router"]     = "parada"
-        traza["stop_final"] = "orden_parada"
+    # parada.SILENCIO calla y parada.APAGADO cierra JARVIS. Nunca llegan al modelo, al
+    # router ni al gate, así que no confirman ninguna acción pendiente.
+    orden = parada.clasificar(texto)
+    if orden:
+        traza["router"]     = "parada" if orden == "silencio" else "apagado"
+        traza["stop_final"] = "orden_" + orden
+        _cerrar = orden == "apagado"
         return None
+    # "¿cómo te callo / te cierro?": respuesta fija desde las listas, sin modelo
+    ayuda = parada.pregunta_de_ayuda(texto)
+    if ayuda:
+        traza["router"]     = "atajo"
+        traza["stop_final"] = "atajo"
+        metrics.registrar_ruta("atajo")
+        return parada.texto_ayuda(ayuda)
 
     respuesta_router = _enrutar(texto, skills, traza, conversacion_reciente)
     if _cancelada.is_set():

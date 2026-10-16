@@ -23,7 +23,7 @@ VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
 
 # Vocabulario habitual: orienta a Whisper hacia las órdenes de JARVIS
 WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cómo estás, qué tal, "
-                  "confirmo borrado, confirmo envío, confirmo captura, para, cállate, apágate, hasta luego, adiós, descargas, "
+                  "confirmo borrado, confirmo envío, confirmo captura, cállate, no hables, silencio, para, basta, apágate, apaga Jarvis, hasta luego, adiós, descargas, "
                   "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover")
 
 # Frases que Whisper inventa ante silencio o ruido (subtítulos de YouTube)
@@ -99,6 +99,7 @@ al_parar       = []        # funciones que se llaman al parar (jarvis: brain.can
 _lock_whisper  = threading.Lock()   # Whisper no se usa a la vez desde dos hilos
 _parada        = None      # (monotonic de la orden, origen) a medir cuando se corte el audio
 _texto_en_voz  = ""        # lo que dice JARVIS ahora: su eco no puede pararle
+_apagado       = False     # se oyó una orden de APAGADO: jarvis.py cierra al cortar la voz
 _escucha_refs  = 0
 _lock_escucha  = threading.Lock()
 _hilo_escucha  = None
@@ -232,16 +233,25 @@ def _transcribir_orden(segmento):
         return ""
     return texto
 
+def apagado_pedido():
+    """True si mientras JARVIS hablaba o generaba se oyó una orden de apagado."""
+    return _apagado
+
 def _comprobar_orden(segmento, t_fin):
-    """Para a JARVIS si el segmento es una orden de parada que no es su propio eco."""
+    """Silencia a JARVIS (y si es de APAGADO, deja pedido el cierre) si el segmento es
+    una orden de parada.SILENCIO o parada.APAGADO que no es su propio eco."""
+    global _apagado
     texto = _transcribir_orden(segmento)
-    if not parada.es_orden_parada(texto):
+    tipo  = parada.clasificar(texto)
+    if tipo is None:
         return False  # cualquier otra cosa oída mientras habla se ignora (nunca se ejecuta)
     if parada.eco_probable(texto, _texto_en_voz):
         _print_seguro("[PARADA] descartada: puede ser el eco de lo que dice JARVIS")
         return False
-    _print_seguro(f"[PARADA] orden por voz: {parada.normalizar(texto)}")
-    return parar_voz("voz", t_fin)
+    _print_seguro(f"[PARADA] orden de {tipo} por voz: {parada.normalizar(texto)}")
+    if tipo == "apagado":
+        _apagado = True   # también durante un anuncio del gate: se cierra al terminarlo
+    return parar_voz("voz", t_fin) or tipo == "apagado"
 
 def _escucha_parada():
     """Hilo: micro abierto mientras haya escucha de parada activa."""

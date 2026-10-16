@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml)
 
-Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 47 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
+Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 46 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
 
 **Stack:** Python · Electron · Claude Haiku 4.5 · Ollama (qwen2.5:3b) · Whisper · Piper (ElevenLabs opcional)
 
@@ -12,8 +12,8 @@ Asistente de voz personal en español para Windows: escucha por micrófono, deci
 
 ## Qué hace
 
-- **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; interrupción mientras JARVIS habla o genera la respuesta: «para», «cállate», «silencio», «basta» o «apágate» la cortan al instante, vacían las frases pendientes y cancelan la generación. También se puede con el botón «Callar» de la UI, con Esc o con Ctrl+Alt+P desde cualquier ventana. Las órdenes de parada solo callan: nunca confirman una acción ni cierran JARVIS (para cerrarlo hay que decir «apaga JARVIS del todo» o «cierra JARVIS»).
-- **Agente con 47 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
+- **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; órdenes de voz para silenciar o cerrar JARVIS, también mientras habla o genera la respuesta (ver [Órdenes de voz](#órdenes-de-voz)).
+- **Agente con 46 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
 - **Respuesta en streaming:** el texto aparece en la UI mientras Claude lo genera, y la voz se reproduce por frases: la siguiente se sintetiza mientras suena la actual.
 - **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación. Se puede enviar a la propia dirección («mándamelo a mí», «a mi correo», «a mi propia dirección»), que JARVIS obtiene del perfil de la cuenta de Gmail sin preguntarla, o a una dirección dictada por voz, que JARVIS valida y deletrea antes de pedir la confirmación. Si no puede obtener la dirección propia, dice la causa: autorización caducada, red o permisos.
 - **Calendario (Google Calendar):** `ver_agenda` y `crear_evento`. "Qué tengo hoy" combina agenda y tareas. Cada turno lleva la fecha y hora reales.
@@ -71,7 +71,21 @@ flowchart TD
     CF -->|sí, pero otra acción o caducada| NO[Bloquear y descartar el pendiente]
 ```
 
-Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlist de rutas, destinatario propio o dictado por el micrófono con formato válido, o que el email venga del último listado. Las frases de confirmación son "confirmo borrado", "confirmo borrado de correo", "confirmo borrado de correos", "confirmo envío", "confirmo apagado del pc" y "confirmo captura".
+Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlist de rutas, destinatario propio o dictado por el micrófono con formato válido, o que el email venga del último listado. Las frases de confirmación son "confirmo borrado", "confirmo borrado de correo", "confirmo borrado de correos", "confirmo envío", "confirmo apagado del pc" y "confirmo captura". Tras normalizar tildes y mayúsculas también valen "confirma" y "confirmar" en lugar de "confirmo", con un "el" opcional delante de la acción ("confirma el envío", "confirmar captura"), porque Whisper confunde esas formas. Siempre hacen falta el verbo y la acción: "sí", "vale", "ok" o "adelante" no valen, y la frase de una acción no confirma otra.
+
+## Órdenes de voz
+
+Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "¿cómo te callo?" o "¿cómo te cierro?" y la línea del prompt de sistema se generan desde ellas, sin pasar por el modelo.
+
+| Orden | Frases | Efecto |
+|---|---|---|
+| Silenciar | «cállate», «no hables», «escucha», «silencio», «para», «basta» | Corta el audio, vacía las frases pendientes y cancela la generación en curso. JARVIS sigue abierto y escuchando. |
+| Apagar | «apágate», «apaga JARVIS», «apaga JARVIS del todo», «adiós», «hasta luego», «desconéctate», «cierra JARVIS» | Corta el audio y la generación, se despide y cierra JARVIS. |
+
+- Solo valen si la frase transcrita es entera la orden (puede llevar "Jarvis", "ya", "por favor"...) y tiene como mucho 4 palabras sin contar "Jarvis". "Apágate cuando termines de leer el correo" no apaga nada.
+- Funcionan con JARVIS hablando, a la primera; mientras habla, solo se atienden estas órdenes y se descarta el eco de su propia voz.
+- Nunca cuentan como confirmación de una acción ni llegan al modelo o al gate. El modelo no tiene ninguna tool para cerrar JARVIS.
+- Sin voz: botón «Callar» de la UI, Esc o Ctrl+Alt+P silencian.
 
 ## Decisiones de diseño
 
@@ -103,11 +117,11 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 ## Calidad
 
-- **Tests:** 550 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 550 tests ... OK`
+- **Tests:** 580 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 580 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
-- **Evals:** 57 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
-  `python -m unittest tests.test_evals -v` → Ruta 57/57, Tool 57/57, Gate 57/57, con umbral mínimo del 80 %.
+- **Evals:** 60 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
+  `python -m unittest tests.test_evals -v` → Ruta 60/60, Tool 60/60, Gate 60/60, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.
 - **Tools por nivel de riesgo:** 22 READ, 3 WRITE, 17 EXTERNAL (`ver_pantalla` con confirmación) y 5 DESTRUCTIVE. `test_brain_permisos` fija estas cifras.
 
@@ -177,7 +191,7 @@ jarvis.py            bucle principal: escuchar → pensar → hablar
 audio.py             micrófono, Whisper con umbral de confianza, Piper, voz por frases, escucha de órdenes de parada
 brain.py             router, agente Claude con streaming, tools, gate de permisos
 frases.py            troceado de la respuesta en frases para la voz
-parada.py            órdenes de parada, filtro de eco y detector de voz dominante
+parada.py            listas de órdenes de silencio y apagado, filtro de eco y detector de voz dominante
 tts_elevenlabs.py    TTS opcional con fallback a Piper y marca de turno privado
 metrics.py           métricas por turno, coste estimado y log JSONL
 replay.py            consulta del log de turnos

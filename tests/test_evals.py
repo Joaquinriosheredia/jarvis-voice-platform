@@ -44,11 +44,15 @@ CASOS = [
     # Órdenes de parada: solo callan; nunca llegan al modelo ni al gate (parada.py)
     ("para",                  "parada", None,              "none"),
     ("silencio",              "parada", None,              "none"),
-    ("jarvis, apágate",       "parada", None,              "none"),
     ("cállate",               "parada", None,              "none"),
-    ("apaga jarvis del todo", "atajo",  "cerrar_jarvis",   "none"),
-    # corregido: "cierra jarvis" es atajo en ATAJOS y cerrar_jarvis es WRITE (sin confirmación)
-    ("cierra jarvis",         "atajo",  "cerrar_jarvis",   "none"),
+    # Órdenes de apagado: cierran JARVIS sin pasar por el modelo (no hay tool para cerrarlo)
+    ("jarvis, apágate",       "apagado", None,             "none"),
+    ("apaga jarvis del todo", "apagado", None,             "none"),
+    ("adiós",                 "apagado", None,             "none"),
+    # "¿Cómo te callo / te cierro?": respuesta fija desde parada.py, sin modelo
+    ("cómo te callo",         "atajo",  None,              "none"),
+    ("cómo te cierro",        "atajo",  None,              "none"),
+    ("cierra jarvis",         "apagado", None,             "none"),
 
     # LOCAL → Ollama
     ("qué es una variable",   "local",  None,              "none"),

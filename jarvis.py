@@ -160,10 +160,17 @@ def _decir_respuesta(respuesta):
     else:
         audio.hablar(voz, texto_pantalla=respuesta)
 
+DESPEDIDA = "Hasta luego Joaquín. Que tengas un buen día."
+
+def _despedirse():
+    """Orden de parada.APAGADO: la voz ya está cortada; se despide y el bucle termina."""
+    brain._print_seguro("[PARADA] orden de apagado: JARVIS se cierra")
+    audio.hablar(DESPEDIDA)
+
 def _callar_sin_voz():
-    """Orden de parada sin que JARVIS esté hablando: solo calla. Para la música que
-    lanzó JARVIS (no cualquier VLC). Nunca llega al modelo ni al gate: no confirma
-    ninguna acción pendiente ni cierra JARVIS."""
+    """Orden de parada.SILENCIO sin que JARVIS esté hablando: solo calla. Para la
+    música que lanzó JARVIS (no cualquier VLC). Nunca llega al modelo ni al gate:
+    no confirma ninguna acción pendiente."""
     musica = SKILLS.get("musica")
     try:
         if getattr(musica, "musica_proceso", None):
@@ -185,6 +192,9 @@ def main():
     brain.cargar_destinatarios_permitidos(SKILLS)
     tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
     audio.hablar(resumen_diario())
+    if audio.apagado_pedido():   # "apágate" durante el resumen de arranque
+        _despedirse()
+        return
 
     while True:
         try:
@@ -193,9 +203,14 @@ def main():
                 metrics.descartar_turno()
                 continue
 
-            if parada.es_orden_parada(texto):
-                _callar_sin_voz()
+            # Silenciar o cerrar: frase corta del micro (parada.SILENCIO / parada.APAGADO)
+            orden = parada.clasificar(texto)
+            if orden:
                 metrics.descartar_turno()
+                if orden == "apagado":
+                    _despedirse()
+                    break
+                _callar_sin_voz()
                 continue
 
             respuesta, cerrar = None, False
@@ -205,7 +220,8 @@ def main():
                     respuesta, cerrar = _turno(texto)
             finally:
                 metrics.cerrar_turno(texto, respuesta)
-            if cerrar:
+            if cerrar or audio.apagado_pedido():  # "apágate" mientras hablaba: voz ya cortada
+                _despedirse()
                 break
 
         except KeyboardInterrupt:
@@ -238,9 +254,8 @@ def _turno(texto):
             audio.BARGE_IN_ACTIVO = True
         mem.añadir_al_historial(memoria, f"Jarvis: {brain.direccion.ocultar(anuncio)}")
 
-    # El agente activa el flag si quiere cerrar
+    # Una orden de apagado que llegó a brain.pensar: jarvis.py se despide y cierra
     if brain.debe_cerrar():
-        audio.hablar("Hasta luego Joaquín. Que tengas un buen día.")
         return respuesta, True
 
     # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta

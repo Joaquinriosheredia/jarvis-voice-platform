@@ -155,11 +155,11 @@ class TestLogReview(Base):
 
 class TestSinToolsNuevas(unittest.TestCase):
     def test_tools_y_permisos_sin_cambios(self):
-        self.assertEqual(len(brain.TOOLS), 47)
+        self.assertEqual(len(brain.TOOLS), 46)
         niveles = {}
         for t in brain.TOOLS:
             niveles[brain.TOOL_RISK[t["name"]]] = niveles.get(brain.TOOL_RISK[t["name"]], 0) + 1
-        self.assertEqual(niveles, {"READ": 22, "WRITE": 3, "EXTERNAL": 17, "DESTRUCTIVE": 5})
+        self.assertEqual(niveles, {"READ": 22, "WRITE": 2, "EXTERNAL": 17, "DESTRUCTIVE": 5})
         self.assertNotIn("review", {t["name"] for t in brain.TOOLS})
 
 

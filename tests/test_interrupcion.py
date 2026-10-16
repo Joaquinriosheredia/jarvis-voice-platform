@@ -68,6 +68,8 @@ class Base(unittest.TestCase):
         self.addCleanup(patch.stopall)
         brain.reiniciar_cancelacion()
         self.addCleanup(brain.reiniciar_cancelacion)
+        self.addCleanup(setattr, brain, "_cerrar", False)
+        self.addCleanup(setattr, audio, "_apagado", False)
         self.salida = io.StringIO()
 
     def hablar_frases(self, sintetizar):
@@ -86,19 +88,20 @@ class Base(unittest.TestCase):
 
 # ── Órdenes ───────────────────────────────────────────────────────
 class TestOrdenes(unittest.TestCase):
+    """Las listas en detalle: tests/test_ordenes_voz.py."""
     def test_ordenes_de_parada(self):
         for texto in ("para", "Para.", "Jarvis, para", "para ya", "cállate", "¡Cállate, por favor!", "silencio",
-                      "basta", "Jarvis, apágate", "apágate", "stop", "párate", "para, para", "calla"):
+                      "basta", "para, para", "no hables", "escucha", "Jarvis, apágate", "adiós"):
             self.assertTrue(parada.es_orden_parada(texto), texto)
 
     def test_no_son_ordenes_de_parada(self):
-        for texto in ("para la música", "¿para qué sirve esto?", "apaga el ordenador", "apaga jarvis del todo",
+        for texto in ("para la música", "¿para qué sirve esto?", "apaga el ordenador", "stop", "calla",
                       "confirmo envío", "confirmo apagado del pc", "jarvis", "", None, "basta de tonterías ya",
-                      "silencio en la sala por favor", "para que me digas la hora"):
+                      "silencio en la sala por favor", "para que me digas la hora", "escucha esta canción"):
             self.assertFalse(parada.es_orden_parada(texto), texto)
 
     def test_ninguna_orden_es_frase_de_confirmacion(self):
-        for orden in parada.ORDENES:
+        for orden in parada.SILENCIO + parada.APAGADO:
             self.assertIsNone(brain._frase_confirmacion(orden), orden)
             self.assertIsNone(brain._frase_confirmacion(f"jarvis {orden}"), orden)
 
@@ -358,15 +361,6 @@ class TestNoConfirma(Base):
             self.oir("para")
         gate.assert_not_called()
         pensar.assert_not_called()
-
-    def test_apagate_no_cierra_jarvis(self):
-        with patch.object(brain.cliente.messages, "create") as create, contextlib.redirect_stdout(self.salida):
-            brain.pensar("Jarvis, apágate", skills={})
-        create.assert_not_called()
-        self.assertFalse(brain.debe_cerrar())
-        self.assertNotIn("apagate", [f for frases, _ in brain.ATAJOS for f in frases])
-        self.assertEqual(brain._match_atajo(brain._normalizar("apaga jarvis del todo")), "cerrar_jarvis")
-        self.assertIn("nunca cierres Jarvis por ellas", brain.SYSTEM)
 
     def test_orden_sin_voz_activa_solo_para_la_musica_de_jarvis(self):
         musica = MagicMock(musica_proceso=object())
