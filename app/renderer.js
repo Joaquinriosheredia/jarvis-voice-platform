@@ -1,4 +1,4 @@
-// Cliente WebSocket de JARVIS: solo muestra lo que envía ui_bridge.py.
+// Cliente WebSocket de JARVIS: muestra lo que envía ui_bridge.py y solo envía "stop".
 // Todo el texto se inserta con textContent (nunca innerHTML).
 const URL_WS      = 'ws://127.0.0.1:8765';
 const RECONEXION  = 2000;
@@ -14,6 +14,7 @@ const ETIQUETAS = {
 };
 
 const chat        = document.getElementById('chat');
+const botonParar  = document.getElementById('parar');
 const vacio       = document.getElementById('vacio');
 const estado      = document.getElementById('estado');
 const estadoTexto = document.getElementById('estado-texto');
@@ -164,8 +165,28 @@ function manejar(msg) {
   }
 }
 
+// ── Callar a JARVIS: botón, Esc en la ventana o Ctrl+Alt+P global (main.js) ──
+// El único mensaje que la app envía a Python; solo corta la voz, nunca confirma nada.
+let socket = null;
+
+function parar(origen) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'stop', origen }));
+  }
+}
+
+botonParar.addEventListener('click', () => parar('ui'));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') parar('teclado');
+});
+if (window.jarvis && typeof window.jarvis.alAtajoParar === 'function') {
+  window.jarvis.alAtajoParar(() => parar('teclado'));
+}
+
 function conectar() {
   const ws = new WebSocket(URL_WS);
+  socket = ws;
+  ws.onopen = () => { botonParar.disabled = false; };
 
   ws.onmessage = (ev) => {
     try {
@@ -176,6 +197,7 @@ function conectar() {
   };
 
   ws.onclose = () => {
+    botonParar.disabled = true;
     setEstado('disconnected');
     setTimeout(conectar, RECONEXION);
   };

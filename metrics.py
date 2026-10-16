@@ -143,6 +143,16 @@ def registrar_primera_voz():
     _en_turno(f)
 
 
+def registrar_interrupcion(origen, ms, fase):
+    """Parada pedida por voz, teclado o botón: ms desde la orden hasta que se corta el
+    audio (fase "hablando") o se cancela la generación ("generando"). Solo metadatos."""
+    _log(f"[METRICS] interrupción origen={origen} fase={fase} {int(ms)}ms")
+
+    def f(t):
+        t.setdefault("interrupciones", []).append({"origen": origen, "fase": fase, "ms": int(ms)})
+    _en_turno(f)
+
+
 def registrar_tool(nombre):
     def f(t):
         t["tools"].append(nombre)
@@ -208,6 +218,8 @@ def _registro(t, texto_usuario, respuesta, privado):
         reg["ttft_ms"] = t["ttft_ms"]
     if t.get("t_primera_voz") is not None:
         reg["primera_voz_ms"] = int((t["t_primera_voz"] - t["t0"]) * 1000)
+    if t.get("interrupciones"):
+        reg["interrupciones"] = [dict(i) for i in t["interrupciones"]]
     # Turnos con email/agenda o JARVIS_LOG_TEXTO=0 (se lee en cada turno): solo metadatos
     if not privado and os.environ.get("JARVIS_LOG_TEXTO", "1").strip() != "0":
         reg["texto_usuario"] = _truncar(texto_usuario)

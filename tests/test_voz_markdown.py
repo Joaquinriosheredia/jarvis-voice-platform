@@ -62,7 +62,7 @@ class TestSoloEnLaVoz(unittest.TestCase):
         audio.sd.play.side_effect = None
         with patch.object(tts_elevenlabs, "sintetizar", return_value=None), \
              patch.object(audio, "_sintetizar_piper", return_value=(np.zeros(4, dtype=np.int16), 22050)) as piper, \
-             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit") as emit, contextlib.redirect_stdout(io.StringIO()):
             audio.hablar(texto, **kw)
@@ -83,7 +83,7 @@ class TestSoloEnLaVoz(unittest.TestCase):
         audio.sd.get_stream.return_value.active = False
         with patch.object(tts_elevenlabs, "sintetizar", return_value=None), \
              patch.object(audio, "_sintetizar_piper", return_value=(np.zeros(4, dtype=np.int16), 22050)) as piper, \
-             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit"), contextlib.redirect_stdout(io.StringIO()):
             audio.hablar_frases(["Primera **frase** bastante larga.", "Segunda con `codigo` dentro."])

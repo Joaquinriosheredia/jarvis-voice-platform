@@ -41,8 +41,12 @@ CASOS = [
     # (texto_usuario, ruta_esperada, tool_esperada, gate_esperado[, opciones])
     # opciones: {"contexto": [mensajes previos], "solo_vivo": True}
     # ATAJOS (sin LLM)
-    ("para",                  "atajo",  "parar_musica",    "none"),
-    ("silencio",              "atajo",  "parar_musica",    "none"),
+    # Órdenes de parada: solo callan; nunca llegan al modelo ni al gate (parada.py)
+    ("para",                  "parada", None,              "none"),
+    ("silencio",              "parada", None,              "none"),
+    ("jarvis, apágate",       "parada", None,              "none"),
+    ("cállate",               "parada", None,              "none"),
+    ("apaga jarvis del todo", "atajo",  "cerrar_jarvis",   "none"),
     # corregido: "cierra jarvis" es atajo en ATAJOS y cerrar_jarvis es WRITE (sin confirmación)
     ("cierra jarvis",         "atajo",  "cerrar_jarvis",   "none"),
 

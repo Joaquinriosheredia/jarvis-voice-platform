@@ -2,7 +2,7 @@
 // El WebSocket lo abre el renderer. Cerrar la ventana solo la oculta en la
 // bandeja (JARVIS sigue escuchando); "Cerrar JARVIS completamente" en el menú
 // de la bandeja termina jarvis.py y la app. Nunca se llama a process.exit.
-const { app, BrowserWindow, Tray, Menu } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut } = require('electron');
 const { execFile } = require('child_process');
 const path = require('path');
 
@@ -10,6 +10,8 @@ const path = require('path');
 const APP_ID   = 'Jarvis.Desktop';
 const ICONO    = path.join(__dirname, 'jarvis.ico');
 const LANZADOR = path.join(__dirname, 'start.vbs');
+// Callar a JARVIS desde cualquier ventana (el renderer envía "stop" por el WebSocket)
+const ATAJO_PARAR = 'Control+Alt+P';
 
 let win      = null;
 let tray     = null;
@@ -27,6 +29,7 @@ function crearVentana() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
   // Si se ancla la ventana abierta, el icono anclado relanza start.vbs (no solo Electron)
@@ -88,7 +91,11 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     crearVentana();
     crearTray();
+    if (!globalShortcut.register(ATAJO_PARAR, () => win && win.webContents.send('parar'))) {
+      console.warn(`[JARVIS] no se pudo registrar el atajo ${ATAJO_PARAR}`);
+    }
   });
+  app.on('will-quit', () => globalShortcut.unregisterAll());
 }
 
 // Apagado/cierre de sesión de Windows: no bloquear el cierre de la ventana

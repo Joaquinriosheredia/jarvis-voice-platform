@@ -9,6 +9,7 @@ import audio
 import tts_elevenlabs
 import metrics
 import frases
+import parada
 import brain
 import memoria as mem
 from skills import musica, sistema, webs, authority, tareas, gmail
@@ -159,11 +160,27 @@ def _decir_respuesta(respuesta):
     else:
         audio.hablar(voz, texto_pantalla=respuesta)
 
+def _callar_sin_voz():
+    """Orden de parada sin que JARVIS esté hablando: solo calla. Para la música que
+    lanzó JARVIS (no cualquier VLC). Nunca llega al modelo ni al gate: no confirma
+    ninguna acción pendiente ni cierra JARVIS."""
+    musica = SKILLS.get("musica")
+    try:
+        if getattr(musica, "musica_proceso", None):
+            musica.parar()
+    except Exception:
+        pass
+    brain._print_seguro("[PARADA] orden de parada sin voz activa: JARVIS calla")
+
 # ── MAIN LOOP ─────────────────────────────────────────────────────
 def main():
     import ui_bridge
     ui_bridge.start()
     audio.hay_confirmacion_pendiente = brain.hay_pendiente  # Whisper estricto si hay que confirmar
+    # Parada por voz (mientras genera o habla), botón o atajo de la UI
+    audio.modelo_whisper = whisper_model
+    audio.al_parar.append(brain.cancelar_generacion)
+    ui_bridge.al_parar = audio.parar_voz
     brain.al_texto_parcial = lambda texto: ui_bridge.emit("assistant_delta", text=texto)
     brain.cargar_destinatarios_permitidos(SKILLS)
     tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
@@ -176,47 +193,66 @@ def main():
                 metrics.descartar_turno()
                 continue
 
-            respuesta = None
+            if parada.es_orden_parada(texto):
+                _callar_sin_voz()
+                metrics.descartar_turno()
+                continue
+
+            respuesta, cerrar = None, False
+            brain.reiniciar_cancelacion()
             try:
-                mem.añadir_al_historial(memoria, texto)
-                contexto  = mem.obtener_mensajes(memoria)
-                respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
-                                         conversacion_reciente=mem.conversacion_reciente(memoria))
-                d1_ejecutado = _d1_fix(texto)
-
-                # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
-                # no la paráfrasis del modelo, que podría estar manipulada
-                anuncio = brain.anuncio_confirmacion()
-                if anuncio:
-                    audio.BARGE_IN_ACTIVO = False
-                    try:
-                        audio.hablar(anuncio)
-                    finally:
-                        audio.BARGE_IN_ACTIVO = True
-                    mem.añadir_al_historial(memoria, f"Jarvis: {brain.direccion.ocultar(anuncio)}")
-
-                # El agente activa el flag si quiere cerrar
-                if brain.debe_cerrar():
-                    audio.hablar("Hasta luego Joaquín. Que tengas un buen día.")
-                    break
-
-                # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
-                # del modelo de este turno se descarta (puede afirmar algo falso).
-                if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
-                    audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
-                    try:
-                        _decir_respuesta(respuesta)
-                    finally:
-                        audio.BARGE_IN_ACTIVO = True
-                    mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")
+                with audio.escucha_de_parada():
+                    respuesta, cerrar = _turno(texto)
             finally:
                 metrics.cerrar_turno(texto, respuesta)
+            if cerrar:
+                break
 
         except KeyboardInterrupt:
             audio.hablar("Cerrando Jarvis.")
             break
         except Exception as e:
             print(f"❌ Error: {brain.direccion.ocultar(str(e))}")
+
+def _turno(texto):
+    """Piensa y responde a un texto del micro. Devuelve (respuesta, cerrar).
+    Una parada durante la generación (brain.generacion_cancelada) descarta la
+    respuesta: no se dice nada ni se ejecutan el D1-fix ni el anuncio."""
+    mem.añadir_al_historial(memoria, texto)
+    contexto  = mem.obtener_mensajes(memoria)
+    respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
+                             conversacion_reciente=mem.conversacion_reciente(memoria))
+    if brain.generacion_cancelada():
+        brain._print_seguro("[PARADA] respuesta descartada")
+        return None, False
+    d1_ejecutado = _d1_fix(texto)
+
+    # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
+    # no la paráfrasis del modelo, que podría estar manipulada
+    anuncio = brain.anuncio_confirmacion()
+    if anuncio:
+        audio.BARGE_IN_ACTIVO = False
+        try:
+            audio.hablar(anuncio)
+        finally:
+            audio.BARGE_IN_ACTIVO = True
+        mem.añadir_al_historial(memoria, f"Jarvis: {brain.direccion.ocultar(anuncio)}")
+
+    # El agente activa el flag si quiere cerrar
+    if brain.debe_cerrar():
+        audio.hablar("Hasta luego Joaquín. Que tengas un buen día.")
+        return respuesta, True
+
+    # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
+    # del modelo de este turno se descarta (puede afirmar algo falso).
+    if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
+        audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
+        try:
+            _decir_respuesta(respuesta)
+        finally:
+            audio.BARGE_IN_ACTIVO = True
+        mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")
+    return respuesta, False
 
 if __name__ == "__main__":
     main()

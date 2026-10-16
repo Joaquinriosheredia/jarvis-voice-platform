@@ -12,7 +12,7 @@ Asistente de voz personal en español para Windows: escucha por micrófono, deci
 
 ## Qué hace
 
-- **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; interrupción por voz (barge-in) mientras JARVIS habla.
+- **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; interrupción mientras JARVIS habla o genera la respuesta: «para», «cállate», «silencio», «basta» o «apágate» la cortan al instante, vacían las frases pendientes y cancelan la generación. También se puede con el botón «Callar» de la UI, con Esc o con Ctrl+Alt+P desde cualquier ventana. Las órdenes de parada solo callan: nunca confirman una acción ni cierran JARVIS (para cerrarlo hay que decir «apaga JARVIS del todo» o «cierra JARVIS»).
 - **Agente con 47 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
 - **Respuesta en streaming:** el texto aparece en la UI mientras Claude lo genera, y la voz se reproduce por frases: la siguiente se sintetiza mientras suena la actual.
 - **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación. Se puede enviar a la propia dirección («mándamelo a mí», «a mi correo», «a mi propia dirección»), que JARVIS obtiene del perfil de la cuenta de Gmail sin preguntarla, o a una dirección dictada por voz, que JARVIS valida y deletrea antes de pedir la confirmación. Si no puede obtener la dirección propia, dice la causa: autorización caducada, red o permisos.
@@ -96,17 +96,18 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 | Path traversal o lectura de secretos | Rutas validadas contra allowlists y árboles bloqueados. Patrones de secretos (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `*token*`, `*credential*`, `.git`) bloqueados en cada componente de la ruta y excluidos de diff y grep. |
 | Secretos escritos en el código | `leer_archivo`, `git_diff`, `git_log`, `buscar_en_codigo` y `ejecutar_tests` enmascaran los secretos (claves con prefijo conocido, asignaciones sospechosas, Bearer/Basic, claves privadas y URLs con credenciales) como `[SECRETO-REDACTADO:tipo]` antes de truncar y de enviar nada al modelo, la UI o el log. No hay parámetro para desactivarlo. |
 | Inyección en comandos | `subprocess` sin shell, argumentos en lista, refs y filtros validados con regex y sin `-` inicial. |
-| Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron e ignora lo que envía el cliente. CSP estricta y texto insertado con `textContent`. |
+| Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron. Del cliente solo atiende `{"type": "stop"}` (callar a JARVIS) e ignora el resto. CSP estricta y texto insertado con `textContent`. |
+| Eco del TTS o audio ajeno dando órdenes mientras JARVIS habla | Mientras habla o genera, solo se atiende una orden de parada. Tiene que ser una transcripción corta (≤ 2 s), con confianza de Whisper y sin nada más que la orden, y la voz tiene que dominar sobre el eco esperado, que se estima a partir de lo que JARVIS reproduce. Si lo que dice JARVIS contiene esa misma orden como frase, se descarta como eco. Todo lo demás que se oiga se ignora: nunca llega al modelo ni al gate. Con altavoces, una orden dicha encima de un eco fuerte puede no reconocerse; con auriculares es fiable. El botón y el atajo de teclado no dependen del micrófono. |
 | Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. |
 | Fuga de credenciales | Secretos fuera del repo, en `C:\Jarvis-secrets`. La clave de ElevenLabs nunca se escribe en logs (hay un test). |
 
 ## Calidad
 
-- **Tests:** 519 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 519 tests ... OK`
+- **Tests:** 550 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 550 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
-- **Evals:** 54 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
-  `python -m unittest tests.test_evals -v` → Ruta 54/54, Tool 54/54, Gate 54/54, con umbral mínimo del 80 %.
+- **Evals:** 57 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
+  `python -m unittest tests.test_evals -v` → Ruta 57/57, Tool 57/57, Gate 57/57, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.
 - **Tools por nivel de riesgo:** 22 READ, 3 WRITE, 17 EXTERNAL (`ver_pantalla` con confirmación) y 5 DESTRUCTIVE. `test_brain_permisos` fija estas cifras.
 
@@ -173,16 +174,17 @@ Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC,
 
 ```
 jarvis.py            bucle principal: escuchar → pensar → hablar
-audio.py             micrófono, Whisper con umbral de confianza, Piper, voz por frases, barge-in
+audio.py             micrófono, Whisper con umbral de confianza, Piper, voz por frases, escucha de órdenes de parada
 brain.py             router, agente Claude con streaming, tools, gate de permisos
 frases.py            troceado de la respuesta en frases para la voz
+parada.py            órdenes de parada, filtro de eco y detector de voz dominante
 tts_elevenlabs.py    TTS opcional con fallback a Piper y marca de turno privado
 metrics.py           métricas por turno, coste estimado y log JSONL
 replay.py            consulta del log de turnos
 ui_bridge.py         servidor WebSocket local para la UI
 memoria.py           historial de conversación
 skills/              gmail, calendario, pantalla, operador, musica, sistema, tareas, webs
-app/                 UI Electron (main.js, renderer.js, index.html, styles.css)
+app/                 UI Electron (main.js, preload.js, renderer.js, index.html, styles.css)
 tests/               tests unitarios y evals (test_evals.py)
 ```
 

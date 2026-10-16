@@ -43,6 +43,27 @@ body {
   border-bottom: 1px solid var(--borde);
 }
 
+.controles {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.parar {
+  padding: 6px 14px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.parar:hover:not(:disabled),
+.parar:focus-visible { border-color: var(--c-alerta); color: var(--c-alerta); outline: none; }
+.parar:disabled      { color: var(--texto-suave); cursor: default; }
+
 .marca {
   font-weight: 600;
   letter-spacing: 0.2em;

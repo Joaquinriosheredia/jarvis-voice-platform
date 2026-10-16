@@ -15,6 +15,7 @@ import ui_bridge
 import tts_elevenlabs
 import metrics
 import frases
+import parada
 from skills import direccion
 
 SAMPLE_RATE  = 16000
@@ -22,7 +23,7 @@ VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
 
 # Vocabulario habitual: orienta a Whisper hacia las órdenes de JARVIS
 WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cómo estás, qué tal, "
-                  "confirmo borrado, confirmo envío, confirmo captura, apágate, hasta luego, adiós, descargas, "
+                  "confirmo borrado, confirmo envío, confirmo captura, para, cállate, apágate, hasta luego, adiós, descargas, "
                   "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover")
 
 # Frases que Whisper inventa ante silencio o ruido (subtítulos de YouTube)
@@ -89,6 +90,20 @@ _vol_antes      = {}
 _rms_salida     = 0.0
 _lock_rms       = threading.Lock()
 
+# ── INTERRUPCIÓN ──────────────────────────────────────────────────
+# Mientras JARVIS genera o habla, un hilo escucha el micro y solo reacciona a una
+# orden de parada (parada.ORDENES) dicha en un segmento corto y dominante sobre el
+# eco. Nada de lo que oiga ese hilo llega al modelo ni al gate.
+modelo_whisper = None      # jarvis.py lo asigna; sin él la escucha de parada no transcribe
+al_parar       = []        # funciones que se llaman al parar (jarvis: brain.cancelar_generacion)
+_lock_whisper  = threading.Lock()   # Whisper no se usa a la vez desde dos hilos
+_parada        = None      # (monotonic de la orden, origen) a medir cuando se corte el audio
+_texto_en_voz  = ""        # lo que dice JARVIS ahora: su eco no puede pararle
+_escucha_refs  = 0
+_lock_escucha  = threading.Lock()
+_hilo_escucha  = None
+ORIGENES_PARADA = ("voz", "teclado", "ui")
+
 # ── VOLUMEN ───────────────────────────────────────────────────────
 def _get_vol_control():
     global _VOL_CONTROL
@@ -150,46 +165,119 @@ def _rms(frame_bytes):
     return np.sqrt(np.mean(audio ** 2)) if len(audio) > 0 else 0.0
 
 # ── TRACKER DE RMS DE SALIDA ──────────────────────────────────────
-def _track_rms_salida(data, chunk_size=480):
-    """Calcula RMS del audio que Jarvis está reproduciendo chunk a chunk
-    y lo almacena en _rms_salida para que el monitor lo use como referencia."""
+def _track_rms_salida(data, rate=SAMPLE_RATE):
+    """RMS de lo que Jarvis reproduce, trama a trama de 30 ms al ritmo real del audio
+    (Piper y ElevenLabs van a 22050 Hz), en _rms_salida: es la referencia del eco."""
     global _rms_salida
+    chunk_size = max(1, int(rate * FRAME_MS / 1000))
     for i in range(0, len(data), chunk_size):
+        if _INTERRUMPIR or not JARVIS_HABLANDO:
+            break
         chunk = data[i:i + chunk_size]
         with _lock_rms:
             _rms_salida = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
-        time.sleep(chunk_size / SAMPLE_RATE)
+        time.sleep(len(chunk) / rate)
     with _lock_rms:
         _rms_salida = 0.0
 
-# ── MONITOR DE BARGE-IN CON UMBRAL DINÁMICO ───────────────────────
-def _monitor_barge_in():
-    global _INTERRUMPIR
-    time.sleep(0.3)  # espera a que el tracker RMS arranque
-    FACTOR        = 3.0
-    MARGEN        = 400
-    FRAMES_UMBRAL = 5
+# ── PARADA: VOZ, TECLADO O BOTÓN ──────────────────────────────────
+def parar_voz(origen="voz", t_orden=None):
+    """Corta la voz al instante, vacía las frases pendientes y cancela la generación
+    en curso (al_parar). Nunca confirma ni ejecuta nada. False si ahora no se puede
+    interrumpir (JARVIS lee el anuncio de una confirmación del gate)."""
+    global _INTERRUMPIR, _parada
+    origen = origen if origen in ORIGENES_PARADA else "ui"
+    if not BARGE_IN_ACTIVO:
+        _print_seguro(f"[PARADA] ignorada ({origen}): JARVIS está leyendo una confirmación")
+        return False
+    _parada      = (t_orden or time.monotonic(), origen)
+    _INTERRUMPIR = True
+    for funcion in list(al_parar):
+        try:
+            funcion()
+        except Exception:
+            pass
+    if not JARVIS_HABLANDO:   # aún generando: no hay audio que cortar
+        _registrar_parada("generando")
+    return True
 
-    voz_frames = 0
+def _registrar_parada(fase):
+    """Mide la interrupción pendiente (ms desde la orden hasta el corte). Sin texto."""
+    global _parada
+    p, _parada = _parada, None
+    if p:
+        metrics.registrar_interrupcion(p[1], (time.monotonic() - p[0]) * 1000, fase)
+
+def _transcribir_orden(segmento):
+    """Texto del segmento si Whisper lo entiende con confianza; "" si no. Sin
+    initial_prompt: el vocabulario de órdenes haría que el ruido sonase a "para"."""
+    modelo = modelo_whisper
+    if modelo is None or segmento is None or not len(segmento):
+        return ""
+    try:
+        muestras = segmento.astype(np.float32)
+        pico = float(np.max(np.abs(muestras)))
+        if pico > 0:
+            muestras = muestras / pico * 0.9
+        with _lock_whisper:
+            resultado = modelo.transcribe(muestras, language='es', temperature=0.0,
+                                          condition_on_previous_text=False)
+    except Exception as e:
+        _print_seguro(f"[PARADA] Whisper falló: {type(e).__name__}")
+        return ""
+    texto = _filtrar_transcripcion(resultado)
+    logprob, compresion = _confianza(resultado)
+    if logprob is None or logprob < WHISPER_MIN_LOGPROB or (
+            compresion is not None and compresion > WHISPER_MAX_COMPRESSION):
+        return ""
+    return texto
+
+def _comprobar_orden(segmento, t_fin):
+    """Para a JARVIS si el segmento es una orden de parada que no es su propio eco."""
+    texto = _transcribir_orden(segmento)
+    if not parada.es_orden_parada(texto):
+        return False  # cualquier otra cosa oída mientras habla se ignora (nunca se ejecuta)
+    if parada.eco_probable(texto, _texto_en_voz):
+        _print_seguro("[PARADA] descartada: puede ser el eco de lo que dice JARVIS")
+        return False
+    _print_seguro(f"[PARADA] orden por voz: {parada.normalizar(texto)}")
+    return parar_voz("voz", t_fin)
+
+def _escucha_parada():
+    """Hilo: micro abierto mientras haya escucha de parada activa."""
+    detector = parada.DetectorVoz(UMBRAL_RMS * 2)
+    refs     = []
     try:
         with sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1,
                                dtype='int16', blocksize=FRAME_SIZE, device=MICROFONO) as stream:
-            while JARVIS_HABLANDO:
+            while _escucha_refs > 0:
                 frame, _ = stream.read(FRAME_SIZE)
-                rms_mic  = _rms(bytes(frame))
+                fb = bytes(frame)
                 with _lock_rms:
-                    rms_ref = _rms_salida
-                umbral_dinamico = max(rms_ref * FACTOR + MARGEN, UMBRAL_RMS * 2)
-                if rms_mic > umbral_dinamico:
-                    voz_frames += 1
-                    if voz_frames >= FRAMES_UMBRAL:
-                        print(f"🤚 Barge-in — mic:{rms_mic:.0f} > umbral:{umbral_dinamico:.0f}")
-                        _INTERRUMPIR = True
-                        break
-                else:
-                    voz_frames = 0
-    except Exception:
-        pass
+                    refs = (refs + [_rms_salida])[-5:]  # 150 ms: absorbe la latencia altavoz→micro
+                segmento = detector.trama(_rms(fb), max(refs), np.frombuffer(fb, dtype=np.int16))
+                if segmento is not None:
+                    _comprobar_orden(segmento, time.monotonic())
+    except Exception as e:
+        _print_seguro(f"[PARADA] escucha no disponible: {type(e).__name__}")
+
+@contextmanager
+def escucha_de_parada():
+    """Escucha órdenes de parada mientras dure el bloque (anidable)."""
+    global _escucha_refs, _hilo_escucha
+    with _lock_escucha:
+        _escucha_refs += 1
+        if _escucha_refs == 1 and (_hilo_escucha is None or not _hilo_escucha.is_alive()):
+            _hilo_escucha = threading.Thread(target=_escucha_parada, daemon=True, name="escucha-parada")
+            _hilo_escucha.start()
+    try:
+        yield
+    finally:
+        with _lock_escucha:
+            _escucha_refs -= 1
+            hilo = _hilo_escucha if _escucha_refs == 0 else None
+        if hilo is not None:
+            hilo.join(timeout=0.5)
 
 # ── SÍNTESIS ──────────────────────────────────────────────────────
 def _sintetizar_piper(texto):
@@ -220,27 +308,25 @@ def _sintetizar(texto):
 # ── HABLAR ────────────────────────────────────────────────────────
 @contextmanager
 def _sesion_habla(texto, texto_pantalla):
-    """Estado común de hablar() y hablar_frases(): UI, ducking, flags y monitor de barge-in."""
-    global JARVIS_HABLANDO, _INTERRUMPIR, _rms_salida
+    """Estado común de hablar() y hablar_frases(): UI, ducking, flags y escucha de parada."""
+    global JARVIS_HABLANDO, _INTERRUMPIR, _rms_salida, _texto_en_voz
     print(f"🔊 Jarvis: {direccion.ocultar(texto)}")  # la consola va a jarvis.log
     ui_bridge.emit("state", state="responding")
     ui_bridge.emit("assistant_message", text=texto_pantalla or texto)
     ducking_on()
     JARVIS_HABLANDO = True
     _INTERRUMPIR    = False
-
-    # Monitor de barge-in
-    hilo_monitor = threading.Thread(target=_monitor_barge_in, daemon=True)
-    hilo_monitor.start()
+    _texto_en_voz   = texto
     try:
-        yield
+        with escucha_de_parada():
+            yield
     finally:
         JARVIS_HABLANDO = False
         _INTERRUMPIR    = False
+        _texto_en_voz   = ""
         with _lock_rms:
             _rms_salida = 0.0
         ducking_off()
-        hilo_monitor.join(timeout=0.5)
         ui_bridge.emit("state", state="idle")
 
 def _interrumpido():
@@ -249,10 +335,11 @@ def _interrumpido():
 def _reproducir(data, rate):
     """Reproduce un audio; True si el usuario interrumpió (antes o durante)."""
     if _interrumpido():
+        _registrar_parada("hablando")
         return True
     # Tracker RMS de salida en hilo paralelo
     hilo_rms = threading.Thread(
-        target=_track_rms_salida, args=(data,), daemon=True
+        target=_track_rms_salida, args=(data, rate), daemon=True
     )
     hilo_rms.start()
 
@@ -261,10 +348,11 @@ def _reproducir(data, rate):
     while sd.get_stream().active:
         if _interrumpido():
             sd.stop()
+            _registrar_parada("hablando")
             print("⏹️  Jarvis interrumpido")
             ui_bridge.emit("state", state="interrupted")
             return True
-        time.sleep(0.05)
+        time.sleep(0.02)
     return False
 
 def hablar(texto, texto_pantalla=None):
@@ -307,7 +395,14 @@ def hablar_frases(frases, texto_pantalla=None):
         hilo.start()
         try:
             while True:
-                tipo, valor = cola.get()
+                try:
+                    tipo, valor = cola.get(timeout=0.05)
+                except queue.Empty:  # sintetizando la siguiente: la parada no espera a que acabe
+                    if _interrumpido():
+                        _registrar_parada("hablando")
+                        ui_bridge.emit("state", state="interrupted")
+                        break
+                    continue
                 if tipo == "fin":
                     break
                 if tipo == "error":
@@ -467,7 +562,8 @@ def escuchar(whisper_model):
 
     metrics.iniciar_turno()  # el turno (y su total_ms) empieza con Whisper
     t0        = time.time()
-    resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=WHISPER_PROMPT)
+    with _lock_whisper:
+        resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=WHISPER_PROMPT)
     t_whisper = time.time() - t0
     metrics.marcar("whisper", t_whisper * 1000)
     print(f"⏱️  Whisper: {t_whisper:.2f}s")

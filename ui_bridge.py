@@ -1,7 +1,8 @@
 """Puente WebSocket local entre JARVIS y la app Electron (app/).
 
-Python es el servidor (127.0.0.1:8765) y solo emite eventos; lo que envíe el
-cliente se ignora. emit() nunca lanza y no hace nada si el servidor no está
+Python es el servidor (127.0.0.1:8765) y emite eventos. Del cliente solo se
+acepta {"type": "stop", "origen": "ui"|"teclado"} (botón o atajo para callar a
+JARVIS); cualquier otro mensaje se ignora. emit() nunca lanza y no hace nada si el servidor no está
 arrancado o no hay ningún cliente conectado: JARVIS funciona igual sin la app.
 
 Protocolo: {"v": 1, "type": ..., "ts": "ISO8601", ...datos}
@@ -21,6 +22,8 @@ _hilo     = None
 _loop     = None
 _clientes = set()       # solo se modifica desde el hilo del event loop
 _estado   = "idle"      # último estado emitido, se envía en el hello
+al_parar  = None        # jarvis.py: audio.parar_voz(origen). Solo calla; nunca confirma nada
+MAX_MENSAJE = 256
 _lock     = threading.Lock()
 
 # ── LOG ───────────────────────────────────────────────────────────
@@ -39,13 +42,26 @@ def _mensaje(tipo, **data):
         "ts":   datetime.now().astimezone().isoformat(timespec="milliseconds"),
     }, ensure_ascii=False)
 
+# ── MENSAJES DEL CLIENTE ──────────────────────────────────────────
+def recibir(mensaje):
+    """Atiende un mensaje del cliente: solo "stop". Nunca lanza."""
+    try:
+        if not isinstance(mensaje, str) or len(mensaje) > MAX_MENSAJE:
+            return
+        datos = json.loads(mensaje)
+        if not isinstance(datos, dict) or datos.get("type") != "stop" or not callable(al_parar):
+            return
+        al_parar("teclado" if datos.get("origen") == "teclado" else "ui")
+    except Exception:
+        pass
+
 # ── SERVIDOR ──────────────────────────────────────────────────────
 async def _handler(ws):
     _clientes.add(ws)
     try:
         await ws.send(_mensaje("hello", state=_estado))
-        async for _ in ws:  # v1: los mensajes del cliente se ignoran
-            pass
+        async for mensaje in ws:
+            recibir(mensaje)
     except Exception:
         pass
     finally:

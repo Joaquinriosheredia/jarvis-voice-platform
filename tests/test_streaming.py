@@ -252,7 +252,7 @@ class TestHablarFrases(Base):
         else:
             audio.sd.play.side_effect = None
         with patch.object(audio, "_sintetizar", side_effect=sintetizar) as sint, \
-             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit") as emit, contextlib.redirect_stdout(io.StringIO()):
             audio.hablar_frases(self.FRASES, texto_pantalla="pantalla")
@@ -292,7 +292,7 @@ class TestHablarFrases(Base):
         audio.sd.play.side_effect = None
         with patch("tts_elevenlabs.requests.post") as post, \
              patch.object(audio, "_sintetizar_piper", return_value=(np.zeros(4, dtype=np.int16), 22050)) as piper, \
-             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_track_rms_salida"), patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit"), contextlib.redirect_stdout(io.StringIO()):
             audio.hablar_frases(self.FRASES)

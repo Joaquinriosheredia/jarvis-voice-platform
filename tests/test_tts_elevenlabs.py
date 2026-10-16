@@ -105,7 +105,7 @@ class TestExito(Base):
         audio.sd.get_stream.return_value.active = False
         with patch("tts_elevenlabs.requests.post", return_value=respuesta()), \
              patch.object(audio, "_sintetizar_piper") as piper, \
-             patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit") as emit, \
              patch.object(audio.sd, "play") as play:
@@ -121,7 +121,7 @@ class TestExito(Base):
         audio.sd.get_stream.return_value.active = False
         piper_data = np.zeros(4, dtype=np.int16)
         with patch.object(audio, "_sintetizar_piper", return_value=(piper_data, 22050)) as piper, \
-             patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit"), \
              patch.object(audio.sd, "play") as play:
@@ -256,7 +256,7 @@ class TestRmsSalidaGlobal(Base):
         audio.sd.get_stream.return_value.active = False
         with patch.object(audio, "_sintetizar", **sintesis), \
              patch.object(audio, "_track_rms_salida"), \
-             patch.object(audio, "_monitor_barge_in"), \
+             patch.object(audio, "_escucha_parada"), \
              patch.object(audio, "ducking_on"), patch.object(audio, "ducking_off"), \
              patch.object(audio.ui_bridge, "emit"), patch.object(audio.sd, "play"):
             audio.hablar("hola")

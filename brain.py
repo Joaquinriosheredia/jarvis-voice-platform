@@ -16,6 +16,7 @@ import requests
 
 from skills import calendario, direccion, operador, pantalla, webs
 import metrics
+import parada
 import tts_elevenlabs
 
 # ── CLIENTE ───────────────────────────────────────────────────────
@@ -251,7 +252,7 @@ TOOLS = [
     },
     {
         "name": "cerrar_jarvis",
-        "description": "Cierra y apaga Jarvis cuando el usuario se despide o pide que se cierre/apague/desconecte",
+        "description": "Cierra Jarvis del todo cuando el usuario se despide o lo pide explícitamente (cierra Jarvis, apaga Jarvis del todo, desconéctate). 'Apágate', 'cállate' o 'para' solo lo callan: no la uses para eso.",
         "input_schema": {"type": "object", "properties": {}}
     },
     {
@@ -404,7 +405,7 @@ COMPORTAMIENTO:
 - Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
 - Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
 - Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario se lo envía a sí mismo ('mándamelo a mí', 'a mi correo', 'a mi dirección', 'a mi propia dirección'), usa destinatario 'yo': el sistema obtiene su dirección de la cuenta de Gmail. Nunca le preguntes su propia dirección; si la herramienta falla, dile la causa que devuelve. Si dicta otra dirección, pásala tal cual: el sistema valida el formato y se la deletrea antes de confirmar. El gate pedirá confirmación.
-- Para cerrar Jarvis (adiós, hasta luego, apágate, desconéctate): usa cerrar_jarvis
+- Para cerrar Jarvis del todo (adiós, hasta luego, desconéctate, cierra Jarvis, apaga Jarvis del todo): usa cerrar_jarvis. "Apágate", "cállate", "para" o "silencio" solo te hacen callar: nunca cierres Jarvis por ellas.
 - Para apagar el PC llama directamente a apagar_pc. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.
 - Para info actual: usa buscar_en_web
 - Usa buscar_en_navegador cuando el usuario pida buscar en Google, Amazon, YouTube, Wikipedia, Maps o GitHub, o diga "ábreme una búsqueda"; usa buscar_en_web cuando quiera que tú le digas la información. Si dudas, buscar_en_web para preguntas de datos y buscar_en_navegador cuando nombre un sitio o diga "ábreme", "pon" o "muéstrame en el navegador".
@@ -1374,7 +1375,8 @@ ATAJOS = [
     (("baja el volumen", "baja volumen", "menos volumen"),          "volumen_bajar"),
     (("para la musica", "para musica", "stop musica", "para", "silencio"), "parar_musica"),
     (("lista de tareas", "lista tareas", "mis tareas"),             "listar_tareas"),
-    (("cierra jarvis", "cierra", "apagate"),                        "cerrar_jarvis"),
+    # "apágate" solo calla (parada.ORDENES); cerrar JARVIS entero exige decirlo explícitamente
+    (("cierra jarvis", "cierra", "apaga jarvis del todo", "apagate del todo"), "cerrar_jarvis"),
 ]
 # Lo único que puede acompañar a la frase del atajo; cualquier otra palabra
 # ("a qué hora sale el tren", "cierra el navegador") → claude
@@ -1598,6 +1600,27 @@ def _enrutar(texto, skills, traza, conversacion_reciente=False):
 # del gate, resultado del D1-fix) y la habla por frases.
 al_texto_parcial = None
 
+# Parada pedida durante la generación (audio.parar_voz → cancelar_generacion): el
+# streaming se corta, no se ejecuta ninguna tool más y no se dice nada. Las tools ya
+# ejecutadas no se deshacen. jarvis.py la reinicia al empezar cada turno.
+_cancelada = threading.Event()
+
+
+class GeneracionCancelada(Exception):
+    pass
+
+
+def cancelar_generacion():
+    _cancelada.set()
+
+
+def reiniciar_cancelacion():
+    _cancelada.clear()
+
+
+def generacion_cancelada():
+    return _cancelada.is_set()
+
 
 def streaming_activo():
     return os.environ.get("JARVIS_STREAMING", "1").strip() != "0"
@@ -1616,6 +1639,8 @@ def _llamar_claude_stream(params):
     t0, acumulado, con_tool = time.monotonic(), "", False
     with cliente.messages.stream(**params) as stream:
         for evento in stream:
+            if _cancelada.is_set():
+                raise GeneracionCancelada()  # salir del with cierra la conexión
             tipo = getattr(evento, "type", None)
             if tipo == "content_block_start" and getattr(evento.content_block, "type", None) == "tool_use":
                 if acumulado and not con_tool:
@@ -1634,6 +1659,9 @@ def _llamar_claude(params):
         return cliente.messages.create(**params)
     try:
         return _llamar_claude_stream(params)
+    except GeneracionCancelada:
+        _parcial("")
+        raise
     except Exception as e:
         # Aún no se ha dicho nada (solo se habla tras end_turn): se repite sin streaming
         _print_seguro(f"[STREAM] fallo ({type(e).__name__}); reintento sin streaming")
@@ -1673,7 +1701,17 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
     if skills is None:
         skills = {}
 
+    # "para", "cállate", "apágate"...: solo callan. Nunca llegan al modelo, al router
+    # ni al gate, así que no confirman ninguna acción pendiente ni cierran JARVIS.
+    if parada.es_orden_parada(texto):
+        traza["router"]     = "parada"
+        traza["stop_final"] = "orden_parada"
+        return None
+
     respuesta_router = _enrutar(texto, skills, traza, conversacion_reciente)
+    if _cancelada.is_set():
+        traza["stop_final"] = "cancelada"
+        return None
     if respuesta_router:
         return respuesta_router
     system = SYSTEM + "\n\n" + SYSTEM_DEV if traza.get("router") == "dev" else SYSTEM
@@ -1689,6 +1727,9 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
             messages[0]["content"] = f"[Contexto: {contexto}]\n\n{texto}"
 
     for i in range(20):
+        if _cancelada.is_set():
+            traza["stop_final"] = "cancelada"
+            return None
         t_llm = time.monotonic()
         try:
             respuesta = _llamar_claude(dict(
@@ -1699,6 +1740,10 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
                 tools=_tools_con_cache(),
                 messages=messages
             ))
+        except GeneracionCancelada:
+            _print_seguro("[PARADA] generación cancelada")
+            traza["stop_final"] = "cancelada"
+            return None
         except Exception as e:
             _print_seguro(f"⚠️ Claude API error: {e}")
             traza["stop_final"] = "api_error"
@@ -1712,6 +1757,10 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
         if isinstance(leidos, int) and leidos > 0:
             _print_seguro(f"[CACHE] hit={leidos} tok guardados")
 
+        if _cancelada.is_set():  # llegó mientras se generaba sin streaming: no se ejecuta nada
+            traza["stop_final"] = "cancelada"
+            return None
+
         if respuesta.stop_reason == "end_turn":
             traza["stop_final"] = "end_turn"
             for bloque in respuesta.content:
@@ -1724,6 +1773,9 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
             resultados = []
             for bloque in respuesta.content:
                 if bloque.type == "tool_use":
+                    if _cancelada.is_set():
+                        traza["stop_final"] = "cancelada"
+                        return None
                     _print_seguro(f"🔧 {bloque.name} {bloque.input}")
                     t_tool    = time.monotonic()
                     res       = _ejecutar(bloque.name, bloque.input, skills, texto)

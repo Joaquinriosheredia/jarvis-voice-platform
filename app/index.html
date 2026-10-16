@@ -10,9 +10,13 @@
 <body>
   <header class="barra">
     <div class="marca">J.A.R.V.I.S.</div>
-    <div id="estado" class="estado" data-state="disconnected">
-      <span class="punto"></span>
-      <span id="estado-texto">Desconectado</span>
+    <div class="controles">
+      <button id="parar" class="parar" type="button" title="Callar a JARVIS (Esc, o Ctrl+Alt+P desde cualquier ventana)"
+              disabled>Callar</button>
+      <div id="estado" class="estado" data-state="disconnected">
+        <span class="punto"></span>
+        <span id="estado-texto">Desconectado</span>
+      </div>
     </div>
   </header>
 
