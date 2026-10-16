@@ -91,6 +91,7 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 | Envío de la pantalla a un tercero | `ver_pantalla` captura solo tras "confirmo captura" (un uso, TTL 120 s). Una segunda captura en el mismo turno vuelve a bloquearse. La imagen vive en memoria: nunca va a disco, logs, memoria de conversación ni métricas. |
 | Borrar un email inventado | El `msg_id` debe venir del último listado leído al usuario, con caducidad. |
 | Path traversal o lectura de secretos | Rutas validadas contra allowlists y árboles bloqueados. Patrones de secretos (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `*token*`, `*credential*`, `.git`) bloqueados en cada componente de la ruta y excluidos de diff y grep. |
+| Secretos escritos en el código | `leer_archivo`, `git_diff`, `git_log`, `buscar_en_codigo` y `ejecutar_tests` enmascaran los secretos (claves con prefijo conocido, asignaciones sospechosas, Bearer/Basic, claves privadas y URLs con credenciales) como `[SECRETO-REDACTADO:tipo]` antes de truncar y de enviar nada al modelo, la UI o el log. No hay parámetro para desactivarlo. |
 | Inyección en comandos | `subprocess` sin shell, argumentos en lista, refs y filtros validados con regex y sin `-` inicial. |
 | Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron e ignora lo que envía el cliente. CSP estricta y texto insertado con `textContent`. |
 | Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. |
@@ -98,10 +99,10 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 ## Calidad
 
-- **Tests:** 385 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 385 tests ... OK`
-- **Evals:** 43 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
-  `python -m unittest tests.test_evals -v` → Ruta 43/43, Tool 43/43, Gate 43/43, con umbral mínimo del 80 %.
+- **Tests:** 440 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 440 tests ... OK`
+- **Evals:** 49 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
+  `python -m unittest tests.test_evals -v` → Ruta 49/49, Tool 49/49, Gate 49/49, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.
 - **Tools por nivel de riesgo:** 22 READ, 3 WRITE, 16 EXTERNAL (`ver_pantalla` con confirmación) y 5 DESTRUCTIVE. `test_brain_permisos` fija estas cifras.
 

@@ -2,12 +2,20 @@
 
 El modelo nunca pasa rutas absolutas: elige un alias de PROYECTOS y una ruta
 relativa dentro de él. Devuelven (ok, mensaje) salvo listar_proyectos.
+
+leer_archivo, git_diff, git_log, buscar_en_codigo y ejecutar_tests enmascaran los
+secretos (skills/secretos.py) antes de truncar y otra vez sobre el mensaje final:
+no hay parámetro que lo desactive.
 """
 import fnmatch
+import functools
 import os
 import re
 import subprocess
+import threading
 import time
+
+from skills import secretos
 
 PROYECTOS = {
     "jarvis":     "C:\\Jarvis",
@@ -19,6 +27,7 @@ PROYECTOS = {
 
 MAX_LINEAS  = 400
 MAX_BYTES   = 8 * 1024
+MAX_CRUDO   = 4 * MAX_BYTES  # lo que se lee antes de enmascarar y truncar a MAX_BYTES
 GIT_TIMEOUT = 10
 # Se comprueban contra CADA componente de la ruta (carpeta o archivo).
 # .git: su config puede llevar tokens en la URL del remoto.
@@ -57,6 +66,32 @@ FILTRO_VALIDO = re.compile(r"[\w/._-]{1,80}", re.ASCII)
 # Líneas de resumen de pytest, unittest y maven
 RESUMEN_TEST  = re.compile(r"\b\d+ (passed|failed|errors?|skipped)\b|no tests ran|^Ran \d+ tests?"
                            r"|^(OK|FAILED)\b|Tests run:|BUILD (SUCCESS|FAILURE)")
+
+
+# Secretos enmascarados en la llamada en curso (lo suma _redactar, lo lee _con_redaccion)
+_conteo = threading.local()
+
+
+def _redactar(texto):
+    """Enmascara secretos y los suma al contador de la llamada. Siempre antes de truncar."""
+    texto, n = secretos.redactar(texto)
+    _conteo.n = getattr(_conteo, "n", 0) + n
+    return texto
+
+
+def _con_redaccion(funcion):
+    """Red de seguridad: vuelve a enmascarar el mensaje final (errores y ecos del patrón
+    incluidos) y añade la línea del contador si hubo secretos."""
+    @functools.wraps(funcion)
+    def envoltura(*args, **kwargs):
+        _conteo.n = 0
+        try:
+            ok, msg = funcion(*args, **kwargs)
+            msg, extra = secretos.redactar(msg)
+            return ok, msg + secretos.aviso(_conteo.n + extra)
+        finally:
+            _conteo.n = 0
+    return envoltura
 
 
 def listar_proyectos():
@@ -102,6 +137,7 @@ def _entero_opcional(valor, nombre):
     return valor, None
 
 
+@_con_redaccion
 def leer_archivo(proyecto, ruta_relativa, desde=None, hasta=None):
     base, error = _base(proyecto)
     if error:
@@ -125,22 +161,32 @@ def leer_archivo(proyecto, ruta_relativa, desde=None, hasta=None):
         with open(real, "rb") as f:
             if b"\x00" in f.read(1024):
                 return False, f"{ruta_relativa} es un archivo binario; solo se leen archivos de texto"
-        lineas, usados, ultima, truncado = [], 0, desde - 1, False
+        crudas, usados, truncado = [], 0, False
         with open(real, encoding="utf-8", errors="replace") as f:
             for n, linea in enumerate(f, start=1):
                 if n < desde:
                     continue
                 if hasta is not None and n > hasta:
                     break
-                tam = len(linea.encode("utf-8"))
-                if len(lineas) >= MAX_LINEAS or usados + tam > MAX_BYTES:
+                if len(crudas) >= MAX_LINEAS or usados > MAX_CRUDO:
                     truncado = True
                     break
-                lineas.append(linea)
-                usados += tam
-                ultima = n
+                crudas.append(linea)
+                usados += len(linea.encode("utf-8"))
     except OSError as e:
         return False, f"No se pudo leer {ruta_relativa}: {e}"
+
+    # Enmascarar antes de truncar: un secreto en el límite de bytes nunca sale a medias.
+    # La redacción conserva el número de líneas, así que la numeración sigue siendo válida.
+    lineas, usados = [], 0
+    for linea in re.findall(r"[^\n]*\n|[^\n]+$", _redactar("".join(crudas))):
+        tam = len(linea.encode("utf-8"))
+        if usados + tam > MAX_BYTES:
+            truncado = True
+            break
+        lineas.append(linea)
+        usados += tam
+    ultima = desde - 1 + len(lineas)
 
     if not lineas:
         if truncado:  # una sola línea ya supera MAX_BYTES
@@ -207,6 +253,7 @@ def git_estado(proyecto):
     return True, f"{proyecto}, cambios pendientes:\n{_truncar(salida)}"
 
 
+@_con_redaccion
 def git_diff(proyecto, staged=False, ref=None, ruta=None):
     base, error = _base(proyecto)
     if error:
@@ -228,12 +275,13 @@ def git_diff(proyecto, staged=False, ref=None, ruta=None):
         return False, error
     if r.returncode != 0:
         return False, _fallo(r, proyecto, "diff")
-    salida = r.stdout.strip()
+    salida = _redactar(r.stdout.strip())
     if not salida:
         return True, f"{proyecto}: sin diferencias"
     return True, f"{proyecto}, diff:\n{_truncar(salida)}"
 
 
+@_con_redaccion
 def git_log(proyecto, n=10, ruta=None):
     base, error = _base(proyecto)
     if error:
@@ -254,7 +302,7 @@ def git_log(proyecto, n=10, ruta=None):
         return False, error
     if r.returncode != 0:
         return False, _fallo(r, proyecto, "log")
-    salida = r.stdout.strip()
+    salida = _redactar(r.stdout.strip())
     if not salida:
         return True, f"{proyecto}: sin commits" + (f" que toquen {ruta}" if ruta else "")
     return True, f"{proyecto}, últimos {len(salida.splitlines())} commits:\n{_truncar(salida)}"
@@ -295,6 +343,7 @@ def _buscar_sin_git(base, patron, glob):
     return lineas, False, None
 
 
+@_con_redaccion
 def buscar_en_codigo(proyecto, patron, glob=None):
     base, error = _base(proyecto)
     if error:
@@ -328,11 +377,13 @@ def buscar_en_codigo(proyecto, patron, glob=None):
 
     if not lineas:
         return True, f"{proyecto}: sin coincidencias para '{patron}'"
+    lineas = [_redactar(l) for l in lineas]  # antes del recorte de ancho
     recortadas = [l if len(l) <= MAX_ANCHO_LINEA else l[:MAX_ANCHO_LINEA] + "…" for l in lineas]
     aviso = f" (mostrando las primeras {MAX_COINCIDENCIAS})" if hay_mas else ""
     return True, f"{proyecto}, coincidencias de '{patron}'{aviso}:\n" + "\n".join(recortadas)
 
 
+@_con_redaccion
 def ejecutar_tests(proyecto, filtro=None):
     """(True, resumen) si la suite pasa; (False, motivo o resumen) si falla o no se pudo ejecutar."""
     base, error = _base(proyecto)
@@ -362,7 +413,7 @@ def ejecutar_tests(proyecto, filtro=None):
     except OSError as e:
         return False, f"No se pudieron ejecutar los tests de {proyecto}: {e}"
 
-    salida = (r.stdout or "").strip()
+    salida = _redactar((r.stdout or "").strip())
     resumen = " | ".join([l.strip() for l in salida.splitlines() if RESUMEN_TEST.search(l.strip())][-3:])
     cola = salida.encode("utf-8")[-MAX_COLA_TEST:].decode("utf-8", "ignore")
     if len(salida.encode("utf-8")) > MAX_COLA_TEST:

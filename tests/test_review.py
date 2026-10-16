@@ -97,8 +97,8 @@ class TestSystemReview(Base):
                       "La respuesta DEBE empezar directamente por esas 2 frases de resumen en texto plano",
                       "sin título, sin markdown, sin lista, sin saludo", '"Voy a revisar"',
                       "una línea en blanco y la lista de hallazgos",
-                      "No repitas secretos, claves ni tokens que aparezcan en el diff",
-                      "deben rotarse y sacarse del código"):
+                      "[SECRETO-REDACTADO:tipo]", "hallazgo de seguridad de alta gravedad",
+                      "Nunca intentes reconstruir ni adivinar el valor"):
             self.assertIn(frase, brain.SYSTEM_REVIEW)
 
 
