@@ -14,7 +14,7 @@ from email.utils import parseaddr
 import anthropic
 import requests
 
-from skills import calendario, operador, pantalla
+from skills import calendario, operador, pantalla, webs
 import metrics
 import tts_elevenlabs
 
@@ -54,6 +54,14 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {
             "sitio": {"type": "string", "description": "Nombre del sitio"}
         }, "required": ["sitio"]}
+    },
+    {
+        "name": "buscar_en_navegador",
+        "description": "Abre en el navegador del usuario una búsqueda ya hecha en un sitio: google, amazon, youtube, wikipedia, maps o github. Solo abre la página de resultados; no la lee ni devuelve información.",
+        "input_schema": {"type": "object", "properties": {
+            "motor":    {"type": "string", "enum": list(webs.MOTORES), "description": "Sitio donde buscar"},
+            "consulta": {"type": "string", "description": "Qué buscar"}
+        }, "required": ["motor", "consulta"]}
     },
     {
         "name": "abrir_app",
@@ -399,6 +407,7 @@ COMPORTAMIENTO:
 - Para cerrar Jarvis (adiós, hasta luego, apágate, desconéctate): usa cerrar_jarvis
 - Para apagar el PC llama directamente a apagar_pc. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.
 - Para info actual: usa buscar_en_web
+- Usa buscar_en_navegador cuando el usuario pida buscar en Google, Amazon, YouTube, Wikipedia, Maps o GitHub, o diga "ábreme una búsqueda"; usa buscar_en_web cuando quiera que tú le digas la información. Si dudas, buscar_en_web para preguntas de datos y buscar_en_navegador cuando nombre un sitio o diga "ábreme", "pon" o "muéstrame en el navegador".
 - Para analizar proyectos: usa listar_proyectos para ver los disponibles, leer_archivo para leer código, git_estado para ver cambios pendientes, git_diff para ver el diff, git_log para el historial y buscar_en_codigo para localizar texto en el código.
 - Para ejecutar tests de un proyecto usa ejecutar_tests. Muestra el resumen tal cual sin parafrasear.
 - Los secretos aparecen enmascarados como [SECRETO-REDACTADO:tipo]. Si ves ese marcador en el diff, repórtalo como hallazgo de seguridad de alta gravedad (secreto escrito en el código: debe rotarse y sacarse a una variable de entorno), indicando archivo y línea. Nunca intentes reconstruir ni adivinar el valor.
@@ -510,7 +519,7 @@ TOOL_RISK = {
     "reproducir_musica": "EXTERNAL", "parar_musica": "EXTERNAL", "ejecutar_tests": "EXTERNAL",
     "crear_evento": "EXTERNAL",
     "ver_pantalla": "EXTERNAL",  # envía la captura a Anthropic: confirmación por voz (REQUIERE_CONFIRMACION)
-    "abrir_youtube": "EXTERNAL", "abrir_web": "EXTERNAL", "abrir_app": "EXTERNAL",
+    "abrir_youtube": "EXTERNAL", "abrir_web": "EXTERNAL", "buscar_en_navegador": "EXTERNAL", "abrir_app": "EXTERNAL",
     "organizar_directorio": "EXTERNAL", "crear_carpeta": "EXTERNAL",
     "mover_archivo": "EXTERNAL", "archivar_email": "EXTERNAL",
     "volumen_subir": "EXTERNAL", "volumen_bajar": "EXTERNAL",
@@ -986,6 +995,10 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
 
         if nombre == "abrir_web":
             return _envolver(webs.abrir_url(parametros.get('sitio', '')) or "No conozco ese sitio")
+
+        if nombre == "buscar_en_navegador":
+            ok, msg = webs.buscar_en_navegador(parametros.get("motor", ""), parametros.get("consulta", ""))
+            return _ok(msg) if ok else _err(msg, "busqueda_rechazada")
 
         if nombre == "abrir_app":
             return _envolver(webs.abrir_app(parametros.get('app', '')) or "No conozco esa app")

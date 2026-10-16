@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml)
 
-Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 46 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
+Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 47 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
 
 **Stack:** Python · Electron · Claude Haiku 4.5 · Ollama (qwen2.5:3b) · Whisper · Piper (ElevenLabs opcional)
 
@@ -13,12 +13,13 @@ Asistente de voz personal en español para Windows: escucha por micrófono, deci
 ## Qué hace
 
 - **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; interrupción por voz (barge-in) mientras JARVIS habla.
-- **Agente con 46 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
+- **Agente con 47 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
 - **Respuesta en streaming:** el texto aparece en la UI mientras Claude lo genera, y la voz se reproduce por frases: la siguiente se sintetiza mientras suena la actual.
 - **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación, y solo se puede enviar a la propia dirección.
 - **Calendario (Google Calendar):** `ver_agenda` y `crear_evento`. "Qué tengo hoy" combina agenda y tareas. Cada turno lleva la fecha y hora reales.
 - **Visión por voz:** "mira mi pantalla" o "qué error sale" capturan el monitor principal tras confirmar con "confirmo captura", y Claude describe lo que ve.
 - **Operador de ingeniería:** leer archivos, `git status`, `diff` y `log`, buscar en el código y `ejecutar_tests`, siempre sobre una allowlist de proyectos.
+- **Búsquedas en el navegador:** "busca colchones en Amazon" o "busca en Google…" abren la búsqueda ya hecha en el navegador por defecto (Google, Amazon, YouTube, Wikipedia, Maps o GitHub). La consulta no pasa por ningún servicio de JARVIS.
 - **Música y sistema:** VLC y yt-dlp, volumen, archivos, recordatorios, notas, pomodoro y apagado con confirmación.
 - **Observabilidad por turno:** latencia por fase, tokens, coste estimado y log JSONL con replay, más la tool `gasto_hoy` para preguntarlo por voz.
 - **UI de escritorio en Electron:** conversación en vivo, estado del micrófono, bloques de código y una línea de métricas bajo cada respuesta.
@@ -101,13 +102,13 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 ## Calidad
 
-- **Tests:** 442 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 442 tests ... OK`
+- **Tests:** 456 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 456 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red) y escaneo de secretos con gitleaks.
-- **Evals:** 49 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
-  `python -m unittest tests.test_evals -v` → Ruta 49/49, Tool 49/49, Gate 49/49, con umbral mínimo del 80 %.
+- **Evals:** 52 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
+  `python -m unittest tests.test_evals -v` → Ruta 52/52, Tool 52/52, Gate 52/52, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.
-- **Tools por nivel de riesgo:** 22 READ, 3 WRITE, 16 EXTERNAL (`ver_pantalla` con confirmación) y 5 DESTRUCTIVE. `test_brain_permisos` fija estas cifras.
+- **Tools por nivel de riesgo:** 22 READ, 3 WRITE, 17 EXTERNAL (`ver_pantalla` con confirmación) y 5 DESTRUCTIVE. `test_brain_permisos` fija estas cifras.
 
 ## Instalación y ejecución (Windows)
 
@@ -181,7 +182,7 @@ tests/               tests unitarios y evals (test_evals.py)
 ## Limitaciones conocidas
 
 - La captura es de la pantalla completa del monitor principal. No está probada con varios monitores ni con un escalado de Windows distinto del 100 %.
-- Sin automatización de navegador: abre URLs y busca en la web, pero no interactúa con páginas.
+- Sin automatización de navegador: abre URLs y búsquedas en el navegador, y busca en la web, pero no controla el navegador ni lee páginas.
 - Solo voz: no hay entrada por texto ni en la UI ni en la terminal.
 - Solo Windows. El operador accede a los proyectos que viven en WSL a través de `wsl.exe` y `\\wsl.localhost`.
 - Lo que dices, lo que leen las tools (emails, archivos) y las capturas confirmadas se envían a la API de Anthropic cuando el router elige Claude. La privacidad del TTS y del log no cambia eso.

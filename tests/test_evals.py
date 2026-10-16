@@ -90,7 +90,12 @@ CASOS = [
     ("qué puedes hacer",     "claude", None,               "none"),
 
     # EDGE CASES
-    ("busca en google colchones baratos", "claude", "buscar_en_web", "none"),
+    # nombra un sitio: se abre la búsqueda en el navegador (antes buscar_en_web)
+    ("busca en google colchones baratos", "claude", "buscar_en_navegador", "none"),
+    ("busca colchones en amazon",          "claude", "buscar_en_navegador", "none"),
+    ("busca en google recetas de lentejas", "claude", "buscar_en_navegador", "none"),
+    # quiere la información, no abrir el navegador
+    ("busca información sobre el imperio romano", "claude", "buscar_en_web", "none"),
     ("pon una alarma en 10 minutos",      "claude", "recordatorio",  "none"),
     ("lista mis emails",                  "claude", "leer_emails",   "none"),
 
@@ -146,6 +151,7 @@ INPUTS = {
     "ejecutar_tests":    {"proyecto": "jarvis"},
     "reproducir_musica": {"query": "música de fondo"},
     "buscar_en_web":     {"query": "colchones baratos"},
+    "buscar_en_navegador": {"motor": "amazon", "consulta": "colchones"},
     "recordatorio":      {"tarea": "alarma", "hora": "10 minutos"},
     "ver_agenda":        {"dias": 7},
     "crear_evento":      {"titulo": "Revisión de proyecto", "fecha": "2026-10-16", "hora_inicio": "10:00"},

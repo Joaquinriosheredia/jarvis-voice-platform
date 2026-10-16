@@ -1,4 +1,5 @@
 import webbrowser
+import unicodedata
 import urllib.parse
 import urllib.request
 import json
@@ -93,6 +94,37 @@ def youtube_buscar(busqueda):
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(busqueda)}"
     webbrowser.open(url)
     return f"Buscando en YouTube: {busqueda}"
+
+# ── BÚSQUEDA EN EL NAVEGADOR (tool buscar_en_navegador) ───────────
+# Solo plantillas fijas: el modelo elige el motor y la consulta, nunca la URL.
+# La consulta no sale de JARVIS: la búsqueda la hace el navegador del usuario.
+MOTORES = {
+    "google":    ("Google",      "https://www.google.com/search?q={}"),
+    "amazon":    ("Amazon",      "https://www.amazon.es/s?k={}"),
+    "youtube":   ("YouTube",     "https://www.youtube.com/results?search_query={}"),
+    "wikipedia": ("Wikipedia",   "https://es.wikipedia.org/w/index.php?search={}"),
+    "maps":      ("Google Maps", "https://www.google.com/maps/search/?api=1&query={}"),
+    "github":    ("GitHub",      "https://github.com/search?q={}"),
+}
+MAX_CONSULTA = 200
+
+def _limpiar_consulta(consulta):
+    """Sin caracteres de control (se vuelven espacio), espacios colapsados, máx. 200."""
+    if not isinstance(consulta, str):
+        return ""
+    sin_control = "".join(" " if unicodedata.category(c) == "Cc" else c for c in consulta)
+    return " ".join(sin_control.split())[:MAX_CONSULTA].strip()
+
+def buscar_en_navegador(motor, consulta):
+    clave = motor.strip().lower() if isinstance(motor, str) else ""
+    if clave not in MOTORES:
+        return False, f"Motor no disponible: {motor!r}. Disponibles: {', '.join(MOTORES)}."
+    consulta = _limpiar_consulta(consulta)
+    if not consulta:
+        return False, "La búsqueda está vacía. Dime qué quieres buscar."
+    nombre, plantilla = MOTORES[clave]
+    webbrowser.open(plantilla.format(urllib.parse.quote_plus(consulta)))
+    return True, f"Buscando {consulta} en {nombre}."
 
 # ── GOOGLE FALLBACK ───────────────────────────────────────────────
 def buscar_google(query):
