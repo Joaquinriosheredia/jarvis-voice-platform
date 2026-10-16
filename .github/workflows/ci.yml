@@ -47,6 +47,16 @@ jobs:
       - name: Tests con mocks
         run: python -m unittest discover -s tests -q
 
+      # En el runner no hay audio, Ollama ni credenciales: los ERROR son esperados.
+      # Solo se comprueba que el doctor se ejecuta y produce JSON válido.
+      - name: Doctor (JSON válido)
+        run: >-
+          python -c "import json, subprocess, sys;
+          r = subprocess.run([sys.executable, 'doctor.py', '--json'], capture_output=True, timeout=120);
+          d = json.loads(r.stdout);
+          assert r.returncode in (0, 1) and d['version'] == 1, r.returncode;
+          print('doctor exit', r.returncode, d['estado'], d['resumen'])"
+
   secrets-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10

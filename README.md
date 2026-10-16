@@ -102,9 +102,9 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 ## Calidad
 
-- **Tests:** 456 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 456 tests ... OK`
-- **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red) y escaneo de secretos con gitleaks.
+- **Tests:** 497 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 497 tests ... OK`
+- **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 52 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 52/52, Tool 52/52, Gate 52/52, con umbral mínimo del 80 %.
   La ruta y el gate son lógica real. La métrica Tool usa un mock del modelo en la ruta claude, así que solo valida la tubería. Para medir al modelo de verdad hay que lanzarlo con `JARVIS_EVALS_LIVE=1`, que llama a la API y tiene coste.
@@ -119,6 +119,7 @@ cd C:\Jarvis
 python -m venv venv
 venv\Scripts\pip install -r requirements.txt   # incluye pillow (captura) y tzdata (zona horaria)
 ollama pull qwen2.5:3b
+venv\Scripts\python.exe doctor.py              # primer paso tras instalar: comprueba el entorno
 ```
 
 Configuración en `C:\Jarvis-secrets\.env`, que carga `jarvis.py`:
@@ -153,6 +154,20 @@ cd app; npm install; npm start         # UI Electron (opcional)
 venv\Scripts\python.exe replay.py 20   # últimos 20 turnos: hora, ruta, tools, latencia, coste
 venv\Scripts\python.exe replay.py --resumen   # hoy y 7 días: p50/p95, coste, % por ruta, caché
 ```
+
+## Diagnóstico
+
+```powershell
+venv\Scripts\python.exe doctor.py            # tabla legible
+venv\Scripts\python.exe doctor.py --json     # JSON estable (version, estado, resumen, comprobaciones)
+venv\Scripts\python.exe doctor.py --live     # además valida la clave de Anthropic (max_tokens=1) y la voz de ElevenLabs
+```
+
+Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC, yt-dlp, Node y Electron, Ollama y su modelo, audio, Piper, Whisper y CUDA, credenciales y tokens de Google, `.gitignore` y secretos en git, el puerto 8765, la zona horaria, los proyectos del operador, `logs/` y git. Es de solo lectura: no escribe archivos, no graba audio ni carga modelos, y nunca imprime claves (solo "definida" y su longitud).
+
+- **OK:** correcto.
+- **AVISO:** funciona con limitaciones (sin Ollama todo va a Claude, sin CUDA Whisper va en CPU, token que se renovará…). No cambia el código de salida.
+- **ERROR:** algo que impide arrancar o una función básica. Cada fallo trae la acción para arreglarlo. Código de salida 1 si hay algún ERROR.
 
 ## Estructura del repo
 
