@@ -82,6 +82,19 @@ class TestPatrones(unittest.TestCase):
         red = redactar_secretos("git remote: https://usuario:ghx9Kd02LmQ@github.com/u/r.git")
         self.assertIn("https://usuario:[SECRETO-REDACTADO:url]@github.com/u/r.git", red)
 
+    def test_url_clave_corta_siempre_se_enmascara(self):
+        self.assertEqual(redactar("mysql://u:p@h"), ("mysql://u:[SECRETO-REDACTADO:url]@h", 1))
+        self.assertEqual(redactar("redis://:abc@cache:6379/0"),  # solo contraseña, sin usuario
+                         ("redis://:[SECRETO-REDACTADO:url]@cache:6379/0", 1))
+        una, n = redactar("conn = 'ftp://ana:1234@srv/x' y 'mysql://u:p@h'")
+        self.assertEqual(n, 2)
+        self.assertEqual(redactar(una), (una, 0))  # idempotente
+
+    def test_url_sin_credenciales_o_solo_usuario_no_se_toca(self):
+        for texto in ("https://github.com/u/r.git", "https://usuario@host/ruta",
+                      "http://localhost:8080/api", "ssh://git@github.com:22/u/r.git"):
+            self.assertEqual(redactar(texto), (texto, 0), texto)
+
     def test_clave_privada_completa_un_solo_marcador_y_mismas_lineas(self):
         texto = f"antes\n{PRIVADA}\ndespués"
         red, n = redactar(texto)

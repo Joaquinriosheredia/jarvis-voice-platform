@@ -13,7 +13,7 @@ MIN_VALOR = 8
 _RE_PRIVADA = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----.*?"
                          r"(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----|\Z)", re.S)
 # esquema://usuario:clave@host → solo la clave
-_RE_URL = re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@\"'<>]+:)([^\s@/\"'<>]+)(?=@)")
+_RE_URL = re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]*://[^\s:/@\"'<>]*:)([^\s@/\"'<>]+)(?=@)")
 # Authorization: Bearer <valor> / Basic <valor>
 _RE_CABECERA = re.compile(r"\b(Bearer|Basic)(\s+)(?=[A-Za-z0-9._~+/-]*[0-9=])([A-Za-z0-9._~+/=-]{8,})", re.I)
 # Claves con prefijo conocido: (tipo, patrón)
@@ -59,9 +59,13 @@ def _es_marcador(valor):
     return False
 
 
-def _sub(patron, tipo, texto, cuenta, grupo=0):
+def _ya_redactado(valor):
+    return "SECRETO-REDACTADO" in valor
+
+
+def _sub(patron, tipo, texto, cuenta, grupo=0, omitir=_es_marcador):
     def reemplazo(m):
-        if grupo and _es_marcador(m.group(grupo)):
+        if grupo and omitir(m.group(grupo)):
             return m.group(0)
         cuenta[0] += 1
         if not grupo:
@@ -100,7 +104,8 @@ def redactar(texto):
         cuenta[0] += 1
         return MARCADOR.format("clave_privada") + "\n" * m.group(0).count("\n")  # mismas líneas
     t = _RE_PRIVADA.sub(privada, texto)
-    t = _sub(_RE_URL, "url", t, cuenta, grupo=2)
+    # Clave de una URL con credenciales: siempre, sin mínimo de longitud ni marcadores
+    t = _sub(_RE_URL, "url", t, cuenta, grupo=2, omitir=_ya_redactado)
     t = _cabecera(t, cuenta)
     for tipo, patron in _PREFIJOS:
         t = _sub(patron, tipo, t, cuenta)
