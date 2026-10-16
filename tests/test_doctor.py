@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import doctor  # noqa: E402
 
 CLAVE_FALSA = "sk-ant-api03-CLAVEFALSADETEST0123456789abcdef"
+CLAVE_EL    = "falsa" * 4  # se construye: un literal con forma de clave dispara gitleaks
 CONSTANTES = {
     ("brain.py", "OLLAMA_URL"): "http://127.0.0.1:11434",
     ("brain.py", "OLLAMA_MODEL"): "qwen2.5:3b",
@@ -284,10 +285,10 @@ class TestElevenLabs(Base):
         os.environ["JARVIS_TTS"] = "elevenlabs"
         with patch.object(doctor.os.path, "isfile", return_value=False):
             self.estado(doctor.check_elevenlabs(), doctor.AVISO)
-        os.environ.update(ELEVENLABS_API_KEY="el-clave-falsa-123456", ELEVENLABS_VOICE_ID="voz123")
+        os.environ.update(ELEVENLABS_API_KEY=CLAVE_EL, ELEVENLABS_VOICE_ID="voz123")
         r = doctor.check_elevenlabs()
         self.estado(r, doctor.OK)
-        self.assertNotIn("el-clave-falsa", r["detalle"])
+        self.assertNotIn(CLAVE_EL, r["detalle"])
 
 
 # ── Seguridad del repo ────────────────────────────────────────────
@@ -422,7 +423,7 @@ class TestLive(Base):
         self.assertNotIn(CLAVE_FALSA, json.dumps(r))  # solo el tipo de excepción
 
     def test_elevenlabs_consulta_la_voz_sin_sintetizar(self):
-        os.environ.update(JARVIS_TTS="elevenlabs", ELEVENLABS_API_KEY="el-falsa-1234567890",
+        os.environ.update(JARVIS_TTS="elevenlabs", ELEVENLABS_API_KEY=CLAVE_EL,
                           ELEVENLABS_VOICE_ID="voz123")
         with patch.object(doctor, "_get", return_value=200) as get, patch.object(doctor, "_post") as post:
             self.estado(doctor.check_live_elevenlabs(), doctor.OK)

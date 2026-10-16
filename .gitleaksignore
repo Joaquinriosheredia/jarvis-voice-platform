@@ -1,0 +1,4 @@
+# Claves FALSAS de ElevenLabs en tests/test_doctor.py del commit 81b8815 (ya sustituidas
+# por una constante construida). Solo esas dos huellas: cualquier hallazgo nuevo sigue fallando.
+81b881586cefe866a7c689ff4d343fb1feda8772:tests/test_doctor.py:generic-api-key:287
+81b881586cefe866a7c689ff4d343fb1feda8772:tests/test_doctor.py:generic-api-key:425
