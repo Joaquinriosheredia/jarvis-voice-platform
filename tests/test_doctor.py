@@ -300,8 +300,12 @@ class TestSeguridad(Base):
             self.estado(doctor.check_secretos_fuera_del_repo(), doctor.OK)
 
     def test_gitignore(self):
-        with patch.object(doctor, "git", return_value=completado()):
-            self.estado(doctor.check_gitignore(), doctor.OK)
+        with patch.object(doctor, "git", return_value=completado()) as git:
+            r = doctor.check_gitignore()
+        self.estado(r, doctor.OK)
+        self.assertEqual(r["detalle"], ".gitignore cubre .env, credentials*.json, token*.json y logs/")
+        comprobadas = {c.args[-1] for c in git.call_args_list}
+        self.assertTrue({"credentials_backup.json", "token_calendar.json"} <= comprobadas)  # los comodines
         with patch.object(doctor, "git", side_effect=lambda *a: completado(codigo=1 if a[-1] == "token_calendar.json" else 0)):
             r = doctor.check_gitignore()
         self.estado(r, doctor.AVISO)

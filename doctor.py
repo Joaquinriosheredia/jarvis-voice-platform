@@ -36,7 +36,7 @@ LOG_GRANDE = 50 * 1024 * 1024
 PATRONES_SECRETOS = (r"\.env(\..*)?", r".*\.pem", r".*\.key", r"id_rsa.*", r"credentials.*\.json",
                      r"token.*\.json", r"elevenlabs\.json")
 # Rutas de muestra que .gitignore debe cubrir
-DEBEN_IGNORARSE = (".env", "credentials.json", "token.json", "token_calendar.json", "logs/turnos.jsonl")
+DEBEN_IGNORARSE = (".env", "credentials.json", "credentials_backup.json", "token.json", "token_calendar.json", "logs/turnos.jsonl")
 
 
 def resultado(estado, detalle, accion=""):
@@ -362,7 +362,7 @@ def check_gitignore():
     if sin_cubrir:
         return resultado(AVISO, f".gitignore no cubre: {', '.join(sin_cubrir)}",
                          "Añade a .gitignore: .env, credentials*.json, token*.json y logs/")
-    return resultado(OK, ".gitignore cubre .env, credentials.json, token*.json y logs/")
+    return resultado(OK, ".gitignore cubre .env, credentials*.json, token*.json y logs/")
 
 
 def check_secretos_trackeados():
