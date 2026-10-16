@@ -116,7 +116,7 @@ TOOLS = [
         "name": "enviar_email",
         "description": "Envía un email. El gate pide confirmación anunciando el destinatario real y el adjunto.",
         "input_schema": {"type": "object", "properties": {
-            "destinatario": {"type": "string", "description": "'yo' si el usuario se lo envía a sí mismo (a mí, mi correo, mi dirección, mi propia dirección): el sistema resuelve su dirección. Si no, la dirección que el usuario ha dictado, tal cual la entiendes."},
+            "destinatario": {"type": "string", "description": "'yo' si el usuario se lo envía a sí mismo (a mí, mi correo, mi dirección, mi propia dirección): el sistema resuelve su dirección. 'dictada' si se refiere a una dirección que dictó en un turno anterior (a la misma, a la de antes): el sistema la recupera. Si no, la dirección que el usuario ha dictado en este turno, tal cual la entiendes."},
             "asunto":       {"type": "string"},
             "cuerpo":       {"type": "string"},
             "adjunto":      {"type": "string", "description": "Ruta completa del archivo a adjuntar (opcional)"}
@@ -399,7 +399,7 @@ COMPORTAMIENTO:
 - Para abrir YouTube en navegador: usa abrir_youtube
 - Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
 - Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
-- Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario se lo envía a sí mismo ('mándamelo a mí', 'a mi correo', 'a mi dirección', 'a mi propia dirección'), usa destinatario 'yo': el sistema obtiene su dirección de la cuenta de Gmail. Nunca le preguntes su propia dirección; si la herramienta falla, dile la causa que devuelve. Si dicta otra dirección, pásala tal cual: el sistema valida el formato y se la deletrea antes de confirmar. El gate pedirá confirmación.
+- Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario se lo envía a sí mismo ('mándamelo a mí', 'a mi correo', 'a mi dirección', 'a mi propia dirección'), usa destinatario 'yo': el sistema obtiene su dirección de la cuenta de Gmail. Nunca le preguntes su propia dirección; si la herramienta falla, dile la causa que devuelve. Si dicta otra dirección, pásala tal cual: el sistema valida el formato y se la deletrea antes de confirmar. El historial no guarda direcciones (salen como <email>) ni el texto de los turnos privados: si se refiere a una dirección que dictó antes, usa destinatario 'dictada' y el sistema la recupera; nunca escribas <email> como destinatario. El gate pedirá confirmación.
 {ORDENES_DE_VOZ}
 - Para apagar el PC llama directamente a apagar_pc. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.
 - Para info actual: usa buscar_en_web
@@ -563,6 +563,11 @@ DESTINATARIOS_PERMITIDOS = []
 DESTINATARIO_PROPIO = {"yo", "mi", "me", "a mi", "mi correo", "mi email", "mi mail", "mi direccion",
                        "mi propia direccion", "mi propio correo", "mi correo electronico",
                        "mi direccion de correo", "mi direccion de email"}
+# enviar_email con destinatario "dictada" (o equivalentes): el sistema pone la última
+# dirección dictada por el micro (el historial no la guarda)
+DESTINATARIO_DICTADO = {"dictada", "la dictada", "direccion dictada", "la direccion dictada",
+                        "la misma", "la misma direccion", "la de antes", "la direccion de antes",
+                        "la anterior", "la direccion anterior", "email", "<email>"}
 # Última dirección con formato válido dictada por el micro: {"dir", "ts"} (nunca del modelo)
 DICTADA_TTL = 300
 _dictada    = None
@@ -863,6 +868,24 @@ def _es_destinatario_propio(destinatario):
     return isinstance(destinatario, str) and _normalizar(destinatario) in DESTINATARIO_PROPIO
 
 
+def _es_destinatario_dictado(destinatario):
+    return isinstance(destinatario, str) and (
+        _normalizar(destinatario) in DESTINATARIO_DICTADO or destinatario.strip() == direccion.OCULTA)
+
+
+MSG_SIN_DICTADA = ("No tengo ninguna dirección dictada en los últimos 5 minutos: díctamela de nuevo "
+                   "(por ejemplo, pepe arroba gmail punto com).")
+
+
+def _resolver_dictada():
+    """(dirección, None) de la última dictada por el micro hace menos de DICTADA_TTL s,
+    o (None, mensaje). Nunca sale del historial ni de los parámetros del modelo."""
+    d = _dictada
+    if d and d.get("dir") and time.monotonic() - d["ts"] <= DICTADA_TTL:
+        return d["dir"], None
+    return None, MSG_SIN_DICTADA
+
+
 def _resolver_mi_email(skills):
     """(dirección, None) de la cuenta de Gmail autenticada, o (None, mensaje con la
     causa real: autenticación, red, permisos...). Nunca pide que se dicte."""
@@ -1041,6 +1064,12 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
                 if error:
                     return _err(error, "mi_email_no_disponible")
                 parametros = dict(parametros, destinatario=mi_email)
+            elif _es_destinatario_dictado(parametros.get("destinatario")):
+                dictada, error = _resolver_dictada()
+                if error:
+                    return _err(error, "sin_direccion_dictada")
+                parametros = dict(parametros, destinatario=dictada)
+                cargar_destinatarios_permitidos(skills)
             else:
                 cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
         bloqueo = _gate(nombre, parametros, texto_usuario, _email_en_cache(nombre, parametros, skills))

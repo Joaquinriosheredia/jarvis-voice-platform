@@ -115,12 +115,13 @@ Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "�
 | Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron. Del cliente solo atiende `{"type": "stop"}` (callar a JARVIS) e ignora el resto. CSP estricta y texto insertado con `textContent`. |
 | Eco del TTS o audio ajeno dando órdenes mientras JARVIS habla | Mientras habla o genera, solo se atiende una orden de parada. Tiene que ser una transcripción corta (≤ 2 s), con confianza de Whisper y sin nada más que la orden, y la voz tiene que dominar sobre el eco esperado, que se estima a partir de lo que JARVIS reproduce. Si lo que dice JARVIS contiene esa misma orden como frase, se descarta como eco. Todo lo demás que se oiga se ignora: nunca llega al modelo ni al gate. Con altavoces, una orden dicha encima de un eco fuerte puede no reconocerse; con auriculares es fiable. El botón y el atajo de teclado no dependen del micrófono. |
 | Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. Para los logs anteriores a estas reglas, `limpiar_logs.py` (de un solo uso) quita el texto de los turnos que hoy son privados y cambia las direcciones por `<email>`: primero muestra el recuento y pide confirmación, y guarda los originales en `logs/backup-<fecha>/`. |
+| Datos personales en la memoria de conversación | El historial de `memoria.json`, que vuelve al modelo como contexto, nunca guarda direcciones: se sustituyen por `<email>` con el mismo enmascarado que los logs. Un turno privado se guarda sin texto, con un marcador del tema, las tools usadas y si quedó algo por confirmar. Lo que el modelo necesite de esos turnos lo pone el sistema: destinatario `yo` (la cuenta de Gmail) o `dictada` (la última dirección dictada por el micrófono, durante 5 minutos). Las notas no se tocan. `limpiar_memoria.py` (de un solo uso) aplica lo mismo al `memoria.json` y al `memoria.json.bak` existentes, con recuento, confirmación y copia en `logs/backup-memoria-<fecha>/`. |
 | Fuga de credenciales | Secretos fuera del repo, en `C:\Jarvis-secrets`. La clave de ElevenLabs nunca se escribe en logs (hay un test). |
 
 ## Calidad
 
-- **Tests:** 634 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 634 tests ... OK`
+- **Tests:** 653 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 653 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 60 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 60/60, Tool 60/60, Gate 60/60, con umbral mínimo del 80 %.
@@ -232,6 +233,7 @@ replay.py            consulta del log de turnos
 doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
 reautorizar.py       vuelve a autorizar Gmail o Calendar (renombra el token, OAuth y comprobación)
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
+limpiar_memoria.py   limpieza de un solo uso de direcciones en el historial de memoria.json
 ui_bridge.py         servidor WebSocket local para la UI
 memoria.py           historial de conversación
 skills/              gmail, calendario, google_auth, pantalla, operador, musica, sistema, tareas, webs

@@ -259,44 +259,91 @@ def main():
         except Exception as e:
             print(f"❌ Error: {brain.direccion.ocultar(str(e))}")
 
+# ── HISTORIAL (memoria.json) ──────────────────────────────────────
+# El historial va a disco y vuelve al modelo como contexto: nunca guarda direcciones
+# (salen como <email>) ni el texto de un turno privado (email, agenda, pantalla o una
+# dirección dictada). Lo que el modelo necesite de esos turnos lo resuelve el sistema:
+# destinatario "yo" (getProfile), "dictada" (brain._dictada) y la acción pendiente.
+TURNO_PRIVADO = "[Turno privado: el texto no se guarda]"
+
+def _tema(tools):
+    temas = {"ver_agenda": "agenda", "ver_pantalla": "pantalla"}
+    vistos = []
+    for t in tools:
+        tema = temas.get(t, "correo")
+        if tema not in vistos:
+            vistos.append(tema)
+    return " y ".join(vistos) or "datos privados"
+
+def _respuesta_privada():
+    """Resumen sin datos de un turno privado: qué tools usó y si quedó algo por confirmar."""
+    traza  = brain.ultima_traza() or {}
+    tools  = []
+    for t in traza.get("tools_ejecutadas") or []:
+        if t.get("nombre") in brain.TOOLS_PRIVADAS and t["nombre"] not in tools:
+            tools.append(t["nombre"])
+    texto = f"[Respuesta privada no guardada. Tema: {_tema(tools)}"
+    if tools:
+        texto += f". Tools: {', '.join(tools)}"
+    info = brain.pendiente_info() if brain.hay_pendiente() else None
+    if info:
+        texto += f". Pendiente de confirmar por voz: {info['tool']}"
+    return texto + "]"
+
+def _guardar_en_historial(texto, dicho):
+    """Guarda el turno ya terminado (pregunta y, si se dijo, la respuesta)."""
+    if tts_elevenlabs.turno_privado():
+        mem.añadir_al_historial(memoria, TURNO_PRIVADO)
+        if dicho:
+            mem.añadir_al_historial(memoria, f"Jarvis: {_respuesta_privada()}")
+        return
+    mem.añadir_al_historial(memoria, brain.direccion.redactar(texto))
+    if dicho:
+        mem.añadir_al_historial(memoria, f"Jarvis: {brain.direccion.redactar(dicho)}")
+
 def _turno(texto):
     """Piensa y responde a un texto del micro. Devuelve (respuesta, cerrar).
     Una parada durante la generación (brain.generacion_cancelada) descarta la
-    respuesta: no se dice nada ni se ejecutan el D1-fix ni el anuncio."""
-    mem.añadir_al_historial(memoria, texto)
-    contexto  = mem.obtener_mensajes(memoria)
-    respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
-                             conversacion_reciente=mem.conversacion_reciente(memoria))
-    if brain.generacion_cancelada():
-        brain._print_seguro("[PARADA] respuesta descartada")
-        return None, False
-    d1_ejecutado = _d1_fix(texto)
+    respuesta: no se dice nada ni se ejecutan el D1-fix ni el anuncio. El turno
+    se guarda en el historial al terminar, cuando ya se sabe si es privado."""
+    dicho = None
+    try:
+        # La pregunta actual va aparte (brain.pensar la añade): el contexto son los turnos anteriores
+        contexto  = mem.obtener_mensajes(memoria)
+        respuesta = brain.pensar(texto, contexto=contexto, skills=SKILLS,
+                                 conversacion_reciente=mem.conversacion_reciente(memoria))
+        if brain.generacion_cancelada():
+            brain._print_seguro("[PARADA] respuesta descartada")
+            return None, False
+        d1_ejecutado = _d1_fix(texto)
 
-    # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
-    # no la paráfrasis del modelo, que podría estar manipulada
-    anuncio = brain.anuncio_confirmacion()
-    if anuncio:
-        audio.BARGE_IN_ACTIVO = False
-        try:
-            audio.hablar(anuncio)
-        finally:
-            audio.BARGE_IN_ACTIVO = True
-        mem.añadir_al_historial(memoria, f"Jarvis: {brain.direccion.ocultar(anuncio)}")
+        # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),
+        # no la paráfrasis del modelo, que podría estar manipulada
+        anuncio = brain.anuncio_confirmacion()
+        if anuncio:
+            audio.BARGE_IN_ACTIVO = False
+            try:
+                audio.hablar(anuncio)
+            finally:
+                audio.BARGE_IN_ACTIVO = True
+            dicho = anuncio
 
-    # Una orden de apagado que llegó a brain.pensar: jarvis.py se despide y cierra
-    if brain.debe_cerrar():
-        return respuesta, True
+        # Una orden de apagado que llegó a brain.pensar: jarvis.py se despide y cierra
+        if brain.debe_cerrar():
+            return respuesta, True
 
-    # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
-    # del modelo de este turno se descarta (puede afirmar algo falso).
-    if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
-        audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
-        try:
-            _decir_respuesta(respuesta)
-        finally:
-            audio.BARGE_IN_ACTIVO = True
-        mem.añadir_al_historial(memoria, f"Jarvis: {respuesta}")
-    return respuesta, False
+        # Si _d1_fix ejecutó, ya se habló el resultado real: la respuesta
+        # del modelo de este turno se descarta (puede afirmar algo falso).
+        if respuesta and respuesta != "cerrando" and not d1_ejecutado and not anuncio:
+            audio.BARGE_IN_ACTIVO = not brain.hay_pendiente()
+            try:
+                _decir_respuesta(respuesta)
+            finally:
+                audio.BARGE_IN_ACTIVO = True
+            dicho = respuesta
+        return respuesta, False
+    finally:
+        _guardar_en_historial(texto, dicho)
 
 if __name__ == "__main__":
     main()

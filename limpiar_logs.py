@@ -24,7 +24,6 @@ RAIZ = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, RAIZ)
 
 from skills import direccion  # noqa: E402
-from skills.secretos import redactar_secretos  # noqa: E402
 
 CAMPOS_TEXTO = ("texto_usuario", "respuesta")
 
@@ -42,7 +41,7 @@ def redactar(texto):
     """(texto sin direcciones ni secretos, direcciones sustituidas)."""
     if not isinstance(texto, str):
         return texto, 0
-    nuevo = direccion.ocultar(redactar_secretos(texto))
+    nuevo = direccion.redactar(texto)
     return nuevo, nuevo.count(direccion.OCULTA) - texto.count(direccion.OCULTA)
 
 

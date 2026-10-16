@@ -1,7 +1,8 @@
 """Direcciones de email dictadas por voz: validar el formato, extraerlas del texto
 de Whisper ("pepe arroba gmail punto com") y deletrearlas para confirmarlas.
 
-Puro y sin dependencias. Nunca imprime ni guarda las direcciones.
+Puro y sin dependencias. Nunca imprime ni guarda las direcciones. redactar() es el
+enmascarado de todo lo que se guarda en disco (logs, historial de memoria.json).
 """
 import re
 
@@ -68,6 +69,15 @@ def ocultar(texto):
     if not isinstance(texto, str) or not parece_dictada(texto):
         return texto
     return _RE_OCULTAR_DICHA.sub(OCULTA, _RE_OCULTAR_LITERAL.sub(OCULTA, texto))
+
+
+def redactar(texto):
+    """Lo que se guarda en disco: secretos enmascarados (skills.secretos) y cada
+    dirección, escrita o dictada, como <email>."""
+    if not isinstance(texto, str):
+        return texto
+    from skills.secretos import redactar_secretos
+    return ocultar(redactar_secretos(texto))
 
 
 def deletrear(direccion):
