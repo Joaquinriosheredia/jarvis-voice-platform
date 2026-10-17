@@ -1132,7 +1132,21 @@ def _emails_en_cache(parametros, skills):
         return None
 
 
+# Contenido de terceros (correo, web, calendario, PRs) que llega al modelo: pasa por el mismo
+# enmascarado de secretos que las tools de código (skills/operador.py ya lo hace por su cuenta)
+REDACTAR_SALIDA = {"leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "buscar_en_web",
+                   "ver_agenda", "briefing", "github_estado"}
+
+
 def _ejecutar(nombre, parametros, skills, texto_usuario=""):
+    res = _ejecutar_tool(nombre, parametros, skills, texto_usuario)
+    if nombre in REDACTAR_SALIDA and isinstance(res.get("message"), str):
+        texto, n = secretos.redactar(res["message"])
+        res = dict(res, message=texto + secretos.aviso(n))
+    return res
+
+
+def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
     if nombre in TOOLS_PRIVADAS:  # antes del gate: un bloqueo también puede citar el email
         tts_elevenlabs.marcar_privado()
     try:
