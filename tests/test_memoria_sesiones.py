@@ -110,7 +110,7 @@ class TestNuncaSeGuarda(Base):
         self.cerrar(lambda instr, texto: visto.append(texto) or "Kafka: faltaba el group id.")
         self.assertIn("kafka", visto[0])
         self.assertNotIn("presupuesto", visto[0])
-        self.assertIn("Temas privados o con herramientas (sin detalle): correo", visto[0])
+        self.assertIn("Otros temas tratados (sin detalle): correo", visto[0])
         self.assertNotIn(b"presupuesto", self.bytes_db())
 
     def test_nunca_secretos(self):
@@ -142,7 +142,7 @@ class TestNuncaSeGuarda(Base):
         self.assertEqual(self.cerrar(None), "Temas: conversación.")
         ms.registrar_turno("hola", "Hola.", [], False)
         resumen = self.cerrar(lambda i, t: "\n".join(f"- línea {n}" for n in range(9)))
-        self.assertEqual(resumen.splitlines(), [f"línea {n}" for n in range(5)])
+        self.assertEqual(resumen.splitlines(), [f"Línea {n}" for n in range(5)])   # con mayúscula inicial
 
     def test_sesion_vacia_no_guarda_nada(self):
         self.assertIsNone(self.cerrar(lambda i, t: "x"))

@@ -97,7 +97,7 @@ JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay
 
 **Dónde.** `C:\Jarvis-secrets\memoria_sesiones.db`, fuera del repo y junto a los tokens y el `.env`. Se puede cambiar con `JARVIS_MEMORIA_DB`.
 
-**Qué se guarda.** Un registro por sesión: fecha, resumen de 3 a 5 líneas, temas y tools usadas. El resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se conserva el último resumen o, si no lo hay, la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse.
+**Qué se guarda.** Un registro por sesión: fecha, resumen de 1 a 5 líneas, temas y tools usadas. El resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se conserva el último resumen o, si no lo hay, la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse. El resumen va en segunda persona («preguntaste…, tienes pendiente…») y sin ruido meta. Si el modelo se deja un identificador técnico, se añade una línea «Términos: …». Las consultas y pruebas de la propia memoria («¿te acuerdas de…?», la tool `recordar`, «prueba de la memoria») no entran, así que una sesión que solo prueba la memoria no se guarda. La evaluación con conversaciones sintéticas está en [docs/memoria-resumen.md](docs/memoria-resumen.md).
 
 **Cuándo se guarda.** Siempre sobre la misma fila de la sesión, para que un cierre brusco no pierda la conversación:
 
@@ -335,8 +335,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 946 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 946 tests ... OK`
+- **Tests:** 962 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 962 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -528,6 +528,7 @@ parada.py            listas de órdenes de silencio y apagado, filtro de eco y d
 tts_elevenlabs.py    TTS opcional con fallback a Piper y marca de turno privado
 metrics.py           métricas por turno, coste estimado y log JSONL
 replay.py            consulta del log de turnos
+calidad_resumen.py   evaluación del resumen de la memoria con sesiones sintéticas (docs/memoria-resumen.md)
 doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
 reautorizar.py       vuelve a autorizar Gmail, Calendar o Contactos (renombra el token, OAuth y comprobación)
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
