@@ -7,6 +7,7 @@ import contextlib
 import email
 import io
 import os
+import secrets
 import shutil
 import sys
 import tempfile
@@ -269,10 +270,11 @@ class TestAnuncioCompleto(Base):
         self.assertIn(f"… y {80 - dichas} palabras más", texto)
 
     def test_direcciones_y_secretos_del_cuerpo_no_se_leen(self):
+        clave = "Pw" + secrets.token_hex(8)   # generada: nunca un secreto literal en el repo
         anuncio = self._turno("mándame el cv", self.params(
-            asunto="para otro@example.net", cuerpo="clave password=Abc123456789 y escribe a otro@example.net"))
+            asunto="para otro@example.net", cuerpo=f"clave password={clave} y escribe a otro@example.net"))
         self.assertNotIn("otro@example.net", anuncio)
-        self.assertNotIn("Abc123456789", anuncio)
+        self.assertNotIn(clave, anuncio)
         self.assertIn("[otra dirección]", anuncio)
         self.assertIn(f"a tu dirección {DEST}", anuncio)
 
