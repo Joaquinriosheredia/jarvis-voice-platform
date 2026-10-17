@@ -561,10 +561,12 @@ class TestEjecutarTests(Base):
                          ["jarvis", "authority", "java-labs", "dam", "vibe-guard"])
         self.assertEqual(schema["required"], ["proyecto"])
         self.assertIn("ejecutar_tests", brain.SYSTEM)
-        with patch("skills.operador.subprocess.run", return_value=completado("1 failed\n", 1)):
+        with patch("skills.operador.subprocess.run", return_value=completado("1 failed\n", 1)), \
+             patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):   # aquí se prueba la tool, no la confirmación del gate estricto
             res = brain._ejecutar("ejecutar_tests", {"proyecto": "authority"}, {})
         self.assertEqual((res["ok"], res["error"]), (False, "tests_fallo"))
-        with patch("skills.operador.subprocess.run", return_value=completado("1 passed\n")):
+        with patch("skills.operador.subprocess.run", return_value=completado("1 passed\n")), \
+             patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):
             res = brain._ejecutar("ejecutar_tests", {"proyecto": "authority", "filtro": "router"}, {})
         self.assertTrue(res["ok"], res)
 

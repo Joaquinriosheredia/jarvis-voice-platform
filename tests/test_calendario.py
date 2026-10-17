@@ -110,7 +110,8 @@ class TestIntegracionBrain(unittest.TestCase):
         self.assertEqual(brain.TOOL_RISK["crear_evento"], "EXTERNAL")
 
     def test_dispatcher_contrato_ok_err(self):
-        with patch("skills.calendario._servicio", return_value=servicio()), patch("builtins.print"):
+        with patch("skills.calendario._servicio", return_value=servicio()), patch("builtins.print"), \
+             patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):   # aquí se prueba la tool, no la confirmación del gate estricto
             res = brain._ejecutar("ver_agenda", {"dias": 2}, {})
             self.assertTrue(res["ok"], res)
             res = brain._ejecutar("crear_evento", {"titulo": "X", "fecha": "ayer", "hora_inicio": "09:00"}, {})

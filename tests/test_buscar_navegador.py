@@ -119,8 +119,19 @@ class TestBrain(unittest.TestCase):
         self.assertEqual(tool["input_schema"]["required"], ["motor", "consulta"])
         self.assertNotIn("url", props)
 
+    def test_por_defecto_pide_confirmacion_y_no_abre_nada(self):
+        with patch("skills.webs.webbrowser.open") as abrir, patch("builtins.print"), patch.dict(os.environ):
+            os.environ.pop("JARVIS_GATE_ESTRICTO", None)
+            res = brain._ejecutar("buscar_en_navegador", {"motor": "amazon", "consulta": "colchones"},
+                                  {"webs": webs}, "busca colchones en amazon")
+        brain._pendiente = None
+        self.assertFalse(res["ok"])
+        self.assertIn("confirmo búsqueda", res["message"])
+        abrir.assert_not_called()
+
     def test_ejecutar_contrato_ok_y_error(self):
-        with patch("skills.webs.webbrowser.open") as abrir, patch("builtins.print"):
+        with patch("skills.webs.webbrowser.open") as abrir, patch("builtins.print"), \
+             patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):
             res = brain._ejecutar("buscar_en_navegador", {"motor": "amazon", "consulta": "colchones"},
                                   {"webs": webs}, "busca colchones en amazon")
             self.assertEqual(res, {"ok": True, "message": "Buscando colchones en Amazon.", "error": None})

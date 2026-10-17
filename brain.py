@@ -590,10 +590,13 @@ CONFIRM_PHRASES   = {
 }
 # No DESTRUCTIVE pero con la misma confirmación por voz (frase del micro, un uso, TTL)
 REQUIERE_CONFIRMACION = {"ver_pantalla"}
-# Modo estricto (opt-in, JARVIS_GATE_ESTRICTO=1): estas tools WRITE/EXTERNAL también piden su frase
-# por voz, con la misma lógica del gate. Son las que sacan texto del modelo fuera de la máquina,
-# ejecutan código, lanzan procesos o mueven/modifican datos de forma difícil de deshacer (análisis
-# en el README). Por defecto no se usan: ni sus frases existen para _frase_confirmacion.
+# Gate estricto: tools WRITE/EXTERNAL que también piden su frase por voz, con la misma lógica del
+# gate (solo micro, un uso, TTL, ligada a la acción, anuncio del sistema). Análisis en el README.
+#   sin JARVIS_GATE_ESTRICTO (por defecto): las de CONFIRMAR_POR_DEFECTO
+#   JARVIS_GATE_ESTRICTO=1: todas las de CONFIRM_PHRASES_ESTRICTO
+#   JARVIS_GATE_ESTRICTO=0: ninguna
+# Las frases de las tools que no piden confirmación en el modo activo no existen para
+# _frase_confirmacion (no gastan ninguna confirmación pendiente).
 CONFIRM_PHRASES_ESTRICTO = {
     "buscar_en_navegador":  "confirmo búsqueda",
     "abrir_youtube":        "confirmo youtube",
@@ -605,20 +608,37 @@ CONFIRM_PHRASES_ESTRICTO = {
     "organizar_directorio": "confirmo organizar",
     "siguiente_racha":      "confirmo racha",
 }
+CONFIRMAR_POR_DEFECTO = ("buscar_en_navegador", "crear_evento", "archivar_email", "ejecutar_tests",
+                         "mover_archivo", "organizar_directorio")
+MODO_DESACTIVADO, MODO_POR_DEFECTO, MODO_COMPLETO = "desactivado", "por defecto", "completo"
+
+
+def modo_gate():
+    valor = os.environ.get("JARVIS_GATE_ESTRICTO", "").strip()
+    return {"0": MODO_DESACTIVADO, "1": MODO_COMPLETO}.get(valor, MODO_POR_DEFECTO)
+
+
+def tools_estrictas():
+    """Tools WRITE/EXTERNAL que piden confirmación en el modo activo."""
+    modo = modo_gate()
+    if modo == MODO_DESACTIVADO:
+        return ()
+    return tuple(CONFIRM_PHRASES_ESTRICTO) if modo == MODO_COMPLETO else CONFIRMAR_POR_DEFECTO
 
 
 def modo_estricto():
-    return os.environ.get("JARVIS_GATE_ESTRICTO", "").strip() == "1"
+    """True si alguna tool WRITE/EXTERNAL pide confirmación (por defecto o =1)."""
+    return bool(tools_estrictas())
 
 
 def _frases_confirmacion():
-    """CONFIRM_PHRASES y, solo en modo estricto, las de CONFIRM_PHRASES_ESTRICTO."""
-    return {**CONFIRM_PHRASES, **CONFIRM_PHRASES_ESTRICTO} if modo_estricto() else CONFIRM_PHRASES
+    """CONFIRM_PHRASES y las de las tools estrictas del modo activo."""
+    return {**CONFIRM_PHRASES, **{t: CONFIRM_PHRASES_ESTRICTO[t] for t in tools_estrictas()}}
 
 
 def _requiere_confirmacion(nombre):
     return (TOOL_RISK.get(nombre) == "DESTRUCTIVE" or nombre in REQUIERE_CONFIRMACION
-            or (modo_estricto() and nombre in CONFIRM_PHRASES_ESTRICTO))
+            or nombre in tools_estrictas())
 
 ANUNCIO_CAPTURA = "Voy a capturar tu pantalla y enviarla a Claude. Di confirmo captura."
 CONFIRM_TTL       = 120
@@ -928,7 +948,9 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
     else:
         objeto = "captura de la pantalla principal" if nombre == "ver_pantalla" else firma[1]
     if nombre in CONFIRM_PHRASES_ESTRICTO:
-        return (f"BLOQUEADO: modo estricto: '{nombre}' ({objeto}) requiere confirmación del usuario. "
+        # Sin los argumentos: este mensaje va a la consola (jarvis.log) y puede llevar una consulta
+        # privada; lo que se va a hacer se lo dice al usuario el anuncio del sistema
+        return (f"BLOQUEADO: gate estricto: '{nombre}' requiere confirmación del usuario. "
                 f"JARVIS ya le ha dicho qué se va a hacer; que responda solo: \"{frase}\". "
                 f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
     return (f"BLOQUEADO: '{nombre}' ({objeto}) es irreversible y requiere confirmación del usuario. "
@@ -1123,7 +1145,7 @@ def _anuncio_envio(pend):
 
 
 def _anuncio_estricto(tool, p):
-    """Lo que se va a hacer, dicho por el sistema (no por el modelo), para el modo estricto."""
+    """Lo que se va a hacer, dicho por el sistema (no por el modelo), para el gate estricto."""
     texto = lambda clave, maximo=MAX_ANUNCIO_ASUNTO: _para_anuncio(p.get(clave), maximo)  # noqa: E731
     if tool == "buscar_en_navegador":
         que = f"Voy a buscar «{texto('consulta')}» en {texto('motor', 20) or 'el navegador'}."
@@ -1161,7 +1183,7 @@ def anuncio_confirmacion():
     traza = _ultima_traza or {}
     if _envio_cambiado and not hay_pendiente():
         return MSG_ENVIO_CAMBIADO
-    anunciables = ("enviar_email", "ver_pantalla", *(CONFIRM_PHRASES_ESTRICTO if modo_estricto() else ()))
+    anunciables = ("enviar_email", "ver_pantalla", *tools_estrictas())
     if not hay_pendiente() or _pendiente["firma"][0] not in anunciables:
         return None
     tool = _pendiente["firma"][0]

@@ -140,10 +140,12 @@ class TestGateCaptura(Base):
     def test_no_cambia_el_resto_de_tools(self):
         self.assertEqual(brain.TOOL_RISK["ver_pantalla"], "EXTERNAL")
         self.assertEqual(brain.REQUIERE_CONFIRMACION, {"ver_pantalla"})
-        for tool, params in (("abrir_app", {"nombre": "notepad"}), ("reproducir_musica", {"query": "x"}),
-                             ("crear_evento", {}), ("ejecutar_tests", {"proyecto": "jarvis"})):
+        for tool, params in (("abrir_app", {"nombre": "notepad"}), ("reproducir_musica", {"query": "x"})):
             self.assertIsNone(brain._gate(tool, params, "hazlo"), tool)  # EXTERNAL sin confirmación
         self.assertIsNone(brain._pendiente)
+        for tool, params in (("crear_evento", {}), ("ejecutar_tests", {"proyecto": "jarvis"})):
+            self.assertIn("gate estricto", brain._gate(tool, params, "hazlo"), tool)  # por defecto, sí
+            brain._pendiente = None
         bloqueo = brain._gate("apagar_pc", {"accion": "apagar"}, "apágate")  # DESTRUCTIVE igual que antes
         self.assertIn("confirmo apagado del pc", bloqueo)
 

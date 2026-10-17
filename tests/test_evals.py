@@ -345,51 +345,97 @@ def _escribir(texto):
     print(texto.encode(enc, "replace").decode(enc))
 
 
+def _gate_esperado(tool, gate):
+    """El gate estricto (por defecto: 6 tools; =1: 9; =0: ninguna) convierte "none" en "confirm"
+    para sus tools: el gate esperado depende del modo activo (JARVIS_GATE_ESTRICTO)."""
+    if gate == "none" and isinstance(tool, str) and tool in brain.tools_estrictas():
+        return "confirm"
+    return gate
+
+
 def _casos():
     for caso in CASOS:
         texto, ruta, tool, gate = caso[:4]
         opciones = caso[4] if len(caso) > 4 else {}
         if opciones.get("solo_vivo") and not LIVE:
             continue
-        yield texto, ruta, tool, gate, opciones
+        yield texto, ruta, tool, _gate_esperado(tool, gate), opciones
+
+
+def _ejecutar_evals(modo=""):
+    """(resultados, aciertos, informe) de todos los casos; con modo, bajo JARVIS_GATE_ESTRICTO=modo."""
+    if modo:
+        with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": modo}):
+            return _ejecutar_evals_en_curso(modo)
+    return _ejecutar_evals_en_curso(modo)
+
+
+def _ejecutar_evals_en_curso(modo):
+    resultados = []
+    for texto, ruta, tool, gate, opciones in _casos():
+        r = _evaluar(texto, tool, opciones.get("contexto"))
+        resultados.append({
+            "texto": texto, "esperado": (ruta, tool, gate), "obtenido": r,
+            "RUTA": r["ruta"] == ruta,
+            "TOOL": _acierta_tool(tool, r["tools"]),
+            "GATE": _gate_de(tool, r["llamadas"]) == gate,
+            "PRIMERA": _primera_correcta(tool, r["tools"]),
+        })
+    total = len(resultados)
+    aciertos = {m: sum(r[m] for r in resultados) / total for m in ("RUTA", "TOOL", "GATE", "PRIMERA")}
+    fallos = []
+    for r in resultados:
+        ruta, tool, gate = r["esperado"]
+        obt = r["obtenido"]
+        if not r["RUTA"]:
+            fallos.append(f'  [RUTA]  "{r["texto"]}" → esperado {ruta}, obtenido {obt["ruta"]}')
+        if not r["TOOL"]:
+            fallos.append(f'  [TOOL]  "{r["texto"]}" → esperado {tool}, obtenido {obt["tools"] or None}')
+        if not r["GATE"]:
+            fallos.append(f'  [GATE]  "{r["texto"]}" → esperado {gate}, obtenido {_gate_de(tool, obt["llamadas"])}')
+    lineas = ["", "=" * 30, f"EVALS JARVIS — {total} casos" + (" (LIVE)" if LIVE else "")
+              + (f" (JARVIS_GATE_ESTRICTO={modo})" if modo else "")]
+    for metrica, etiqueta in (("RUTA", "Ruta: "), ("TOOL", "Tool: "), ("GATE", "Gate: ")):
+        ok = round(aciertos[metrica] * total)
+        lineas.append(f"{etiqueta} {ok}/{total} ✔  ({aciertos[metrica] * 100:.1f}%)")
+    lineas.append(f"Primera tool correcta (informativo): {round(aciertos['PRIMERA'] * total)}/{total}")
+    lineas.append("=" * 30)
+    lineas += ["FALLOS:"] + fallos if fallos else ["Sin fallos."]
+    if not LIVE:
+        lineas.append("(Tool en ruta claude viene del mock; JARVIS_EVALS_LIVE=1 para medir al modelo)")
+    informe = "\n".join(lineas)
+    _escribir(informe)
+    return resultados, aciertos, informe
+
+
+@unittest.skipIf(LIVE, "con el modelo real basta la pasada en el modo activo")
+class TestEvalsModosDelGate(unittest.TestCase):
+    """Las evals pasan en los tres modos del gate estricto: por defecto, =0 y =1."""
+
+    def test_los_tres_modos(self):
+        for modo in ("por defecto", "0", "1"):
+            with self.subTest(modo=modo), patch.dict(os.environ):
+                os.environ.pop("JARVIS_GATE_ESTRICTO", None)
+                _, aciertos, informe = _ejecutar_evals("" if modo == "por defecto" else modo)
+                for metrica in ("RUTA", "TOOL", "GATE"):
+                    self.assertEqual(aciertos[metrica], 1.0, informe)
+
+    def test_el_gate_esperado_cambia_con_el_modo(self):
+        with patch.dict(os.environ):
+            os.environ.pop("JARVIS_GATE_ESTRICTO", None)
+            casos = {texto: gate for texto, _, _, gate, _ in _casos()}
+        self.assertEqual(casos["busca en google colchones baratos"], "confirm")   # por defecto
+        self.assertEqual(casos["pon música de fondo"], "none")
+        with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "1"}):
+            self.assertEqual({t: g for t, _, _, g, _ in _casos()}["pon música de fondo"], "confirm")
+        with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):
+            self.assertEqual({t: g for t, _, _, g, _ in _casos()}["busca en google colchones baratos"], "none")
 
 
 class TestEvals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.resultados = []
-        for texto, ruta, tool, gate, opciones in _casos():
-            r = _evaluar(texto, tool, opciones.get("contexto"))
-            cls.resultados.append({
-                "texto": texto, "esperado": (ruta, tool, gate), "obtenido": r,
-                "RUTA": r["ruta"] == ruta,
-                "TOOL": _acierta_tool(tool, r["tools"]),
-                "GATE": _gate_de(tool, r["llamadas"]) == gate,
-                "PRIMERA": _primera_correcta(tool, r["tools"]),
-            })
-        total = len(cls.resultados)
-        cls.aciertos = {m: sum(r[m] for r in cls.resultados) / total for m in ("RUTA", "TOOL", "GATE", "PRIMERA")}
-        fallos = []
-        for r in cls.resultados:
-            ruta, tool, gate = r["esperado"]
-            obt = r["obtenido"]
-            if not r["RUTA"]:
-                fallos.append(f'  [RUTA]  "{r["texto"]}" → esperado {ruta}, obtenido {obt["ruta"]}')
-            if not r["TOOL"]:
-                fallos.append(f'  [TOOL]  "{r["texto"]}" → esperado {tool}, obtenido {obt["tools"] or None}')
-            if not r["GATE"]:
-                fallos.append(f'  [GATE]  "{r["texto"]}" → esperado {gate}, obtenido {_gate_de(tool, obt["llamadas"])}')
-        lineas = ["", "=" * 30, f"EVALS JARVIS — {total} casos" + (" (LIVE)" if LIVE else "")]
-        for metrica, etiqueta in (("RUTA", "Ruta: "), ("TOOL", "Tool: "), ("GATE", "Gate: ")):
-            ok = round(cls.aciertos[metrica] * total)
-            lineas.append(f"{etiqueta} {ok}/{total} ✔  ({cls.aciertos[metrica] * 100:.1f}%)")
-        lineas.append(f"Primera tool correcta (informativo): {round(cls.aciertos['PRIMERA'] * total)}/{total}")
-        lineas.append("=" * 30)
-        lineas += ["FALLOS:"] + fallos if fallos else ["Sin fallos."]
-        if not LIVE:
-            lineas.append("(Tool en ruta claude viene del mock; JARVIS_EVALS_LIVE=1 para medir al modelo)")
-        cls.informe = "\n".join(lineas)
-        _escribir(cls.informe)
+        cls.resultados, cls.aciertos, cls.informe = _ejecutar_evals()
 
     def test_ruta_supera_80(self):
         self.assertGreaterEqual(self.aciertos["RUTA"], UMBRAL, self.informe)

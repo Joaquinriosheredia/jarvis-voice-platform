@@ -1,6 +1,7 @@
-"""Modo estricto opt-in del gate (JARVIS_GATE_ESTRICTO=1): las tools WRITE/EXTERNAL de
-CONFIRM_PHRASES_ESTRICTO piden su frase por voz con la misma lógica que las DESTRUCTIVE
-(solo desde el micro, un uso, TTL 120 s, ligada a la acción). Sin la variable, nada cambia."""
+"""Gate estricto: tools WRITE/EXTERNAL que piden su frase por voz con la misma lógica que las
+DESTRUCTIVE (solo desde el micro, un uso, TTL 120 s, ligada a la acción, anuncio del sistema).
+Por defecto (sin JARVIS_GATE_ESTRICTO): las 6 de CONFIRMAR_POR_DEFECTO; =1: las 9 de
+CONFIRM_PHRASES_ESTRICTO; =0: ninguna."""
 import atexit
 import contextlib
 import io
@@ -65,18 +66,50 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
 
 
-class TestPorDefectoNadaCambia(Base):
-    def test_sin_variable_no_hay_modo_estricto(self):
-        self.assertFalse(brain.modo_estricto())
-        self.assertIs(brain._frases_confirmacion(), brain.CONFIRM_PHRASES)
+SEIS = {"buscar_en_navegador", "crear_evento", "archivar_email", "ejecutar_tests", "mover_archivo",
+        "organizar_directorio"}
 
-    def test_las_tools_pasan_sin_confirmacion(self):
+
+class TestModoPorDefecto(Base):
+    def test_sin_variable_confirman_las_seis(self):
+        self.assertEqual(brain.modo_gate(), brain.MODO_POR_DEFECTO)
+        self.assertEqual(set(brain.tools_estrictas()), SEIS)
+        for nombre, params in PARAMS.items():
+            with self.subTest(nombre):
+                brain._pendiente = None
+                bloqueo = _gate(nombre, params, "hazlo")
+                if nombre in SEIS:
+                    self.assertIn("gate estricto", bloqueo)
+                    self.assertIsNone(_gate(nombre, params, brain.CONFIRM_PHRASES_ESTRICTO[nombre]))
+                else:
+                    self.assertIsNone(bloqueo)
+                    self.assertIsNone(brain._pendiente)
+
+    def test_youtube_musica_y_racha_sin_confirmacion_ni_frase(self):
+        for nombre in ("abrir_youtube", "reproducir_musica", "siguiente_racha"):
+            self.assertIsNone(brain._frase_confirmacion(brain.CONFIRM_PHRASES_ESTRICTO[nombre]), nombre)
+
+    def test_valores_no_reconocidos_usan_el_modo_por_defecto(self):
+        for valor in ("true", "si", " 2 ", ""):
+            with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": valor}):
+                self.assertEqual(brain.modo_gate(), brain.MODO_POR_DEFECTO, valor)
+
+    def test_el_bloqueo_no_lleva_los_argumentos(self):
+        # El mensaje va a la consola (jarvis.log): una consulta privada no puede salir ahí
+        bloqueo = _gate("buscar_en_navegador", {"motor": "google", "consulta": "consulta privada xyz"}, "busca")
+        self.assertNotIn("consulta privada xyz", bloqueo)
+
+
+class TestModoDesactivado(Base):
+    estricto = "0"
+
+    def test_ninguna_tool_confirma_ni_sus_frases_existen(self):
+        self.assertFalse(brain.modo_estricto())
+        self.assertEqual(brain._frases_confirmacion(), brain.CONFIRM_PHRASES)
         for nombre, params in PARAMS.items():
             with self.subTest(nombre):
                 self.assertIsNone(_gate(nombre, params, "hazlo"))
                 self.assertIsNone(brain._pendiente)
-
-    def test_sus_frases_no_son_confirmaciones(self):
         for frase in brain.CONFIRM_PHRASES_ESTRICTO.values():
             self.assertIsNone(brain._frase_confirmacion(frase))
 
@@ -85,13 +118,8 @@ class TestPorDefectoNadaCambia(Base):
         _gate("crear_evento", EVENTO, "confirmo evento")
         self.assertIsNotNone(brain._pendiente)
 
-    def test_otros_valores_no_lo_activan(self):
-        for valor in ("true", "si", "0", " 2 "):
-            with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": valor}):
-                self.assertFalse(brain.modo_estricto(), valor)
 
-
-class TestModoEstricto(Base):
+class TestModoCompleto(Base):
     estricto = "1"
 
     def test_cada_tool_arma_y_se_confirma_solo_con_su_frase_del_micro(self):
@@ -99,7 +127,7 @@ class TestModoEstricto(Base):
             with self.subTest(nombre):
                 brain._pendiente = None
                 bloqueo = _gate(nombre, params, "hazlo")
-                self.assertIn("modo estricto", bloqueo)
+                self.assertIn("gate estricto", bloqueo)
                 self.assertIn(brain.CONFIRM_PHRASES_ESTRICTO[nombre], bloqueo)
                 self.assertEqual(brain.pendiente_info()["params"], params)
                 self.assertIsNone(_gate(nombre, params, brain.CONFIRM_PHRASES_ESTRICTO[nombre]))
@@ -192,13 +220,18 @@ class TestDoctor(unittest.TestCase):
         with patch.object(doctor, "variable", return_value=valor):
             return doctor.check_gate_estricto()
 
-    def test_inactivo_activo_y_valor_raro(self):
-        self.assertEqual(self._check("")["estado"], doctor.OK)
-        self.assertIn("inactivo", self._check("")["detalle"])
-        activo = self._check("1")
-        self.assertEqual(activo["estado"], doctor.OK)
-        self.assertIn("ACTIVO", activo["detalle"])
-        self.assertIn("crear_evento", activo["detalle"])
+    def test_muestra_el_modo_y_la_lista_efectiva(self):
+        por_defecto = self._check("")
+        self.assertEqual(por_defecto["estado"], doctor.OK)
+        self.assertIn("por defecto: 6 tools", por_defecto["detalle"])
+        self.assertIn("crear_evento", por_defecto["detalle"])
+        self.assertNotIn("reproducir_musica", por_defecto["detalle"])
+        completo = self._check("1")
+        self.assertEqual(completo["estado"], doctor.OK)
+        self.assertIn("completo (JARVIS_GATE_ESTRICTO=1): 9 tools", completo["detalle"])
+        desactivado = self._check("0")
+        self.assertEqual(desactivado["estado"], doctor.AVISO)
+        self.assertIn("DESACTIVADO", desactivado["detalle"])
         self.assertEqual(self._check("true")["estado"], doctor.AVISO)
 
     def test_esta_en_las_comprobaciones(self):

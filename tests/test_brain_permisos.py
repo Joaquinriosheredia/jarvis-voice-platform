@@ -149,7 +149,11 @@ class TestRutas(Base):
         for ruta in (FILE_A, DESC + r"\sub\a.txt", DESK + r"\nota.txt", DESC.upper() + r"\A.TXT"):
             self.assertTrue(brain._validate_path(ruta)[0], ruta)
         self.assertIsNone(brain._gate("crear_carpeta", {"ruta": DESC + r"\nueva"}, "x"))
-        self.assertIsNone(brain._gate("mover_archivo", {"origen": FILE_A, "destino": DESK}, "x"))
+        with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):   # aquí solo importa la ruta
+            self.assertIsNone(brain._gate("mover_archivo", {"origen": FILE_A, "destino": DESK}, "x"))
+        # Con el gate estricto por defecto, la ruta pasa y queda a la espera de "confirmo mover"
+        self.assertIn("gate estricto", brain._gate("mover_archivo", {"origen": FILE_A, "destino": DESK}, "x"))
+        brain._pendiente = None
         # borrar dentro de allowlist: pasa la ruta, y queda a la espera de confirmación
         res = brain._gate("borrar_archivo", {"ruta": FILE_A}, "x")
         self.assertIn("confirmación", res)
@@ -159,8 +163,11 @@ class TestRutas(Base):
         self.assertTrue(bloqueado(brain._gate("mover_archivo", {"origen": DESK, "destino": DESC}, "x")))
 
     def test_organizar_solo_en_descargas(self):
-        self.assertIsNone(brain._gate("organizar_directorio", {"ruta": DESC}, "x"))
-        self.assertIsNone(brain._gate("organizar_directorio", {}, "x"))  # default DESCARGAS
+        with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": "0"}):   # aquí solo importa la ruta
+            self.assertIsNone(brain._gate("organizar_directorio", {"ruta": DESC}, "x"))
+            self.assertIsNone(brain._gate("organizar_directorio", {}, "x"))  # default DESCARGAS
+        self.assertIn("gate estricto", brain._gate("organizar_directorio", {"ruta": DESC}, "x"))
+        brain._pendiente = None
         self.assertTrue(bloqueado(brain._gate("organizar_directorio", {"ruta": DESK}, "x")))
         self.assertTrue(bloqueado(brain._gate("organizar_directorio", {"ruta": r"C:\Users\Usuario"}, "x")))
 

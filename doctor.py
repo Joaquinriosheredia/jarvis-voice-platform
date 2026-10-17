@@ -632,16 +632,20 @@ def check_avisos_ci():
 
 
 def check_gate_estricto():
-    """Solo informa: el modo estricto es opcional (JARVIS_GATE_ESTRICTO=1)."""
+    """Modo del gate estricto (JARVIS_GATE_ESTRICTO) y la lista efectiva de tools que confirman."""
     valor = variable("JARVIS_GATE_ESTRICTO").strip()
+    if valor == "0":
+        return resultado(AVISO, "Gate estricto DESACTIVADO (JARVIS_GATE_ESTRICTO=0): ninguna tool WRITE/EXTERNAL "
+                                "pide confirmación", "Quita JARVIS_GATE_ESTRICTO=0 para volver al modo por defecto")
     if valor == "1":
-        tools = constante("brain.py", "CONFIRM_PHRASES_ESTRICTO")
-        return resultado(OK, f"Gate estricto ACTIVO: {len(tools)} tools WRITE/EXTERNAL piden confirmación "
-                             f"por voz ({', '.join(sorted(tools))})")
-    if valor in ("", "0"):
-        return resultado(OK, "Gate estricto inactivo (por defecto); JARVIS_GATE_ESTRICTO=1 lo activa")
-    return resultado(AVISO, f"JARVIS_GATE_ESTRICTO={valor!r} no se reconoce: el gate estricto está inactivo",
-                     "Usa JARVIS_GATE_ESTRICTO=1 para activarlo o quítala")
+        tools, modo = sorted(constante("brain.py", "CONFIRM_PHRASES_ESTRICTO")), "completo (JARVIS_GATE_ESTRICTO=1)"
+    else:
+        tools, modo = sorted(constante("brain.py", "CONFIRMAR_POR_DEFECTO")), "por defecto"
+    detalle = f"Gate estricto {modo}: {len(tools)} tools piden confirmación por voz ({', '.join(tools)})"
+    if valor not in ("", "1"):
+        return resultado(AVISO, f"JARVIS_GATE_ESTRICTO={valor!r} no se reconoce; se usa el modo por defecto. "
+                                + detalle, "Usa 0, 1 o quítala")
+    return resultado(OK, detalle)
 
 
 COMPROBACIONES = [
