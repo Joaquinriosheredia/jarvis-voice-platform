@@ -180,6 +180,20 @@ Con `JARVIS_AVISOS_CI=1`, JARVIS revisa cada pocos minutos el último CI de los 
 - **Sin token o con el token rechazado** no avisa de nada y lo registra una sola vez en la consola. Sin token, deja de comprobar hasta reiniciar.
 - `doctor.py` muestra si están activos, qué repos vigila y cada cuánto, y avisa si están activos sin `GITHUB_TOKEN`.
 
+## Modo degradado
+
+Si falla una pieza, JARVIS lo dice por voz con una frase útil. No se queda callado, no repite el error en bucle, no reintenta sin límite y guarda el turno en la memoria igual que cualquier otro. `tests/test_modo_degradado.py` simula cada uno de estos fallos con mocks.
+
+| Fallo | Qué hace JARVIS |
+|---|---|
+| Anthropic caído, saturado o con timeout | Dice qué pasa (sin conexión, saturado, tarda demasiado o clave rechazada) y qué sigue funcionando. Cada llamada tiene un timeout de 25 s y un solo reintento. Si falla el streaming por red, no se repite sin streaming. Si se repite la misma causa en menos de 3 min, solo dice «Claude sigue sin responder». |
+| Ollama caído | Pausa Ollama 5 min (`JARVIS_OLLAMA_PAUSA_S`): las preguntas locales y el resumen de memoria van directos a Claude, sin pagar el timeout en cada turno. |
+| Piper falla | Dice el texto con la voz de Windows (System.Speech, local), con un aviso la primera vez. Si tampoco hay esa voz, lo avisa en pantalla. Se puede desactivar con `JARVIS_VOZ_EMERGENCIA=0`. |
+| Gmail con el token revocado | Cada tool de correo dice que hay que volver a autorizar con `reautorizar.py gmail`, sin el error en crudo. Hace un solo intento por petición. |
+| GitHub sin red | «No he podido consultar GitHub: no hay conexión», tras un solo intento. Los avisos de CI lo registran una vez y siguen intentándolo a su intervalo normal. |
+| Whisper sin GPU | Si CUDA falla al cargar, Whisper carga en CPU. En el saludo dice «Whisper funciona sin GPU: tardaré algo más en entenderte», y el aviso queda también en la UI. |
+| Error repetido en el bucle (p. ej. micrófono desconectado) | Dice una vez «He tenido un fallo interno con esa petición» y espera 1, 2, 4… hasta 30 s entre intentos. Tras un turno sano, vuelve a avisar. |
+
 ## Decisiones de diseño
 
 - **Router por capas:** el coste y la latencia se pagan solo cuando hacen falta. Los atajos no tocan ningún modelo y la capa local es gratuita.
@@ -321,8 +335,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 920 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 920 tests ... OK`
+- **Tests:** 946 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 946 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -420,6 +434,8 @@ JARVIS_VOCABULARIO=             # otra ruta para el vocabulario de Whisper (por 
 JARVIS_AVISOS_CI=0              # 1 = avisos proactivos de CI en rojo (ver Avisos proactivos)
 JARVIS_AVISOS_CI_MIN=5          # minutos entre comprobaciones (2 a 60)
 JARVIS_AVISOS_CI_REPOS=         # repos a vigilar; si no, los de JARVIS_GITHUB_REPOS
+JARVIS_OLLAMA_PAUSA_S=300       # tras un fallo de Ollama, segundos que todo va directo a Claude
+JARVIS_VOZ_EMERGENCIA=1         # 0 = sin la voz de Windows cuando falla Piper
 JARVIS_DESCARGAS=               # rutas: ver Rutas (por defecto, rutas.json o los valores de respaldo)
 ```
 

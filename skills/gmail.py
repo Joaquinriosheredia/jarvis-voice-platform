@@ -98,7 +98,7 @@ def leer_no_leidos(max_emails=5):
         resumen = [_linea(i, e) for i, e in enumerate(cache_emails[:5])]
         return f"Tienes {len(messages)} emails sin leer. {'. '.join(resumen)}"
     except Exception as e:
-        return f"Error leyendo emails: {e}"
+        return fallo("Error leyendo emails", e)
 
 # ── NO LEÍDOS PARA EL RESUMEN DE ARRANQUE ─────────────────────────
 def no_leidos_arranque(max_emails=10):
@@ -142,7 +142,7 @@ def leer_recruiters():
         resumen = [_linea(i, e) for i, e in enumerate(cache_emails)]
         return f"Tienes {len(messages)} emails de recruiters. " + ". ".join(resumen)
     except Exception as e:
-        return f"Error: {e}"
+        return fallo("Error leyendo emails", e)
 
 # ── LEER EMAIL ────────────────────────────────────────────────────
 def leer_email(indice=0):
@@ -189,7 +189,7 @@ def leer_email(indice=0):
         cuerpo_corto = cuerpo[:600].replace('\n', ' ').strip()
         return f"De {remitente}. Asunto: {asunto}. Contenido: {cuerpo_corto[:300]}"
     except Exception as e:
-        return f"Error leyendo email: {e}"
+        return fallo("Error leyendo email", e)
 
 # ── BORRAR EMAIL ──────────────────────────────────────────────────
 def borrar_email(msg_id):
@@ -205,7 +205,7 @@ def borrar_email(msg_id):
         service = get_service()
         service.users().messages().trash(userId='me', id=msg_id).execute()
     except Exception as e:
-        return False, f"Error borrando: {e}"
+        return False, fallo("Error borrando", e)
     if entrada in cache_emails:
         cache_emails.remove(entrada)
     return True, f"Email de {entrada['remitente']} eliminado"
@@ -227,7 +227,7 @@ def borrar_multiples(msg_ids):
     try:
         service = get_service()
     except Exception as e:
-        return False, f"Error borrando: {e}"
+        return False, fallo("Error borrando", e)
     borrados, fallidos = [], []
     for e in entradas:
         try:
@@ -259,7 +259,7 @@ def archivar_email(indice=0):
         cache_emails.pop(indice)
         return "Email archivado"
     except Exception as e:
-        return f"Error archivando: {e}"
+        return fallo("Error archivando", e)
 
 # ── BUSCAR EMAILS ─────────────────────────────────────────────────
 def buscar_emails(query, max_emails=5):
@@ -278,7 +278,7 @@ def buscar_emails(query, max_emails=5):
         resumen = [_linea(i, e) for i, e in enumerate(cache_emails[:3])]
         return f"Encontré {len(messages)} emails. " + ". ".join(resumen)
     except Exception as e:
-        return f"Error buscando: {e}"
+        return fallo("Error buscando", e)
 
 # ── ENVIAR EMAIL ──────────────────────────────────────────────────
 def enviar_email(destinatario, asunto, cuerpo, adjunto=None):
@@ -308,7 +308,7 @@ def enviar_email(destinatario, asunto, cuerpo, adjunto=None):
         get_service().users().messages().send(userId='me', body={'raw': encoded}).execute()
         return True, f"Email enviado a {destinatario}"
     except Exception as e:
-        return False, f"Error: {e}"
+        return False, fallo("Error enviando", e)
 
 # ── MI DIRECCIÓN ──────────────────────────────────────────────────
 # Causa real de un fallo de Gmail → frase para el usuario. Nunca pide que dicte su dirección.
@@ -339,6 +339,21 @@ def causa_error(e):
             or type(e).__module__.split(".")[0] in ("httplib2", "requests", "urllib3")):
         return "red"
     return "desconocida"
+
+# Fallo de una tool de Gmail → frase útil para decir por voz, nunca el texto de la excepción
+# (puede llevar la petición o una dirección)
+FALLOS = {
+    "autenticacion": "la autorización de Gmail ha caducado o se ha revocado. Vuelve a autorizar a "
+                     "JARVIS con reautorizar.py gmail.",
+    "red":           "no hay conexión con Gmail. Revisa la red e inténtalo de nuevo.",
+    "permisos":      "Gmail ha denegado el permiso para esta operación.",
+    "servicio":      "Gmail ha devuelto un error del servicio. Inténtalo de nuevo en unos minutos.",
+}
+
+def fallo(accion, e):
+    causa = causa_error(e)
+    print(f"[GMAIL] {accion.lower()}: {type(e).__name__} ({causa})")
+    return f"{accion}: " + FALLOS.get(causa, f"fallo inesperado de Gmail ({type(e).__name__}).")
 
 def resolver_mi_email():
     """(dirección, None) de la cuenta autenticada (getProfile, cacheada) o

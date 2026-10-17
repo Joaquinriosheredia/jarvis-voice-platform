@@ -270,8 +270,7 @@ class TestRmsSalidaGlobal(Base):
 
     def test_rms_salida_vuelve_a_cero_si_falla_la_sintesis(self):
         audio._rms_salida = 5.0
-        with self.assertRaises(RuntimeError):
-            self.hablar(side_effect=RuntimeError("piper roto"))
+        self.hablar(side_effect=RuntimeError("piper roto"))   # no lanza: voz de emergencia (test_modo_degradado)
         self.assertEqual(audio._rms_salida, 0.0)
         self.assertFalse(audio.JARVIS_HABLANDO)
 

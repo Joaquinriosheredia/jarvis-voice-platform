@@ -24,12 +24,17 @@ import parada
 import tts_elevenlabs
 
 # ── CLIENTE ───────────────────────────────────────────────────────
-cliente = anthropic.Anthropic()
+# Timeout y reintentos acotados: con los valores por defecto del SDK (600 s y 2 reintentos)
+# un corte de red dejaba a JARVIS en silencio varios minutos
+CLAUDE_TIMEOUT_S  = 25.0
+CLAUDE_REINTENTOS = 1
+cliente = anthropic.Anthropic(timeout=CLAUDE_TIMEOUT_S, max_retries=CLAUDE_REINTENTOS)
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 OLLAMA_URL     = "http://127.0.0.1:11434"
 OLLAMA_MODEL   = "qwen2.5:3b"
 OLLAMA_TIMEOUT = 8
 OLLAMA_KEEP    = "10m"
+OLLAMA_PAUSA_S = 300   # tras un fallo de Ollama, ese tiempo va directo a Claude (JARVIS_OLLAMA_PAUSA_S)
 DESCARGAS    = rutas.descargas()   # JARVIS_DESCARGAS o rutas.json (ver rutas.py)
 
 # ── HERRAMIENTAS ──────────────────────────────────────────────────
@@ -1848,9 +1853,34 @@ def _limpiar_local(texto):
     return texto[:fin + 1].strip() if fin > 0 else None
 
 
+_ollama_pausado_hasta = 0.0
+
+
+def ollama_disponible():
+    return time.monotonic() >= _ollama_pausado_hasta
+
+
+def _pausa_ollama_s():
+    try:
+        return max(0, int(os.environ.get("JARVIS_OLLAMA_PAUSA_S", OLLAMA_PAUSA_S)))
+    except ValueError:
+        return OLLAMA_PAUSA_S
+
+
+def _ollama_fallo(donde, e):
+    """Ollama caído o colgado: pausa unos minutos para no pagar el timeout en cada turno.
+    Se registra una vez por pausa, con el tipo de la excepción (sin su texto)."""
+    global _ollama_pausado_hasta
+    pausa = _pausa_ollama_s()
+    _ollama_pausado_hasta = time.monotonic() + pausa
+    _print_seguro(f"[{donde}] ollama no disponible ({type(e).__name__}): {pausa} s directo a Claude")
+
+
 def _llamar_ollama(texto):
     """Respuesta de qwen sin tools, o None si Ollama falla, tarda o la
     respuesta no es usable (→ claude)."""
+    if not ollama_disponible():
+        return None
     try:
         r = requests.post(f"{OLLAMA_URL}/api/generate", json={
             "model":      OLLAMA_MODEL,
@@ -1867,7 +1897,7 @@ def _llamar_ollama(texto):
             _print_seguro("[ROUTER] respuesta local descartada (idioma o frase incompleta)")
         return respuesta
     except Exception as e:
-        _print_seguro(f"[ROUTER] ollama no disponible: {e}")
+        _ollama_fallo("ROUTER", e)
         return None
 
 
@@ -2001,6 +2031,11 @@ def _llamar_claude(params):
     try:
         return _llamar_claude_stream(params)
     except GeneracionCancelada:
+        _parcial("")
+        raise
+    except anthropic.APIError:
+        # Red, timeout o error de la API: el SDK ya reintentó (CLAUDE_REINTENTOS); otro intento
+        # sin streaming solo alargaría el silencio
         _parcial("")
         raise
     except Exception as e:
@@ -2203,6 +2238,8 @@ def resumir_sesion(instrucciones, contenido):
     equipo) y, si falla, Claude Haiku. Lanza si no hay ninguno: memoria_sesiones guarda
     entonces solo los temas. El contenido ya llega redactado y sin turnos privados."""
     try:
+        if not ollama_disponible():
+            raise ConnectionError("ollama en pausa")
         r = requests.post(f"{OLLAMA_URL}/api/generate", json={
             "model": OLLAMA_MODEL, "prompt": f"{instrucciones}\n\nSESIÓN:\n{contenido}",
             "stream": False, "keep_alive": OLLAMA_KEEP, "options": {"num_predict": PROMPT_RESUMEN_MAX_TOKENS},
@@ -2212,11 +2249,58 @@ def resumir_sesion(instrucciones, contenido):
         if texto and not any(ord(c) > 1000 for c in texto):
             return texto
     except Exception as e:
-        _print_seguro(f"[MEMORIA] ollama no disponible para el resumen: {type(e).__name__}")
+        if ollama_disponible():
+            _ollama_fallo("MEMORIA", e)
     respuesta = cliente.messages.create(
         model=CLAUDE_MODEL, max_tokens=PROMPT_RESUMEN_MAX_TOKENS, system=instrucciones,
         messages=[{"role": "user", "content": contenido}])
     return "".join(getattr(b, "text", "") for b in respuesta.content).strip()
+
+
+# ── CLAUDE NO DISPONIBLE ──────────────────────────────────────────
+# Cada fallo se dice por voz con una frase útil (qué pasa y qué sí funciona). Si se repite
+# la misma causa en poco tiempo, la frase es corta: no se suelta el mismo párrafo en bucle.
+FRASES_FALLO_CLAUDE = {
+    "timeout":       "Claude está tardando demasiado en responder. Repítemelo en un momento.",
+    "red":           "No puedo conectar con Claude: parece que no hay conexión a Internet. "
+                     "La hora, la música y las órdenes de parada siguen funcionando.",
+    "saturado":      "Claude está saturado ahora mismo. Prueba otra vez en un minuto.",
+    "autenticacion": "Anthropic ha rechazado la clave de la API. Revisa ANTHROPIC_API_KEY y ejecuta doctor.",
+    "desconocida":   "No puedo responder ahora mismo por un fallo con Claude. Prueba otra vez.",
+}
+FRASE_FALLO_REPETIDO = "Claude sigue sin responder."
+REPETICION_S = 180
+_ultimo_fallo_claude = (None, 0.0)
+
+
+def causa_fallo_claude(e):
+    """timeout | red | saturado | autenticacion | desconocida, solo por el tipo de la excepción."""
+    if isinstance(e, anthropic.APITimeoutError):
+        return "timeout"
+    if isinstance(e, anthropic.APIConnectionError):
+        return "red"
+    if isinstance(e, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return "autenticacion"
+    estado = getattr(e, "status_code", None)
+    if isinstance(e, anthropic.RateLimitError) or (isinstance(estado, int) and estado >= 500):
+        return "saturado"
+    return "desconocida"
+
+
+def _olvidar_fallo_claude():
+    """Claude respondió: el siguiente fallo vuelve a explicarse entero."""
+    global _ultimo_fallo_claude
+    _ultimo_fallo_claude = (None, 0.0)
+
+
+def frase_fallo_claude(causa):
+    global _ultimo_fallo_claude
+    ahora = time.monotonic()
+    previa, cuando = _ultimo_fallo_claude
+    _ultimo_fallo_claude = (causa, ahora)
+    if previa == causa and ahora - cuando < REPETICION_S:
+        return FRASE_FALLO_REPETIDO
+    return FRASES_FALLO_CLAUDE.get(causa, FRASES_FALLO_CLAUDE["desconocida"])
 
 
 def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
@@ -2292,13 +2376,15 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
             traza["stop_final"] = "cancelada"
             return None
         except Exception as e:
-            _print_seguro(f"⚠️ Claude API error: {e}")
+            causa = causa_fallo_claude(e)
+            _print_seguro(f"⚠️ Claude API error: {type(e).__name__} ({causa})")
             traza["stop_final"] = "api_error"
-            return "No puedo responder ahora mismo."
+            return frase_fallo_claude(causa)
         finally:
             metrics.marcar("llm", (time.monotonic() - t_llm) * 1000)
 
         _reg_iteracion(traza, i, respuesta)
+        _olvidar_fallo_claude()
         metrics.registrar_uso_llm(getattr(respuesta, "usage", None))
         leidos = getattr(getattr(respuesta, "usage", None), "cache_read_input_tokens", None)
         if isinstance(leidos, int) and leidos > 0:

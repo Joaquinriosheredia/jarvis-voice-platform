@@ -8,6 +8,7 @@ import numpy as np
 import scipy.io.wavfile as wav
 import tempfile
 import os
+import subprocess
 import wave
 from piper.voice import PiperVoice
 from pycaw.pycaw import AudioUtilities
@@ -352,6 +353,51 @@ def _sintetizar(texto):
     metrics.registrar_tts(proveedor, len(texto), (time.monotonic() - t0) * 1000)
     return resultado
 
+# ── VOZ DE EMERGENCIA ─────────────────────────────────────────────
+# Si falla la síntesis (Piper roto, voz que no carga…), la voz de Windows (System.Speech, local:
+# nada sale del equipo) dice el texto para que JARVIS no se quede callado. La primera vez de la
+# sesión avisa de que su voz principal ha fallado. JARVIS_VOZ_EMERGENCIA=0 la desactiva.
+AVISO_VOZ_EMERGENCIA     = "Mi voz principal ha fallado; te hablo con la voz de Windows."
+SIN_VOZ_PANTALLA         = "No tengo voz ahora mismo: la respuesta está en pantalla."
+VOZ_EMERGENCIA_TIMEOUT_S = 60
+VOZ_EMERGENCIA_MAX       = 2000
+# El texto va en una variable de entorno en base64: nada se interpreta como código de PowerShell
+_SAPI = ("Add-Type -AssemblyName System.Speech; "
+         "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+         "$s.Speak([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:JARVIS_VOZ_TEXTO)))")
+_voz_emergencia_avisada = False
+
+def voz_emergencia_activa():
+    return os.name == "nt" and os.environ.get("JARVIS_VOZ_EMERGENCIA", "1").strip() != "0"
+
+def _voz_emergencia(texto):
+    """Dice texto con la voz de Windows. True si sonó. Nunca lanza ni registra el texto."""
+    global _voz_emergencia_avisada
+    if not voz_emergencia_activa():
+        return False
+    import base64
+    texto = (frases.limpiar_para_voz(texto) or texto)[:VOZ_EMERGENCIA_MAX]
+    if not _voz_emergencia_avisada:
+        texto = f"{AVISO_VOZ_EMERGENCIA} {texto}"
+    t0 = time.monotonic()
+    try:
+        entorno = {**os.environ, "JARVIS_VOZ_TEXTO": base64.b64encode(texto.encode("utf-8")).decode("ascii")}
+        metrics.registrar_primera_voz()
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _SAPI],
+                       env=entorno, capture_output=True, timeout=VOZ_EMERGENCIA_TIMEOUT_S, check=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception as e:
+        _print_seguro(f"[VOZ] tampoco hay voz de emergencia ({type(e).__name__})")
+        return False
+    _voz_emergencia_avisada = True
+    metrics.registrar_tts("windows", len(texto), (time.monotonic() - t0) * 1000)
+    return True
+
+def _sin_voz(texto, aviso_ui):
+    """Falló la síntesis: voz de emergencia y, si tampoco hay, aviso en la UI (el texto ya está)."""
+    if not _voz_emergencia(texto):
+        ui_bridge.emit("error", message=aviso_ui)
+
 # ── HABLAR ────────────────────────────────────────────────────────
 @contextmanager
 def _sesion_habla(texto, texto_pantalla):
@@ -405,7 +451,12 @@ def _reproducir(data, rate):
 def hablar(texto, texto_pantalla=None):
     """Dice texto por voz; la UI muestra texto_pantalla si se pasa (p. ej. un archivo completo)."""
     with _sesion_habla(texto, texto_pantalla):
-        data, rate = _sintetizar(texto)
+        try:
+            data, rate = _sintetizar(texto)
+        except Exception as e:
+            _print_seguro(f"[VOZ] fallo sintetizando ({type(e).__name__}): voz de emergencia")
+            _sin_voz(texto, SIN_VOZ_PANTALLA)
+            return
         _reproducir(data, rate)
 
 def hablar_frases(frases, texto_pantalla=None):
@@ -429,12 +480,14 @@ def hablar_frases(frases, texto_pantalla=None):
             return False
 
         def productor():
+            hechas = 0
             try:
-                for frase in frases:
+                for i, frase in enumerate(frases):
+                    hechas = i
                     if cancelar.is_set() or not poner(("audio", _sintetizar(frase))):
                         return
             except Exception as e:
-                poner(("error", e))
+                poner(("error", (e, hechas)))
                 return
             poner(("fin", None))
 
@@ -453,8 +506,9 @@ def hablar_frases(frases, texto_pantalla=None):
                 if tipo == "fin":
                     break
                 if tipo == "error":
-                    _print_seguro(f"[VOZ] fallo sintetizando una frase: {type(valor).__name__}")
-                    ui_bridge.emit("error", message="No he podido decir el resto de la respuesta.")
+                    error, hechas = valor
+                    _print_seguro(f"[VOZ] fallo sintetizando una frase: {type(error).__name__}")
+                    _sin_voz(" ".join(frases[hechas:]), "No he podido decir el resto de la respuesta.")
                     break
                 if _reproducir(*valor):
                     break

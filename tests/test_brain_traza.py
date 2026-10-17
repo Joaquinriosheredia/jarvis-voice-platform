@@ -89,8 +89,9 @@ class TestTrazaBasica(Base):
         self.assertEqual(t["stop_final"], "end_turn")
 
     def test_stop_final_api_error_max_iter_y_otro(self):
+        brain._olvidar_fallo_claude()
         r, _ = self.correr([RuntimeError("caída")])
-        self.assertEqual(r, "No puedo responder ahora mismo.")
+        self.assertEqual(r, brain.FRASES_FALLO_CLAUDE["desconocida"])
         self.assertEqual(brain.ultima_traza()["stop_final"], "api_error")
 
         r, _ = self.correr([resp("tool_use", [tool()]) for _ in range(20)])

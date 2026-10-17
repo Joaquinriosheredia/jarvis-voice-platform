@@ -6,6 +6,7 @@ import whisper
 import atexit
 import os
 import threading
+import time
 
 import audio
 import tts_elevenlabs
@@ -21,7 +22,18 @@ from skills import musica, sistema, webs, authority, tareas, gmail, google_auth
 
 # ── CARGAR MODELOS ────────────────────────────────────────────────
 print("🤖 Cargando Jarvis...")
-whisper_model = whisper.load_model("small")  # usa cuda si torch lo detecta
+AVISO_WHISPER_CPU = "Whisper funciona sin GPU: tardaré algo más en entenderte."
+
+def _cargar_whisper():
+    """(modelo, aviso por voz o ""). Sin GPU, o con CUDA rota al cargar, Whisper va en CPU."""
+    try:
+        modelo = whisper.load_model("small")  # usa cuda si torch lo detecta
+    except Exception as e:
+        print(f"⚠️ Whisper no carga en la GPU ({type(e).__name__}): se carga en CPU")
+        modelo = whisper.load_model("small", device="cpu")
+    return modelo, (AVISO_WHISPER_CPU if str(getattr(modelo, "device", "")) == "cpu" else "")
+
+whisper_model, aviso_whisper = _cargar_whisper()
 print(f"🎙️ Whisper en {whisper_model.device}")
 print("✅ Jarvis listo")
 
@@ -271,6 +283,34 @@ def ui_bridge_emit(tipo, **datos):
     ui_bridge.emit(tipo, **datos)
 
 
+# ── FALLOS EN EL BUCLE ────────────────────────────────────────────
+# Un fallo que se repite (micrófono desconectado, un error en cada turno) no puede dejar el
+# bucle girando ni repetir la frase: se dice una vez y se espera cada vez más (hasta 30 s).
+FRASE_FALLO_TURNO = "He tenido un fallo interno con esa petición. Prueba otra vez."
+ESPERA_MAX_S = 30
+_fallos_seguidos = 0
+
+def _fallo_en_bucle(e):
+    global _fallos_seguidos
+    _fallos_seguidos += 1
+    print(f"❌ Error: {brain.direccion.ocultar(str(e))}")
+    if _fallos_seguidos == 1:
+        try:
+            audio.hablar(FRASE_FALLO_TURNO)
+        except Exception:
+            pass
+        return
+    time.sleep(min(ESPERA_MAX_S, 2 ** (_fallos_seguidos - 2)))
+
+def _bucle_sano():
+    global _fallos_seguidos
+    _fallos_seguidos = 0
+
+def _avisos_de_voz(aviso):
+    """Avisos del arranque que se dicen dentro del saludo: Google y Whisper sin GPU."""
+    google = aviso[0] if aviso else ""
+    return f"{google} {aviso_whisper}".strip() if aviso_whisper else google
+
 def _callar_sin_voz():
     """Orden de parada.SILENCIO sin que JARVIS esté hablando: solo calla. Para la
     música que lanzó JARVIS (no cualquier VLC). Nunca llega al modelo ni al gate:
@@ -302,10 +342,12 @@ def main():
     briefing.autorizacion = autorizacion   # "dame el briefing" respeta el mismo estado
     if aviso:
         ui_bridge.avisar(aviso[1])
+    if aviso_whisper:
+        ui_bridge.avisar(aviso_whisper)
     if _gmail_disponible(autorizacion):  # getProfile: con el token caducado no se intenta
         brain.cargar_destinatarios_permitidos(SKILLS)
     tts_elevenlabs.marcar_privado()  # el resumen lleva remitentes y asuntos de Gmail → Piper
-    audio.hablar(resumen_diario(autorizacion, aviso[0] if aviso else ""))
+    audio.hablar(resumen_diario(autorizacion, _avisos_de_voz(aviso)))
     if audio.apagado_pedido():   # "apágate" durante el resumen de arranque
         _despedirse()
         return
@@ -317,6 +359,7 @@ def main():
         try:
             _entregar_avisos()
             texto = audio.escuchar(whisper_model)
+            _bucle_sano()
             if not texto:
                 metrics.descartar_turno()
                 continue
@@ -347,7 +390,7 @@ def main():
             audio.hablar("Cerrando Jarvis.")
             break
         except Exception as e:
-            print(f"❌ Error: {brain.direccion.ocultar(str(e))}")
+            _fallo_en_bucle(e)
 
 # ── HISTORIAL (memoria.json) ──────────────────────────────────────
 # El historial va a disco y vuelve al modelo como contexto: nunca guarda direcciones
