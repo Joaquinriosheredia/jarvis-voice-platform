@@ -613,6 +613,7 @@ def escuchar(whisper_model):
         resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=prompt_whisper())
     t_whisper = time.time() - t0
     metrics.marcar("whisper", t_whisper * 1000)
+    metrics.registrar_whisper(len(frames) * FRAME_MS, resultado)
     print(f"⏱️  Whisper: {t_whisper:.2f}s")
 
     os.unlink(tmp)

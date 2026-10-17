@@ -128,6 +128,18 @@ def registrar_whisper_logprob(logprob):
         _en_turno(f)
 
 
+def registrar_whisper(audio_ms, resultado):
+    """Duración del audio capturado y temperatura máxima de los segmentos: > 0 significa que
+    Whisper repitió la decodificación (fallback), la causa típica de las colas largas. Sin texto."""
+    def f(t):
+        t["audio_ms"] = int(audio_ms)
+        temps = [s.get("temperature") for s in (resultado or {}).get("segments") or []
+                 if isinstance(s.get("temperature"), (int, float))]
+        if temps:
+            t["whisper_temp"] = round(max(temps), 1)
+    _en_turno(f)
+
+
 def registrar_ttft(ms):
     """Tiempo hasta el primer token de texto de Claude (solo el primero del turno)."""
     def f(t):
@@ -230,6 +242,9 @@ def _registro(t, texto_usuario, respuesta, privado):
         reg["ttft_ms"] = t["ttft_ms"]
     if t.get("t_primera_voz") is not None:
         reg["primera_voz_ms"] = int((t["t_primera_voz"] - t["t0"]) * 1000)
+    for campo in ("audio_ms", "whisper_temp"):
+        if t.get(campo) is not None:
+            reg[campo] = t[campo]
     for campo in ("memoria_consultas", "memoria_con_resultados"):
         if t.get(campo):
             reg[campo] = t[campo]
@@ -313,6 +328,50 @@ def resumen(turnos):
         "medio_ms":  round(sum(total) / len(total)) if total else None,
         "cache_ratio": cache_ratio(turnos),
     }
+
+
+# Etapas del informe de latencia: (nombre, función que da los ms del turno o None)
+def _primer_audio(t):
+    """TTS hasta el primer audio: lo que pasa entre el fin del modelo/tools y la primera voz."""
+    if not isinstance(t.get("primera_voz_ms"), int):
+        return None
+    return max(0, t["primera_voz_ms"] - sum(t.get(f"{f}_ms", 0) for f in ("whisper", "router", "llm", "tools")))
+
+
+ETAPAS = (
+    ("transcripcion",    lambda t: t.get("whisper_ms")),
+    ("router",           lambda t: t.get("router_ms")),
+    ("modelo",           lambda t: t.get("llm_ms") or None),        # sin modelo (atajo) no cuenta
+    ("modelo_ttft",      lambda t: t.get("ttft_ms")),
+    ("tools",            lambda t: t.get("tools_ms") if t.get("tools") else None),
+    ("tts_primer_audio", _primer_audio),
+    ("total",            lambda t: t.get("total_ms")),
+)
+
+
+def latencia_por_etapa(turnos):
+    """{etapa: {"n", "p50", "p95", "max"}} con los turnos que tienen esa etapa. Solo números."""
+    salida = {}
+    for nombre, medir in ETAPAS:
+        valores = []
+        for t in turnos:
+            try:
+                v = medir(t)
+            except Exception:
+                v = None
+            if isinstance(v, int) and not isinstance(v, bool):
+                valores.append(v)
+        salida[nombre] = {"n": len(valores), "p50": percentil(valores, 50),
+                          "p95": percentil(valores, 95), "max": max(valores) if valores else None}
+    return salida
+
+
+def cuello_de_botella(lat):
+    """(etapa con más p50, etapa con más p95), sin contar el total ni el TTFT (parte del modelo)."""
+    etapas = {k: v for k, v in lat.items() if k not in ("total", "modelo_ttft") and v["n"]}
+    if not etapas:
+        return None, None
+    return (max(etapas, key=lambda k: etapas[k]["p50"]), max(etapas, key=lambda k: etapas[k]["p95"]))
 
 
 def turnos_desde(turnos, dias, hoy=None):

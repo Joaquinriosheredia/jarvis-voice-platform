@@ -321,8 +321,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 916 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 916 tests ... OK`
+- **Tests:** 920 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 920 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -484,6 +484,7 @@ venv\Scripts\python.exe jarvis.py      # asistente de voz + servidor WebSocket
 cd app; npm install; npm start         # UI Electron (opcional)
 venv\Scripts\python.exe replay.py 20   # últimos 20 turnos: hora, ruta, tools, latencia, coste
 venv\Scripts\python.exe replay.py --resumen   # hoy y 7 días: p50/p95, coste, % por ruta, caché
+venv\Scripts\python.exe replay.py --latencia  # p50/p95 por etapa y cuello de botella (informe: docs/latencia.md)
 ```
 
 ## Diagnóstico

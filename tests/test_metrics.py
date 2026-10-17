@@ -224,6 +224,44 @@ class TestReplay(Base):
         self.assertEqual(len(tabla.splitlines()), 3)
 
 
+class TestLatencia(Base):
+    def turno(self, w, l, tools_ms=0, tools=(), voz=None, texto="secreto del usuario"):
+        primera = voz if voz is not None else w + l + tools_ms + 100
+        return {"ts": "2026-10-15T10:00:00+02:00", "ruta": "claude", "whisper_ms": w, "router_ms": 0,
+                "llm_ms": l, "ttft_ms": l // 2, "tools_ms": tools_ms, "tools": list(tools),
+                "primera_voz_ms": primera, "total_ms": primera, "texto_usuario": texto, "respuesta": texto}
+
+    def test_p50_p95_por_etapa_y_cuello_de_botella(self):
+        turnos = [self.turno(500, 1000 + i * 100) for i in range(9)] + [self.turno(9000, 1500, 800, ["enviar_email"])]
+        lat = metrics.latencia_por_etapa(turnos)
+        self.assertEqual((lat["transcripcion"]["p50"], lat["transcripcion"]["p95"]), (500, 9000))
+        self.assertEqual(lat["modelo"]["p50"], 1400)
+        self.assertEqual((lat["tools"]["n"], lat["tools"]["p50"]), (1, 800))   # solo turnos con tools
+        self.assertEqual(lat["tts_primer_audio"]["p50"], 100)
+        self.assertEqual(metrics.cuello_de_botella(lat), ("modelo", "transcripcion"))
+
+    def test_turnos_antiguos_o_raros_no_rompen(self):
+        lat = metrics.latencia_por_etapa([{"total_ms": 900}, {"whisper_ms": "x"}, {}])
+        self.assertEqual(lat["total"]["n"], 1)
+        self.assertEqual(lat["tts_primer_audio"]["n"], 0)
+        self.assertEqual(metrics.cuello_de_botella(metrics.latencia_por_etapa([])), (None, None))
+
+    def test_informe_sin_texto_de_turnos(self):
+        turnos = [self.turno(500, 1200), dict(self.turno(4000, 1000), whisper_temp=0.4),
+                  dict(self.turno(400, 900), whisper_temp=0.0)]
+        informe = replay.texto_latencia(turnos)
+        self.assertNotIn("secreto", informe)
+        self.assertIn("modelo", informe)
+        self.assertIn("Whisper repitió la decodificación en 1 de 2 turnos", informe)
+
+    def test_registra_audio_y_fallback_de_whisper_sin_texto(self):
+        metrics.iniciar_turno()
+        metrics.registrar_whisper(2300, {"text": "hola", "segments": [{"temperature": 0.0}, {"temperature": 0.2}]})
+        reg = metrics.cerrar_turno(None, None)
+        self.assertEqual((reg["audio_ms"], reg["whisper_temp"]), (2300, 0.2))
+        self.assertNotIn("hola", json.dumps(metrics.evento_ui(reg)))
+
+
 class TestGastoHoy(Base):
     def test_gasto_hoy_es_read_y_devuelve_texto(self):
         self.assertEqual(brain.TOOL_RISK["gasto_hoy"], "READ")
