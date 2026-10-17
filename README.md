@@ -281,8 +281,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 871 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 871 tests ... OK`
+- **Tests:** 878 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 878 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -291,15 +291,49 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Instalación y ejecución (Windows)
 
-Requisitos: Windows 10/11, Python 3 (el venv actual usa 3.14), Node.js, [Ollama](https://ollama.com), ffmpeg en el PATH (lo usa Whisper), VLC en su ruta por defecto y WSL solo para los proyectos del operador que viven en Linux.
+### Inicio rápido
 
-```powershell
-cd C:\Jarvis
-python -m venv venv
-venv\Scripts\pip install -r requirements.txt   # incluye pillow (captura) y tzdata (zona horaria)
-ollama pull qwen2.5:3b
-venv\Scripts\python.exe doctor.py              # primer paso tras instalar: comprueba el entorno
-```
+Para llegar desde un clon del repo a una conversación por voz. Hace falta Windows 10/11 con micrófono y altavoz, y una clave de la API de Anthropic.
+
+1. **Programas base** (una vez, en PowerShell):
+   ```powershell
+   winget install Git.Git Python.Python.3.14 Gyan.FFmpeg
+   # Opcionales: VLC (música), Node (UI de escritorio), Ollama (respuestas locales)
+   winget install VideoLAN.VLC OpenJS.NodeJS.LTS Ollama.Ollama
+   ```
+   Abre una consola nueva para que se vean en el PATH.
+2. **Clona el repo en `C:\Jarvis`.** La voz y el proyecto `jarvis` del operador usan esa ruta.
+   ```powershell
+   git clone https://github.com/Joaquinriosheredia/jarvis-voice-platform C:\Jarvis
+   cd C:\Jarvis
+   ```
+   Si lo clonas en otra carpeta, `.\instalar.cmd -CrearEnlace` crea `C:\Jarvis` como enlace a ella.
+3. **Instala:**
+   ```powershell
+   .\instalar.cmd
+   ```
+   El instalador:
+   - comprueba Python (3.11 a 3.14);
+   - crea `venv` e instala `requirements.txt` (torch con CUDA desde el índice de PyTorch, unos 3 GB la primera vez);
+   - comprueba ffmpeg, VLC, Node, Ollama y la GPU;
+   - descarga la voz de Piper y el modelo `qwen2.5:3b` de Ollama;
+   - crea `C:\Jarvis-secrets` con una plantilla `.env.example` sin valores;
+   - ejecuta `doctor.py` y termina con la lista de lo que falta.
+
+   Se puede repetir: no rehace lo que ya está y nunca toca `.env`, tokens ni credenciales. Con `-SinDescargas` no descarga la voz ni el modelo de Ollama. Si la caché de `pip` está dañada, reintenta sin ella. Si Ollama no está en el PATH (por ejemplo, porque corre en WSL), lo busca por su API en `127.0.0.1:11434`. `-Secretos <carpeta>` solo sirve para probar el instalador sin tocar la carpeta real: JARVIS siempre lee `C:\Jarvis-secrets`.
+4. **Pon tu clave.** Copia `C:\Jarvis-secrets\.env.example` a `C:\Jarvis-secrets\.env` y rellena `ANTHROPIC_API_KEY`. Lo demás es opcional.
+5. **Comprueba** con `.\instalar.cmd` o `venv\Scripts\python.exe doctor.py`. Los AVISO no impiden arrancar; los ERROR sí.
+6. **Arranca y habla:**
+   ```powershell
+   venv\Scripts\python.exe jarvis.py
+   ```
+   Cuando salga «🎤 Escuchando...», di «hola, ¿qué tal?». Para la UI: `cd app; npm start`. Para cerrar: «adiós».
+
+Gmail, Calendar y Contactos son opcionales y necesitan un cliente OAuth propio (ver [Autorización de Google](#autorización-de-google)). Sin ellos, JARVIS conversa, busca en la web, da la hora y el tiempo, y usa las tools de archivos y de código.
+
+**Rutas fijas.** Las rutas de archivos permitidas son las de este equipo (Descargas en `E:\descargas ryzen` y el escritorio de `C:\Users\Usuario`), y lo mismo pasa con los alias de proyectos del operador. En otra máquina, las tools de archivos no tendrán dónde actuar hasta cambiar `ALLOWED_ROOTS` y `DESCARGAS` en `brain.py`, y `PROYECTOS` en `skills/operador.py`.
+
+### Configuración
 
 Configuración en `C:\Jarvis-secrets\.env`, que carga `jarvis.py`:
 
@@ -319,15 +353,18 @@ JARVIS_GITHUB_REPOS=jarvis-voice-platform
 JARVIS_BRIEFING=1               # 0 = sin briefing al arrancar
 JARVIS_MEMORIA_DB=C:\Jarvis-secrets\memoria_sesiones.db
 JARVIS_MEMORIA_DIAS=90          # retención de la memoria entre sesiones
+JARVIS_GATE_ESTRICTO=0          # 1 = confirmación por voz también para tools con efectos (ver Gate estricto)
+JARVIS_VOCABULARIO=             # otra ruta para el vocabulario de Whisper (por defecto vocabulario_whisper.txt)
 ```
 
-Google (Gmail y Calendar):
+Google (Gmail, Calendar y, opcionalmente, Contactos):
 
 1. Crea un cliente OAuth de tipo escritorio en Google Cloud y guarda el JSON como `C:\Jarvis-secrets\credentials.json`.
 2. Autoriza cada servicio una vez. Gmail guarda `token.json` y Calendar un token propio, `token_calendar.json`:
    ```powershell
    venv\Scripts\python.exe reautorizar.py gmail
    venv\Scripts\python.exe reautorizar.py calendar
+   venv\Scripts\python.exe reautorizar.py contacts   # opcional: habilita antes la People API
    ```
 3. Publica la app OAuth en producción (ver más abajo) para que la autorización no caduque a los 7 días.
 
@@ -411,6 +448,8 @@ replay.py            consulta del log de turnos
 doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
 reautorizar.py       vuelve a autorizar Gmail, Calendar o Contactos (renombra el token, OAuth y comprobación)
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
+instalar.cmd / .ps1   instalación idempotente en Windows (venv, dependencias, voz, modelo, plantilla de secretos, doctor)
+env.example          plantilla de C:\Jarvis-secrets\.env sin valores
 probar_vocabulario.py prueba manual con audio (Piper + Whisper) del vocabulario propio
 vocabulario_whisper.txt  términos propios que se pasan a Whisper como contexto inicial
 limpiar_memoria.py   limpieza de un solo uso de direcciones en el historial de memoria.json
