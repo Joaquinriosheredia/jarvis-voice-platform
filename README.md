@@ -335,8 +335,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 962 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 962 tests ... OK`
+- **Tests:** 970 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 970 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -517,6 +517,42 @@ Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC,
 - **AVISO:** funciona con limitaciones (sin Ollama todo va a Claude, sin CUDA Whisper va en CPU, token de Google sin verificar por falta de red…). No cambia el código de salida.
 - **ERROR:** algo que impide arrancar o una función básica. Cada fallo trae la acción para arreglarlo. Código de salida 1 si hay algún ERROR.
 
+### Prueba de eco y altavoz
+
+`prueba_eco.py` mide si el micrófono oye a JARVIS como si fuera el usuario. Es un diagnóstico manual: no se ejecuta solo, ni en los tests ni al arrancar.
+
+Dice 7 frases fijas con el TTS de JARVIS y graba el micrófono mientras suenan y 1 s después. Algunas frases contienen órdenes de parada: «para», «silencio o basta», «espera», «hasta luego». Para cada frase mide, con el mismo Whisper y los mismos filtros que JARVIS:
+
+- **Eco como entrada:** lo grabado pasaría como un turno del usuario con las palabras de JARVIS.
+- **Cola:** el eco que queda al terminar la frase y oiría el siguiente `escuchar()`.
+- **Falsas paradas:** la escucha de parada corta un trozo, lo entiende como orden y `eco_probable` no lo filtra, así que JARVIS se callaría por su propio eco.
+
+No guarda audio ni el texto transcrito: el micro también oye la sala. Solo imprime métricas, y `--json` añade una línea con ellas.
+
+```powershell
+# Con JARVIS cerrado (usan el mismo micrófono)
+venv\Scripts\python.exe prueba_eco.py --etiqueta "altavoces 75% 1 m" --json logs\eco.jsonl
+```
+
+**Protocolo manual.** Repite la prueba en cada montaje y anota los aciertos («ni eco, ni cola, ni falsa parada») de cada uno:
+
+1. Cierra JARVIS y la música. La sala debe estar en silencio y nadie debe hablar durante la prueba (son unos 40 s).
+2. **Auriculares:** volumen de Windows al 50 %. Es la referencia: debería salir 7/7 sin ninguna falsa parada.
+3. **Altavoces a 1 m del micrófono:** volumen al 50 %, 75 % y 100 %, una ejecución por volumen.
+4. **Altavoces a 30 cm del micrófono:** volumen al 75 %.
+5. Si en algún montaje aparece eco como entrada o alguna falsa parada:
+   - repite ese montaje una vez para descartar ruido;
+   - prueba bajando el volumen o alejando el micro;
+   - si persiste, usa auriculares. Con el volumen alto y el micro cerca, el detector de voz dominante tiene menos margen.
+
+| Montaje | Aciertos | Eco | Cola | Falsas paradas |
+|---|---|---|---|---|
+| Auriculares, 50 % | | | | |
+| Altavoces 1 m, 50 % | | | | |
+| Altavoces 1 m, 75 % | | | | |
+| Altavoces 1 m, 100 % | | | | |
+| Altavoces 30 cm, 75 % | | | | |
+
 ## Estructura del repo
 
 ```
@@ -528,6 +564,7 @@ parada.py            listas de órdenes de silencio y apagado, filtro de eco y d
 tts_elevenlabs.py    TTS opcional con fallback a Piper y marca de turno privado
 metrics.py           métricas por turno, coste estimado y log JSONL
 replay.py            consulta del log de turnos
+prueba_eco.py        diagnóstico manual de eco y altavoz (solo métricas)
 calidad_resumen.py   evaluación del resumen de la memoria con sesiones sintéticas (docs/memoria-resumen.md)
 doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
 reautorizar.py       vuelve a autorizar Gmail, Calendar o Contactos (renombra el token, OAuth y comprobación)
