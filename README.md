@@ -164,6 +164,22 @@ Lo que no cabe se queda fuera. El aviso de reautorizar Google, si hace falta, va
 
 Si no hay token, no es válido o no hay red, el briefing sigue sin la parte de GitHub y lo dice una sola vez por sesión. `doctor.py` comprueba que el token existe y es fine-grained; `doctor.py --live` comprueba que puede leer el repo, los PRs y Actions de cada repo configurado.
 
+## Avisos proactivos (v1, desactivados por defecto)
+
+Con `JARVIS_AVISOS_CI=1`, JARVIS revisa cada pocos minutos el último CI de los repos configurados. Si una ejecución pasa a rojo, te lo dice por voz y en la UI: «Aviso: el CI de jarvis-voice-platform ha pasado a rojo (CI en la rama main).»
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `JARVIS_AVISOS_CI` | desactivado | `1` los activa; cualquier otro valor los deja apagados |
+| `JARVIS_AVISOS_CI_MIN` | `5` | Minutos entre comprobaciones (de 2 a 60) |
+| `JARVIS_AVISOS_CI_REPOS` | los del briefing | Repos a vigilar, con el mismo formato que `JARVIS_GITHUB_REPOS` |
+
+- **Una vez por evento.** Cada ejecución de CI en rojo se avisa una sola vez. Lo que ya estaba en rojo al arrancar no se avisa, porque ya lo dice el briefing.
+- **Sin interrumpir.** La voz solo sale entre turnos, cuando ni tú ni JARVIS estáis hablando, y se corta con «para» como cualquier respuesta. Tras una orden de silencio («para», «cállate», el botón de parar), durante 15 minutos los avisos van solo a la UI.
+- **Sin acciones.** Solo lee el estado del CI con el mismo `GITHUB_TOKEN` de solo lectura del briefing; nunca ejecuta nada.
+- **Sin token o con el token rechazado** no avisa de nada y lo registra una sola vez en la consola. Sin token, deja de comprobar hasta reiniciar.
+- `doctor.py` muestra si están activos, qué repos vigila y cada cuánto, y avisa si están activos sin `GITHUB_TOKEN`.
+
 ## Decisiones de diseño
 
 - **Router por capas:** el coste y la latencia se pagan solo cuando hacen falta. Los atajos no tocan ningún modelo y la capa local es gratuita.
@@ -281,8 +297,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 878 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 878 tests ... OK`
+- **Tests:** 896 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 896 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -355,6 +371,9 @@ JARVIS_MEMORIA_DB=C:\Jarvis-secrets\memoria_sesiones.db
 JARVIS_MEMORIA_DIAS=90          # retención de la memoria entre sesiones
 JARVIS_GATE_ESTRICTO=0          # 1 = confirmación por voz también para tools con efectos (ver Gate estricto)
 JARVIS_VOCABULARIO=             # otra ruta para el vocabulario de Whisper (por defecto vocabulario_whisper.txt)
+JARVIS_AVISOS_CI=0              # 1 = avisos proactivos de CI en rojo (ver Avisos proactivos)
+JARVIS_AVISOS_CI_MIN=5          # minutos entre comprobaciones (2 a 60)
+JARVIS_AVISOS_CI_REPOS=         # repos a vigilar; si no, los de JARVIS_GITHUB_REPOS
 ```
 
 Google (Gmail, Calendar y, opcionalmente, Contactos):
@@ -450,6 +469,7 @@ reautorizar.py       vuelve a autorizar Gmail, Calendar o Contactos (renombra el
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
 instalar.cmd / .ps1   instalación idempotente en Windows (venv, dependencias, voz, modelo, plantilla de secretos, doctor)
 env.example          plantilla de C:\Jarvis-secrets\.env sin valores
+avisos_ci.py         avisos proactivos v1: CI que pasa a rojo (desactivados por defecto)
 probar_vocabulario.py prueba manual con audio (Piper + Whisper) del vocabulario propio
 vocabulario_whisper.txt  términos propios que se pasan a Whisper como contexto inicial
 limpiar_memoria.py   limpieza de un solo uso de direcciones en el historial de memoria.json

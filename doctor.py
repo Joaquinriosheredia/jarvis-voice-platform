@@ -615,6 +615,22 @@ def check_live_tiempo():
     return resultado(AVISO, f"{texto} ({causa})", accion)
 
 
+def check_avisos_ci():
+    """Avisos proactivos de CI (JARVIS_AVISOS_CI=1): si están activos, cada cuánto y qué repos."""
+    if variable("JARVIS_AVISOS_CI").strip() != "1":
+        return resultado(OK, "Avisos de CI desactivados (por defecto); JARVIS_AVISOS_CI=1 los activa")
+    import avisos_ci
+    from skills import github
+    crudo = variable("JARVIS_AVISOS_CI_REPOS").strip() or variable("JARVIS_GITHUB_REPOS")
+    lista = github.repos(crudo)
+    minutos = avisos_ci.minutos(variable("JARVIS_AVISOS_CI_MIN"))
+    detalle = f"Avisos de CI activos: {', '.join(r.split('/', 1)[1] for r in lista)} cada {minutos} min"
+    if not variable("GITHUB_TOKEN"):
+        return resultado(AVISO, detalle + ", pero sin GITHUB_TOKEN no avisarán de nada",
+                         "Añade GITHUB_TOKEN (solo lectura, ver Briefing) o quita JARVIS_AVISOS_CI")
+    return resultado(OK, detalle)
+
+
 def check_gate_estricto():
     """Solo informa: el modo estricto es opcional (JARVIS_GATE_ESTRICTO=1)."""
     valor = variable("JARVIS_GATE_ESTRICTO").strip()
@@ -661,6 +677,7 @@ COMPROBACIONES = [
     ("memoria",           "Memoria entre sesiones",       check_memoria),
     ("tiempo",            "Servicio del tiempo",          check_tiempo),
     ("gate_estricto",     "Gate estricto",                check_gate_estricto),
+    ("avisos_ci",         "Avisos de CI",                 check_avisos_ci),
     ("git",               "Git",                          check_git),
 ]
 COMPROBACIONES_LIVE = [

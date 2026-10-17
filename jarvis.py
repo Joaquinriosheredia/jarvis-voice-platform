@@ -15,6 +15,7 @@ import brain
 import memoria as mem
 import memoria_sesiones
 import briefing
+import avisos_ci
 from skills import musica, sistema, webs, authority, tareas, gmail, google_auth
 
 # ── CARGAR MODELOS ────────────────────────────────────────────────
@@ -251,6 +252,24 @@ def _despedirse():
     brain._print_seguro("[PARADA] orden de apagado: JARVIS se cierra")
     audio.hablar(DESPEDIDA)
 
+def _entregar_avisos():
+    """Avisos proactivos pendientes, entre turnos (nadie está hablando): a la UI siempre y por
+    voz salvo tras una orden de silencio. La voz se puede cortar como cualquier respuesta."""
+    if not avisos_ci.hay_pendientes():
+        return
+    try:
+        with audio.escucha_de_parada():
+            avisos_ci.entregar(hablar=audio.hablar,
+                               mostrar=lambda texto: ui_bridge_emit("warning", message=texto))
+    except Exception as e:
+        brain._print_seguro(f"[AVISOS] no se pudo entregar un aviso: {type(e).__name__}")
+
+
+def ui_bridge_emit(tipo, **datos):
+    import ui_bridge
+    ui_bridge.emit(tipo, **datos)
+
+
 def _callar_sin_voz():
     """Orden de parada.SILENCIO sin que JARVIS esté hablando: solo calla. Para la
     música que lanzó JARVIS (no cualquier VLC). Nunca llega al modelo ni al gate:
@@ -289,9 +308,13 @@ def main():
     if audio.apagado_pedido():   # "apágate" durante el resumen de arranque
         _despedirse()
         return
+    # Avisos proactivos de CI (JARVIS_AVISOS_CI=1): una parada por voz o botón los silencia un rato
+    if avisos_ci.iniciar(registrar=brain._print_seguro):
+        audio.al_parar.append(avisos_ci.silenciar)
 
     while True:
         try:
+            _entregar_avisos()
             texto = audio.escuchar(whisper_model)
             if not texto:
                 metrics.descartar_turno()
@@ -304,6 +327,7 @@ def main():
                 if orden == "apagado":
                     _despedirse()
                     break
+                avisos_ci.silenciar()
                 _callar_sin_voz()
                 continue
 

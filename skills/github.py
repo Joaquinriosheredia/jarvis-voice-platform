@@ -32,9 +32,10 @@ class ErrorGitHub(Exception):
         self.causa = causa
 
 
-def repos():
-    """Lista de "dueño/repo" configurada (los nombres no válidos se ignoran)."""
-    crudo = os.environ.get("JARVIS_GITHUB_REPOS", "")
+def repos(crudo=None):
+    """Lista de "dueño/repo" configurada (los nombres no válidos se ignoran). crudo: otra
+    lista separada por comas en lugar de JARVIS_GITHUB_REPOS."""
+    crudo = os.environ.get("JARVIS_GITHUB_REPOS", "") if crudo is None else crudo
     nombres = [r.strip() for r in crudo.split(",") if r.strip()] or list(REPOS)
     lista = []
     for r in nombres:
@@ -82,7 +83,8 @@ def prs_pendientes(repo):
 
 
 def ultimo_ci(repo):
-    """{"nombre", "rama", "estado": "verde" | "rojo" | "en curso" | "cancelado" | otro} o None."""
+    """{"id", "nombre", "rama", "estado": "verde" | "rojo" | "en curso" | "cancelado" | otro} o None.
+    id: el de la ejecución (los avisos de CI avisan una vez por ejecución)."""
     runs = _get(f"/repos/{repo}/actions/runs", {"per_page": 1, "exclude_pull_requests": "true"})
     run = (runs.get("workflow_runs") or [None])[0]
     if not run:
@@ -92,7 +94,8 @@ def ultimo_ci(repo):
     else:
         estado = {"success": "verde", "failure": "rojo", "timed_out": "rojo",
                   "cancelled": "cancelado"}.get(run.get("conclusion"), run.get("conclusion") or "desconocido")
-    return {"nombre": run.get("name") or "CI", "rama": run.get("head_branch") or "", "estado": estado}
+    return {"id": run.get("id"), "nombre": run.get("name") or "CI", "rama": run.get("head_branch") or "",
+            "estado": estado}
 
 
 def estado(lista=None):
