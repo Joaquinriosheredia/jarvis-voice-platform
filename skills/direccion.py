@@ -64,9 +64,33 @@ _RE_OCULTAR_DICHA   = re.compile(  # [palabra (punto palabra)*] arroba palabra (
 OCULTA = "<email>"
 
 
+CONTACTO_OCULTO = "<contacto>"
+# Nombres de contactos resueltos en esta ejecución (solo en memoria): ocultar() los cambia por
+# <contacto>, así que tampoco llegan a la consola, a jarvis.log ni a lo que se guarda en disco
+_nombres_ocultos = set()
+
+
+def ocultar_nombre(nombre):
+    """Registra un nombre de contacto (de 3 o más letras) para que nunca salga en logs."""
+    n = " ".join(str(nombre or "").split())
+    if len(n) >= 3:
+        _nombres_ocultos.add(n.lower())
+
+
+def _ocultar_nombres(texto):
+    for n in sorted(_nombres_ocultos, key=len, reverse=True):
+        texto = re.sub(rf"(?<!\w){re.escape(n)}(?!\w)", CONTACTO_OCULTO, texto, flags=re.I)
+    return texto
+
+
 def ocultar(texto):
-    """Texto para consola y logs con cada dirección (escrita o dictada) sustituida por <email>."""
-    if not isinstance(texto, str) or not parece_dictada(texto):
+    """Texto para consola y logs con cada dirección (escrita o dictada) sustituida por <email>
+    y cada nombre de contacto resuelto por <contacto>."""
+    if not isinstance(texto, str):
+        return texto
+    if _nombres_ocultos:
+        texto = _ocultar_nombres(texto)
+    if not parece_dictada(texto):
         return texto
     return _RE_OCULTAR_DICHA.sub(OCULTA, _RE_OCULTAR_LITERAL.sub(OCULTA, texto))
 

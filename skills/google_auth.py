@@ -1,4 +1,5 @@
-"""Estado real de la autorización OAuth de Gmail y Calendar (token.json, token_calendar.json).
+"""Estado real de la autorización OAuth de Gmail, Calendar y Contactos (token.json,
+token_calendar.json, token_contacts.json; Contactos es opcional).
 
 comprobar() intenta renovar el access token con el refresh_token contra el endpoint
 de tokens de Google: no lee ni envía correo ni eventos, y no escribe el archivo (el
@@ -43,11 +44,16 @@ CODIGOS_OAUTH = ("invalid_grant", "invalid_scope", "invalid_client", "unauthoriz
                  "invalid_request", "deleted_client", "disabled_client", "org_internal")
 
 
+# Servicios opcionales: si nunca se autorizaron (SIN_TOKEN) no se avisa al arrancar
+OPCIONALES = {"contacts"}
+
+
 def servicios():
-    """{servicio: (nombre, token_file, scopes)} desde las constantes de gmail y calendario."""
-    from skills import calendario, gmail
+    """{servicio: (nombre, token_file, scopes)} desde las constantes de gmail, calendario y contactos."""
+    from skills import calendario, contactos, gmail
     return {"gmail":    ("Gmail", gmail.TOKEN_FILE, list(gmail.SCOPES)),
-            "calendar": ("Calendar", calendario.TOKEN_CAL, list(calendario.SCOPES_CAL))}
+            "calendar": ("Calendar", calendario.TOKEN_CAL, list(calendario.SCOPES_CAL)),
+            "contacts": ("Contactos", contactos.TOKEN_CONTACTOS, list(contactos.SCOPES_CONTACTOS))}
 
 
 def comando(servicio):
@@ -133,12 +139,12 @@ def comprobar_servicio(servicio, transporte=None):
 
 
 def comprobar_todos(espera=TIMEOUT + 5):
-    """{servicio: resultado} de Gmail y Calendar en paralelo. Lo que no termina en
+    """{servicio: resultado} de Gmail, Calendar y Contactos en paralelo. Lo que no termina en
     `espera` segundos cuenta como SIN_RED (los hilos son daemon: no bloquean la salida)."""
     try:
         config = servicios()
     except Exception:
-        return {s: _resultado(s, ERROR) for s in ("gmail", "calendar")}
+        return {s: _resultado(s, ERROR) for s in ("gmail", "calendar", "contacts")}
     resultados = {}
 
     def uno(servicio, token_file, scopes):
@@ -153,8 +159,8 @@ def comprobar_todos(espera=TIMEOUT + 5):
 
 
 # ── TEXTOS ────────────────────────────────────────────────────────
-_NOMBRES  = {"gmail": "Gmail", "calendar": "Calendar"}
-_ARCHIVOS = {"gmail": "token.json", "calendar": "token_calendar.json"}
+_NOMBRES  = {"gmail": "Gmail", "calendar": "Calendar", "contacts": "Contactos"}
+_ARCHIVOS = {"gmail": "token.json", "calendar": "token_calendar.json", "contacts": "token_contacts.json"}
 _DETALLE = {
     VALIDO:           "autorización válida (renovación verificada con Google)",
     RENOVADO:         "autorización válida (el access token había caducado y se ha renovado)",
@@ -174,7 +180,8 @@ _VOZ = {
     ERROR:            "Google ha rechazado la autorización de {nombre}",
     SIN_CREDENCIALES: "falta el archivo credentials de Google, así que {nombre} no funcionará",
 }
-_USO = {"gmail": "leer ni enviar correo", "calendar": "ver ni crear eventos"}
+_USO = {"gmail": "leer ni enviar correo", "calendar": "ver ni crear eventos",
+        "contacts": "buscar tus contactos"}
 
 
 def limpio(texto):
@@ -209,7 +216,8 @@ def accion(r):
 def aviso_arranque(resultados):
     """(texto para la voz, texto para la pantalla) si algún servicio necesita que el
     usuario haga algo, o None. Sin red no se avisa: no hay nada que arreglar."""
-    malos = [r for r in resultados.values() if r and r["estado"] in AVISAR]
+    malos = [r for r in resultados.values() if r and r["estado"] in AVISAR
+             and not (r["servicio"] in OPCIONALES and r["estado"] in (SIN_TOKEN, SIN_CREDENCIALES))]
     if not malos:
         return None
     voz, pantalla = [], []

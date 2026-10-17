@@ -337,6 +337,15 @@ def check_token_calendar():
                         _reautorizar("calendar"))
 
 
+def check_token_contactos():
+    """Contactos es opcional: sin token no es un aviso, solo se dice cómo activarlo."""
+    ruta = constante(os.path.join("skills", "contactos.py"), "TOKEN_CONTACTOS")
+    if not os.path.isfile(ruta):
+        return resultado(OK, f"Sin {os.path.basename(ruta)}: Contactos no está activado (opcional; "
+                             f"{_reautorizar('contacts')} lo activa)")
+    return _check_token(ruta, "Contactos", _reautorizar("contacts"))
+
+
 def _elevenlabs():
     """(api_key, voice_id) como los resuelve tts_elevenlabs: entorno y luego elevenlabs.json."""
     clave, voz = variable("ELEVENLABS_API_KEY"), variable("ELEVENLABS_VOICE_ID")
@@ -582,6 +591,13 @@ def check_live_token_calendar():
     return _check_live_token("calendar")
 
 
+def check_live_token_contactos():
+    ruta = constante(os.path.join("skills", "contactos.py"), "TOKEN_CONTACTOS")
+    if not os.path.isfile(ruta):
+        return resultado(OK, "Contactos no está activado (opcional): no hay nada que verificar")
+    return _check_live_token("contacts")
+
+
 def check_tiempo():
     from skills import sistema
     host = sistema.URL_TIEMPO.split("/")[2]
@@ -633,6 +649,7 @@ COMPROBACIONES = [
     ("google_credentials","credentials.json",             check_google_credentials),
     ("token_gmail",       "Token de Gmail",               check_token_gmail),
     ("token_calendar",    "Token de Calendar",            check_token_calendar),
+    ("token_contactos",   "Token de Contactos",           check_token_contactos),
     ("elevenlabs",        "ElevenLabs",                   check_elevenlabs),
     ("secretos_fuera",    "Secretos fuera del repo",      check_secretos_fuera_del_repo),
     ("gitignore",         ".gitignore",                   check_gitignore),
@@ -653,6 +670,7 @@ COMPROBACIONES_LIVE = [
     ("live_tiempo",       "Servicio del tiempo (--live)", check_live_tiempo),
     ("live_token_gmail",  "Token de Gmail (--live)",      check_live_token_gmail),
     ("live_token_calendar","Token de Calendar (--live)",  check_live_token_calendar),
+    ("live_token_contactos","Token de Contactos (--live)", check_live_token_contactos),
 ]
 
 

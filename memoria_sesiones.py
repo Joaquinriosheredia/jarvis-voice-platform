@@ -35,7 +35,8 @@ MAX_TEXTO_TURNO = 300    # por turno, en el texto que se manda a resumir
 MAX_TEXTO_SESION = 6000
 
 # Tools cuya respuesta cita archivos, diffs o salidas de tests: del turno solo queda la pregunta
-TOOLS_SIN_CONTENIDO = {"leer_archivo", "git_diff", "buscar_en_codigo", "ejecutar_tests", "ver_pantalla"}
+TOOLS_SIN_CONTENIDO = {"leer_archivo", "git_diff", "buscar_en_codigo", "ejecutar_tests", "ver_pantalla",
+                       "buscar_contacto"}
 
 TEMAS_TOOL = {
     "reproducir_musica": "música", "parar_musica": "música", "abrir_youtube": "música",

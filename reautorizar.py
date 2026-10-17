@@ -1,7 +1,12 @@
-"""Vuelve a autorizar a JARVIS en Google (Gmail o Calendar), sin pasos manuales.
+"""Vuelve a autorizar a JARVIS en Google (Gmail, Calendar o Contactos), sin pasos manuales.
 
     venv\\Scripts\\python.exe reautorizar.py gmail
     venv\\Scripts\\python.exe reautorizar.py calendar
+    venv\\Scripts\\python.exe reautorizar.py contacts
+
+Contactos pide un permiso nuevo (contacts.readonly, "Ver tus contactos") con su propio
+token (token_contacts.json). Antes de la primera vez hay que habilitar la People API en el
+proyecto de Google Cloud del credentials.json; el script lo recuerda (AVISOS).
 
 1. Renombra el token actual con la fecha (token-caducado-AAAAMMDD-HHMMSS.json, en la
    misma carpeta C:\\Jarvis-secrets). No lo borra.
@@ -22,6 +27,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from skills import google_auth  # noqa: E402
 
 ESPERA = 300  # s máximos esperando a que el usuario autorice en el navegador
+
+# Lo que hay que saber antes de abrir el navegador, por servicio
+AVISOS = {
+    "contacts": ("Aviso: Google te pedirá un permiso nuevo, «Ver tus contactos» (solo lectura). "
+                 "Si falla con accessNotConfigured o 403, habilita la People API en el proyecto de "
+                 "Google Cloud de tu credentials.json y repite. Si la app OAuth está en modo Testing, "
+                 "este token caduca a los 7 días como los demás."),
+}
 
 
 def _imprimir(texto):
@@ -70,6 +83,8 @@ def reautorizar(servicio, token_file, scopes, credentials_file=google_auth.CREDE
     else:
         _imprimir(f"1/3  No había {nombre}: se crea uno nuevo")
 
+    if servicio in AVISOS:
+        _imprimir(f"     {AVISOS[servicio]}")
     _imprimir("2/3  Autoriza a JARVIS en el navegador con tu cuenta de Google...")
     try:
         creds = flujo(credentials_file, scopes)
@@ -94,8 +109,8 @@ def reautorizar(servicio, token_file, scopes, credentials_file=google_auth.CREDE
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Vuelve a autorizar a JARVIS en Gmail o Calendar")
-    parser.add_argument("servicio", choices=["gmail", "calendar"])
+    parser = argparse.ArgumentParser(description="Vuelve a autorizar a JARVIS en Gmail, Calendar o Contactos")
+    parser.add_argument("servicio", choices=["gmail", "calendar", "contacts"])
     args = parser.parse_args(argv)
     _, token_file, scopes = google_auth.servicios()[args.servicio]
     return 0 if reautorizar(args.servicio, token_file, scopes)["ok"] else 1

@@ -88,6 +88,8 @@ CASOS = [
                              "claude", "enviar_email",     "confirm"),
     # Una dirección que el usuario no ha dictado (p. ej. sacada de un email) se bloquea sin confirmar
     ("envíale un correo a mi jefe con asunto prueba diciendo hola", "claude", "enviar_email", "block"),
+    # Contactos (People, solo lectura): buscar es READ; enviar a un contacto lo resuelve el sistema
+    ("cuál es el correo de ana garcía", "claude", "buscar_contacto", "none"),
 
     # CLAUDE + herramientas READ / EXTERNAL (sin gate)
     ("léeme el archivo brain.py del proyecto jarvis líneas 1 a 20",
@@ -187,6 +189,7 @@ INPUTS = {
     "ver_agenda":        {"dias": 7},
     "crear_evento":      {"titulo": "Revisión de proyecto", "fecha": "2026-10-16", "hora_inicio": "10:00"},
     "ver_pantalla":      {"pregunta": "qué hay en pantalla"},
+    "buscar_contacto":   {"nombre": "ana garcía"},
 }
 
 # Repo ficticio para las reviews en vivo: 1 archivo modificado con dos defectos evidentes
