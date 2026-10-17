@@ -284,6 +284,19 @@ def check_tavily_key():
     return resultado(OK, f"TAVILY_API_KEY definida ({len(clave)} caracteres)")
 
 
+def check_github_token():
+    """GITHUB_TOKEN para el briefing: existe y es fine-grained. Nunca se muestra."""
+    token = variable("GITHUB_TOKEN")
+    if not token:
+        return resultado(AVISO, "GITHUB_TOKEN no definido: el briefing no dirá el estado de GitHub",
+                         r"Crea un token fine-grained de solo lectura (Metadata, Pull requests y Actions) "
+                         r"y añádelo a C:\Jarvis-secrets\.env (opcional)")
+    if not token.startswith("github_pat_"):
+        return resultado(AVISO, f"GITHUB_TOKEN definido ({len(token)} caracteres) pero no es fine-grained",
+                         "Sustitúyelo por uno fine-grained limitado a los repos del briefing y de solo lectura")
+    return resultado(OK, f"GITHUB_TOKEN fine-grained definido ({len(token)} caracteres)")
+
+
 def check_google_credentials():
     ruta = constante(os.path.join("skills", "gmail.py"), "CREDENTIALS_FILE")
     if os.path.isfile(ruta):
@@ -506,6 +519,31 @@ def check_live_anthropic():
     return resultado(ERROR, f"API de Anthropic: HTTP {codigo}", accion)
 
 
+def check_live_github():
+    """Lee de verdad, con el token, el repo, los PRs y Actions de cada repo del briefing."""
+    token = variable("GITHUB_TOKEN")
+    if not token:
+        return resultado(AVISO, "GITHUB_TOKEN no definido: no se llama a GitHub", "Ver la comprobación GITHUB_TOKEN")
+    from skills import github
+    cabeceras = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    fallos = []
+    for repo in github.repos():
+        for nombre, ruta in (("repo", ""), ("PRs", "/pulls?per_page=1"), ("Actions", "/actions/runs?per_page=1")):
+            try:
+                codigo = _get(f"{github.API}/repos/{repo}{ruta}", cabeceras)
+            except Exception as e:
+                return resultado(ERROR, f"Sin respuesta de GitHub ({type(e).__name__})", "Comprueba la conexión")
+            if codigo == 401:
+                return resultado(ERROR, "GitHub: HTTP 401, el token no es válido o ha caducado",
+                                 r"Genera otro y actualiza GITHUB_TOKEN en C:\Jarvis-secrets\.env")
+            if codigo != 200:
+                fallos.append(f"{repo} {nombre}: HTTP {codigo}")
+    if fallos:
+        return resultado(ERROR, "GitHub: " + "; ".join(fallos),
+                         "Da acceso al repo y permiso de lectura a Pull requests y Actions en el token")
+    return resultado(OK, f"GitHub: lectura de PRs y Actions correcta en {len(github.repos())} repo(s)")
+
+
 def check_live_elevenlabs():
     if not _tts_elevenlabs():
         return resultado(OK, "JARVIS_TTS=piper: no se consulta ElevenLabs")
@@ -560,6 +598,7 @@ COMPROBACIONES = [
     ("env",               ".env",                         check_env),
     ("anthropic_key",     "ANTHROPIC_API_KEY",            check_anthropic_key),
     ("tavily_key",        "TAVILY_API_KEY",               check_tavily_key),
+    ("github_token",      "GITHUB_TOKEN",                 check_github_token),
     ("google_credentials","credentials.json",             check_google_credentials),
     ("token_gmail",       "Token de Gmail",               check_token_gmail),
     ("token_calendar",    "Token de Calendar",            check_token_calendar),
@@ -577,6 +616,7 @@ COMPROBACIONES = [
 COMPROBACIONES_LIVE = [
     ("live_anthropic",    "API de Anthropic (--live)",    check_live_anthropic),
     ("live_elevenlabs",   "ElevenLabs (--live)",          check_live_elevenlabs),
+    ("live_github",       "GitHub (--live)",              check_live_github),
     ("live_token_gmail",  "Token de Gmail (--live)",      check_live_token_gmail),
     ("live_token_calendar","Token de Calendar (--live)",  check_live_token_calendar),
 ]

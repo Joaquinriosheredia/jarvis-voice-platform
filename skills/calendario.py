@@ -82,6 +82,31 @@ def ver_agenda(dias=1):
     return True, f"Agenda para {periodo}:\n" + "\n".join(lineas)
 
 
+def eventos_hoy(ahora=None):
+    """Eventos que quedan hoy (de ahora a medianoche, hora de Madrid), solo lectura:
+    (True, [{"hora": "HH:MM" o None si es de todo el día, "titulo"}]) o (False, mensaje)."""
+    ahora = (ahora or datetime.datetime.now().astimezone())
+    fin   = ahora.replace(hour=23, minute=59, second=59, microsecond=0)
+    try:
+        res = _servicio().events().list(
+            calendarId="primary", timeMin=ahora.isoformat(), timeMax=fin.isoformat(),
+            maxResults=MAX_EVENTOS, singleEvents=True, orderBy="startTime", timeZone=ZONA,
+        ).execute()
+    except Exception as e:
+        return False, f"No se pudo leer el calendario: {type(e).__name__}"
+    eventos = []
+    for e in res.get("items", []):
+        inicio = e.get("start", {})
+        hora = None
+        if "dateTime" in inicio:
+            try:
+                hora = f"{datetime.datetime.fromisoformat(inicio['dateTime']):%H:%M}"
+            except ValueError:
+                hora = None
+        eventos.append({"hora": hora, "titulo": e.get("summary") or "(sin título)"})
+    return True, eventos
+
+
 def crear_evento(titulo, fecha, hora_inicio, duracion_min=60, descripcion=""):
     titulo = titulo.strip()[:MAX_TITULO] if isinstance(titulo, str) else ""
     if not titulo:

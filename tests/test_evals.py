@@ -97,6 +97,10 @@ CASOS = [
     ("ejecuta los tests de jarvis",
                              "claude", "ejecutar_tests",   "none"),
 
+    # BRIEFING: la orden es un atajo (sin modelo); GitHub con su tool READ
+    ("dame el briefing",     "atajo",  "briefing",         "none"),
+    ("cómo va el ci de jarvis en github", "claude", "github_estado", "none"),
+
     # MEMORIA ENTRE SESIONES: referencias al pasado → claude + recordar (READ, sin gate)
     ("¿te acuerdas de lo que hablamos de kafka la semana pasada?", "claude", "recordar", "none"),
     ("qué hablamos ayer",    "claude", "recordar",         "none"),

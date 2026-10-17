@@ -45,7 +45,7 @@ TEMAS_TOOL = {
     "ejecutar_tests": "código", "estado_authority": "authority", "siguiente_racha": "authority",
     "listar_directorio": "archivos", "organizar_directorio": "archivos", "crear_carpeta": "archivos",
     "mover_archivo": "archivos", "borrar_archivo": "archivos", "buscar_archivo": "archivos",
-    "tiempo": "tiempo", "gasto_hoy": "gasto",
+    "tiempo": "tiempo", "gasto_hoy": "gasto", "briefing": "briefing", "github_estado": "github",
 }
 
 # Palabras que no ayudan a buscar ("¿te acuerdas de lo de kafka de la semana pasada?")

@@ -15,9 +15,11 @@ Pides por voz que te envíe un correo a tu propia dirección. JARVIS anuncia el 
 ## Qué hace
 
 - **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; órdenes de voz para silenciar o cerrar JARVIS, también mientras habla o genera la respuesta (ver [Órdenes de voz](#órdenes-de-voz)).
-- **Agente con 46 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
+- **Agente con 50 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
 - **Respuesta en streaming:** el texto aparece en la UI mientras Claude lo genera, y la voz se reproduce por frases: la siguiente se sintetiza mientras suena la actual.
 - **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación. Se puede enviar a la propia dirección («mándamelo a mí», «a mi correo», «a mi propia dirección»), que JARVIS obtiene del perfil de la cuenta de Gmail sin preguntarla, o a una dirección dictada por voz, que JARVIS valida y deletrea antes de pedir la confirmación. Si no puede obtener la dirección propia, dice la causa: autorización caducada, red o permisos.
+- **Briefing hablado al arrancar y con «dame el briefing»:** agenda de hoy, CI y PRs de GitHub, correo, tareas y tiempo, en 6 frases como mucho (ver [Briefing](#briefing)).
+- **Memoria entre sesiones:** un resumen enmascarado por sesión, con «¿te acuerdas de…?», «olvida lo de…» y retención de 90 días (ver [Memoria](#memoria)).
 - **Calendario (Google Calendar):** `ver_agenda` y `crear_evento`. "Qué tengo hoy" combina agenda y tareas. Cada turno lleva la fecha y hora reales.
 - **Visión por voz:** "mira mi pantalla" o "qué error sale" capturan el monitor principal tras confirmar con "confirmo captura", y Claude describe lo que ve.
 - **Operador de ingeniería:** leer archivos, `git status`, `diff` y `log`, buscar en el código y `ejecutar_tests`, siempre sobre una allowlist de proyectos.
@@ -116,6 +118,31 @@ JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay
 
 Borrar quita las filas, compacta el índice FTS y reescribe el archivo (`secure_delete` y `VACUUM`), así que el texto no queda en páginas libres. La retención es de 90 días (`JARVIS_MEMORIA_DIAS`): lo caducado se borra al arrancar. También puedes borrar el archivo `memoria_sesiones.db` con JARVIS cerrado. `python doctor.py` dice si la base existe, si se puede leer y cuántas sesiones tiene.
 
+## Briefing
+
+Al arrancar, JARVIS da un briefing hablado y corto: como mucho 6 frases contando el saludo y la pregunta final, con lo más urgente primero.
+
+1. Eventos que quedan hoy en Google Calendar: cuántos y cuál es el primero.
+2. GitHub, en los repos configurados: si el último CI ha fallado, los PRs abiertos esperando review y, si no hay nada urgente, que el CI está en verde.
+3. Correo sin leer.
+4. Tareas vencidas o pendientes.
+5. Tiempo.
+
+Lo que no cabe se queda fuera. El aviso de reautorizar Google, si hace falta, va aparte, justo antes de la pregunta. El briefing solo lee: `events.list` de Calendar, los no leídos de Gmail y peticiones `GET` a la API de GitHub. Nunca ejecuta una acción ni usa la memoria entre sesiones. Con un token de Google roto no toca ese servicio.
+
+- **Por voz:** «dame el briefing» (o «resumen del día») lo repite en cualquier momento, sin pasar por el modelo. Es un turno privado (agenda y correo): se dice con Piper y el log no guarda su texto.
+- **GitHub por voz:** «cómo va el CI de jarvis en GitHub» usa la tool READ `github_estado`.
+- **Desactivarlo:** `JARVIS_BRIEFING=0` deja solo el saludo y los avisos al arrancar; «dame el briefing» sigue funcionando.
+- **Repos:** `JARVIS_GITHUB_REPOS`, separados por comas (`dueño/repo`, o solo `repo` si es de Joaquinriosheredia). Por defecto, solo `jarvis-voice-platform`.
+- **«Review pendiente»:** PR abierto, que no es borrador y sin ninguna review aprobada (como mucho 5 PRs por repo).
+
+**Token de GitHub.** Crea un token *fine-grained* en GitHub → Settings → Developer settings → Fine-grained tokens:
+- *Repository access:* «Only select repositories», con los repos del briefing.
+- *Repository permissions:* `Metadata: Read-only` (obligatorio), `Pull requests: Read-only` y `Actions: Read-only`. Nada más: ni `Contents`, ni permisos de cuenta u organización.
+- Guárdalo como `GITHUB_TOKEN=` en `C:\Jarvis-secrets\.env`. Nunca se imprime ni se registra.
+
+Si no hay token, no es válido o no hay red, el briefing sigue sin la parte de GitHub y lo dice una sola vez por sesión. `doctor.py` comprueba que el token existe y es fine-grained; `doctor.py --live` comprueba que puede leer el repo, los PRs y Actions de cada repo configurado.
+
 ## Decisiones de diseño
 
 - **Router por capas:** el coste y la latencia se pagan solo cuando hacen falta. Los atajos no tocan ningún modelo y la capa local es gratuita.
@@ -181,6 +208,11 @@ JARVIS_STREAMING=1              # 0 = sin streaming ni voz por frases
 JARVIS_LOG_TEXTO=1              # 0 = el log de turnos guarda solo metadatos
 WHISPER_MIN_LOGPROB=-1.0        # confianza mínima media de Whisper
 WHISPER_MAX_COMPRESSION=2.4     # compression_ratio máximo por segmento
+GITHUB_TOKEN=                   # fine-grained, solo lectura (ver Briefing)
+JARVIS_GITHUB_REPOS=jarvis-voice-platform
+JARVIS_BRIEFING=1               # 0 = sin briefing al arrancar
+JARVIS_MEMORIA_DB=C:\Jarvis-secrets\memoria_sesiones.db
+JARVIS_MEMORIA_DIAS=90          # retención de la memoria entre sesiones
 ```
 
 Google (Gmail y Calendar):
@@ -264,8 +296,9 @@ limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y tur
 limpiar_memoria.py   limpieza de un solo uso de direcciones en el historial de memoria.json
 ui_bridge.py         servidor WebSocket local para la UI
 memoria.py           historial de conversación
+briefing.py          briefing hablado: agenda, GitHub, correo, tareas y tiempo, lo urgente primero
 memoria_sesiones.py  memoria entre sesiones: resúmenes en SQLite FTS5, recordar, olvidar y retención
-skills/              gmail, calendario, google_auth, pantalla, operador, musica, sistema, tareas, webs
+skills/              gmail, calendario, github, google_auth, pantalla, operador, musica, sistema, tareas, webs
 app/                 UI Electron (main.js, preload.js, renderer.js, index.html, styles.css)
 tests/               tests unitarios y evals (test_evals.py)
 ```

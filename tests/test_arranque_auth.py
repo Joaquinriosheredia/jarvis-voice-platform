@@ -53,6 +53,11 @@ class Base(unittest.TestCase):
         jarvis.sistema.tiempo_sevilla.return_value = "Sevilla, 20 grados"
         jarvis.mem.tareas_vencidas.return_value = []
         jarvis.mem.tareas_pendientes.return_value = []
+        # El briefing nunca toca Calendar ni GitHub de verdad en los tests
+        for p in (patch.object(jarvis.briefing.calendario, "eventos_hoy", return_value=(True, [])),
+                  patch.object(jarvis.briefing.github, "estado", return_value={"repos": [], "causa": None})):
+            p.start()
+            self.addCleanup(p.stop)
 
     def arrancar(self, resultados=None, error=None):
         """main() hasta el primer escuchar (que corta el test con Ctrl+C)."""

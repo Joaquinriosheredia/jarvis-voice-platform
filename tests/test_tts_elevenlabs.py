@@ -233,10 +233,10 @@ class TestPrivacidad(Base):
         self.assertEqual(brain.TOOLS_PRIVADAS, {
             "leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "borrar_email",
             "borrar_multiples_emails", "archivar_email", "enviar_email", "get_mi_email", "ver_agenda",
-            "ver_pantalla"})
+            "ver_pantalla", "briefing"})
         for tool in brain.TOOLS_PRIVADAS:
             tts_elevenlabs.nuevo_turno()
-            with patch("builtins.print"):
+            with patch("builtins.print"), patch.object(brain.briefing, "desde_skills", return_value="x"):
                 brain._ejecutar(tool, {}, {"gmail": MagicMock()})  # aunque el gate la bloquee
             self.assertTrue(tts_elevenlabs.turno_privado(), tool)
 

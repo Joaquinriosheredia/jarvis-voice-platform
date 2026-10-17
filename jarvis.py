@@ -3,7 +3,6 @@ load_dotenv(r"C:\Jarvis-secrets\.env")
 
 import whisper
 import atexit
-from datetime import datetime
 
 import audio
 import tts_elevenlabs
@@ -13,6 +12,7 @@ import parada
 import brain
 import memoria as mem
 import memoria_sesiones
+import briefing
 from skills import musica, sistema, webs, authority, tareas, gmail, google_auth
 
 # ── CARGAR MODELOS ────────────────────────────────────────────────
@@ -64,39 +64,9 @@ def _purgar_memoria_caducada():
 atexit.register(cleanup)
 
 # ── RESUMEN DE EMAILS AL ARRANCAR (sin LLM) ──────────────────────
-def _enumerar(items):
-    if len(items) == 1:
-        return items[0]
-    return ", ".join(items[:-1]) + " y " + items[-1]
-
 def _resumen_emails_arranque():
-    """Resumen breve de los no leídos construido en Python.
-    Cadena vacía si no hay emails o si falla Gmail: nunca interrumpe el arranque."""
-    try:
-        datos = gmail.no_leidos_arranque(max_emails=10)
-        if not datos or not datos[1]:
-            return ""
-        total, emails = datos
-
-        if total <= 3:
-            items = []
-            for e in emails:
-                asunto = " ".join(e["asunto"].split()[:8])
-                if asunto and asunto != "Sin asunto":
-                    items.append(f"uno de {e['remitente']} sobre {asunto}")
-                else:
-                    items.append(f"uno de {e['remitente']}")
-            cuantos = "un email" if total == 1 else f"{total} emails"
-            return f"Tienes {cuantos}: {_enumerar(items)}."
-
-        # Más de 3: agrupa por remitente, en orden de llegada (más recientes primero)
-        conteo = {}
-        for e in emails:
-            conteo[e["remitente"]] = conteo.get(e["remitente"], 0) + 1
-        grupos = [r if n == 1 else f"{n} de {r}" for r, n in list(conteo.items())[:3]]
-        return f"Tienes {total} emails. Los más recientes son de {_enumerar(grupos)}."
-    except Exception:
-        return ""
+    """Resumen breve de los no leídos (briefing.resumen_emails). Nunca interrumpe el arranque."""
+    return briefing.resumen_emails(gmail)
 
 # ── AUTORIZACIÓN DE GOOGLE AL ARRANCAR ───────────────────────────
 def _comprobar_autorizacion():
@@ -116,38 +86,18 @@ def _comprobar_autorizacion():
 def _gmail_disponible(autorizacion):
     """Sin comprobación (None) se intenta como siempre; si se comprobó, solo con token válido.
     Así un token caducado o ausente no abre el navegador ni falla en el resumen."""
-    if autorizacion is None:
-        return True
-    return bool((autorizacion.get("gmail") or {}).get("ok"))
+    return briefing.disponible("gmail", autorizacion or {}) if autorizacion is not None else True
 
-# ── RESUMEN DIARIO ────────────────────────────────────────────────
+# ── BRIEFING DE ARRANQUE (briefing.py) ───────────────────────────
 def resumen_diario(autorizacion=None, aviso=""):
-    hora = datetime.now().hour
-    if hora < 12:
-        saludo = "Buenos días"
-    elif hora < 20:
-        saludo = "Buenas tardes"
-    else:
-        saludo = "Buenas noches"
-
-    partes = [f"{saludo}, señor Ríos."]
-    partes.append(sistema.tiempo_sevilla() + ".")
-
-    vencidas    = mem.tareas_vencidas(memoria)
-    tareas_pend = mem.tareas_pendientes(memoria)
-    if vencidas:
-        partes.append(f"Tiene {len(vencidas)} tareas vencidas.")
-    elif tareas_pend:
-        partes.append(f"Tiene {len(tareas_pend)} tareas pendientes.")
-
-    resumen_gmail = _resumen_emails_arranque() if _gmail_disponible(autorizacion) else ""
-    if resumen_gmail:
-        partes.append(resumen_gmail)
-    if aviso:
-        partes.append(aviso)
-
-    partes.append("¿Qué puedo hacer por usted hoy?")
-    return " ".join(partes)
+    """Saludo + briefing (agenda, GitHub, correo, tareas, tiempo; lo urgente primero y
+    como mucho briefing.MAX_FRASES frases). JARVIS_BRIEFING=0: solo saludo y avisos."""
+    if not briefing.activado():
+        return briefing.generar({}, aviso)
+    fuentes = briefing.fuentes(sistema, lambda: _resumen_emails_arranque(),
+                               lambda: mem.tareas_vencidas(memoria), lambda: mem.tareas_pendientes(memoria),
+                               resultados=autorizacion)
+    return briefing.generar(fuentes, aviso)
 
 # ── D1-FIX: ejecución directa de la acción pendiente confirmada ──
 def _d1_fix(texto):
@@ -235,6 +185,7 @@ def main():
     brain.al_texto_parcial = lambda texto: ui_bridge.emit("assistant_delta", text=texto)
     # Una sola vez por arranque: por voz (dentro del resumen) y en la UI (persistente)
     autorizacion, aviso = _comprobar_autorizacion()
+    briefing.autorizacion = autorizacion   # "dame el briefing" respeta el mismo estado
     if aviso:
         ui_bridge.avisar(aviso[1])
     if _gmail_disponible(autorizacion):  # getProfile: con el token caducado no se intenta
