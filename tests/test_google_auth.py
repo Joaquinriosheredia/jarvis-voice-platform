@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 from google.auth import exceptions as gexc  # noqa: E402
 from google.oauth2.credentials import Credentials  # noqa: E402

@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import brain  # noqa: E402
 

@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import os
+import time
 from datetime import datetime
 import requests as req
 
@@ -83,61 +84,103 @@ def _direccion_viento(grados):
     return "norte"
 
 # ── TIEMPO METEOROLÓGICO — LOS CORRALES ──────────────────────────
-def tiempo_sevilla():
-    """Tiempo real de Los Corrales (Sevilla) — coordenadas 37.1099, -5.0147"""
+# Open-Meteo (sin clave). Un fallo se dice con su causa y los transitorios (sin red,
+# sin respuesta, servicio saturado o caído) se reintentan una vez tras PAUSA_TIEMPO.
+URL_TIEMPO = ("https://api.open-meteo.com/v1/forecast"
+              "?latitude=37.1099&longitude=-5.0147"
+              "&current_weather=true"
+              "&forecast_days=1")
+TIMEOUT_TIEMPO = 5
+PAUSA_TIEMPO   = 1.0
+
+SIN_RED, SIN_RESPUESTA, SATURADO, CAIDO, LIMITADO, RECHAZADO, DATOS = (
+    "sin_red", "sin_respuesta", "saturado", "caido", "limitado", "rechazado", "datos")
+MENSAJES_TIEMPO = {
+    SIN_RED:       "No hay conexión para el tiempo",
+    SIN_RESPUESTA: "El servicio del tiempo no responde",
+    SATURADO:      "El servicio del tiempo está saturado ahora mismo",
+    CAIDO:         "El servicio del tiempo está caído ahora mismo",
+    LIMITADO:      "El servicio del tiempo ha limitado las consultas por ahora",
+    RECHAZADO:     "El servicio del tiempo ha rechazado la consulta",
+    DATOS:         "El servicio del tiempo ha devuelto datos que no entiendo",
+}
+_TRANSITORIOS = {SIN_RED, SIN_RESPUESTA, SATURADO, CAIDO}
+
+
+def _descripcion_tiempo(code):
+    """WMO Weather Code → descripción natural"""
+    if code == 0:
+        return "cielo despejado"
+    if code in (1, 2):
+        return "parcialmente nublado"
+    if code == 3:
+        return "cielo cubierto"
+    if code in (45, 48):
+        return "hay niebla"
+    if code in (51, 53, 55):
+        return "llovizna ligera"
+    if code in (61, 63):
+        return "está lloviendo"
+    if code == 65:
+        return "lluvia intensa"
+    if code in (71, 73, 75):
+        return "está nevando"
+    if code in (80, 81, 82):
+        return "chubascos"
+    if code in (95, 96, 99):
+        return "tormenta eléctrica"
+    return "condiciones variables"
+
+
+def _pedir_tiempo():
+    """(texto, None) o (None, causa) de una sola petición."""
     try:
-        url = (
-            "https://api.open-meteo.com/v1/forecast"
-            "?latitude=37.1099&longitude=-5.0147"
-            "&current_weather=true"
-            "&current_weather_units=kmh"
-            "&forecast_days=1"
-        )
-        r = req.get(url, timeout=5)
-        if r.status_code == 200:
-            datos      = r.json()["current_weather"]
-            temp       = datos["temperature"]
-            viento     = datos["windspeed"]
-            direccion  = datos.get("winddirection", None)
-            code       = datos.get("weathercode", 0)
+        r = req.get(URL_TIEMPO, timeout=TIMEOUT_TIEMPO)
+    except req.exceptions.Timeout:
+        return None, SIN_RESPUESTA
+    except req.exceptions.RequestException:   # DNS, conexión rechazada, sin red...
+        return None, SIN_RED
+    if r.status_code == 503:
+        return None, SATURADO
+    if r.status_code == 429:
+        return None, LIMITADO
+    if r.status_code >= 500:
+        return None, CAIDO
+    if r.status_code != 200:
+        return None, RECHAZADO
+    try:
+        datos     = r.json()["current_weather"]
+        temp      = datos["temperature"]
+        viento    = datos["windspeed"]
+        direccion = datos.get("winddirection", None)
+        desc      = _descripcion_tiempo(datos.get("weathercode", 0))
+    except (ValueError, KeyError, TypeError):
+        return None, DATOS
+    if direccion is not None:
+        viento_str = f"viento de {_direccion_viento(direccion)} a {viento} kilómetros por hora"
+    else:
+        viento_str = f"viento de {viento} kilómetros por hora"
+    return f"En Los Corrales hay {temp} grados, {desc} y {viento_str}", None
 
-            # WMO Weather Code → descripción natural
-            if code == 0:
-                desc = "cielo despejado"
-            elif code in (1, 2):
-                desc = "parcialmente nublado"
-            elif code == 3:
-                desc = "cielo cubierto"
-            elif code in (45, 48):
-                desc = "hay niebla"
-            elif code in (51, 53, 55):
-                desc = "llovizna ligera"
-            elif code in (61, 63):
-                desc = "está lloviendo"
-            elif code == 65:
-                desc = "lluvia intensa"
-            elif code in (71, 73, 75):
-                desc = "está nevando"
-            elif code in (80, 81, 82):
-                desc = "chubascos"
-            elif code in (95, 96, 99):
-                desc = "tormenta eléctrica"
-            else:
-                desc = "condiciones variables"
 
-            if direccion is not None:
-                dir_texto = _direccion_viento(direccion)
-                viento_str = f"viento de {dir_texto} a {viento} kilómetros por hora"
-            else:
-                viento_str = f"viento de {viento} kilómetros por hora"
+def consultar_tiempo():
+    """(ok, texto para la voz, causa o None). Reintenta una vez los fallos transitorios."""
+    texto, causa = _pedir_tiempo()
+    if causa in _TRANSITORIOS:
+        time.sleep(PAUSA_TIEMPO)
+        texto, causa = _pedir_tiempo()
+    if causa:
+        return False, MENSAJES_TIEMPO[causa], causa
+    return True, texto, None
 
-            return (
-                f"En Los Corrales hay {temp} grados, {desc} "
-                f"y {viento_str}"
-            )
+
+def tiempo_sevilla():
+    """Tiempo real de Los Corrales (Sevilla) — coordenadas 37.1099, -5.0147. Si falla,
+    la causa concreta ("No hay conexión para el tiempo", "...está saturado...")."""
+    try:
+        return consultar_tiempo()[1]
     except Exception:
-        pass
-    return "No puedo obtener el tiempo ahora mismo"
+        return "No he podido consultar el tiempo por un error interno"
 
 # ── ESTADO COMPLETO ───────────────────────────────────────────────
 def estado_completo():

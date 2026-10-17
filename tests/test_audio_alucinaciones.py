@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 _STUBS = {n: MagicMock() for n in ("sounddevice", "piper", "piper.voice", "pycaw", "pycaw.pycaw")}
 with patch.dict(sys.modules, _STUBS), contextlib.redirect_stdout(io.StringIO()):

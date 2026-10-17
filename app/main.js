@@ -1,8 +1,9 @@
 // Proceso principal de Electron: ventana + icono en la bandeja del sistema.
 // El WebSocket lo abre el renderer. Cerrar la ventana solo la oculta en la
 // bandeja (JARVIS sigue escuchando); "Cerrar JARVIS completamente" en el menú
-// de la bandeja termina jarvis.py y la app. Nunca se llama a process.exit.
-const { app, BrowserWindow, Tray, Menu, globalShortcut } = require('electron');
+// de la bandeja pide a jarvis.py que guarde y termine (WebSocket "cerrar"), lo fuerza
+// si no ha terminado a tiempo y cierra la app. Nunca se llama a process.exit.
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const path = require('path');
 
@@ -12,6 +13,8 @@ const ICONO    = path.join(__dirname, 'jarvis.ico');
 const LANZADOR = path.join(__dirname, 'start.vbs');
 // Callar a JARVIS desde cualquier ventana (el renderer envía "stop" por el WebSocket)
 const ATAJO_PARAR = 'Control+Alt+P';
+// Segundos que se espera a que jarvis.py guarde la sesión (con resumen) antes de forzar
+const ESPERA_CIERRE_S = 20;
 
 let win      = null;
 let tray     = null;
@@ -56,20 +59,33 @@ function mostrar() {
   win.focus();
 }
 
-// Termina jarvis.py a la fuerza: su atexit no se ejecuta, pero memoria.json
-// se guarda en cada cambio. -EncodedCommand evita problemas de comillas.
-function cerrarJarvis(callback) {
+// Espera hasta `espera` segundos a que jarvis.py termine solo y, si no, lo termina a la
+// fuerza (sin atexit: lo no guardado se pierde, salvo el último guardado periódico).
+// -EncodedCommand evita problemas de comillas.
+function cerrarJarvis(espera, callback) {
+  const esperar = espera > 0 ? `Wait-Process -Id $id -Timeout ${espera} -ErrorAction Stop; ` : 'throw "forzar"; ';
   const ps = "Get-CimInstance Win32_Process -Filter \"Name='python.exe' AND CommandLine LIKE '%jarvis.py%'\" " +
-             '| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }';
+             '| ForEach-Object { $id = $_.ProcessId; try { ' + esperar + '} ' +
+             'catch { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } }';
   execFile('powershell.exe',
     ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')],
-    { windowsHide: true, timeout: 15000 },
+    { windowsHide: true, timeout: (espera + 15) * 1000 },
     () => callback());
 }
 
+// El renderer envía "cerrar" por el WebSocket y responde si pudo enviarlo. Sin ventana,
+// sin conexión o sin respuesta en 1 s: se fuerza como antes.
 function cerrarTodo() {
   saliendo = true;
-  cerrarJarvis(() => app.quit());
+  let hecho = false;
+  const seguir = (enviado) => {
+    if (hecho) return;
+    hecho = true;
+    cerrarJarvis(enviado ? ESPERA_CIERRE_S : 0, () => app.quit());
+  };
+  ipcMain.once('cierre-pedido', (_e, enviado) => seguir(enviado === true));
+  setTimeout(() => seguir(false), 1000);
+  if (win) win.webContents.send('cerrar');
 }
 
 function crearTray() {

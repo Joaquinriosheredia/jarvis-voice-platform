@@ -31,6 +31,8 @@ LIVE = os.environ.get("JARVIS_EVALS_LIVE") == "1"
 if not LIVE:
     os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import brain  # noqa: E402
 from skills import secretos  # noqa: E402
@@ -101,9 +103,14 @@ CASOS = [
     ("dame el briefing",     "atajo",  "briefing",         "none"),
     ("cómo va el ci de jarvis en github", "claude", "github_estado", "none"),
 
-    # MEMORIA ENTRE SESIONES: referencias al pasado → claude + recordar (READ, sin gate)
-    ("¿te acuerdas de lo que hablamos de kafka la semana pasada?", "claude", "recordar", "none"),
-    ("qué hablamos ayer",    "claude", "recordar",         "none"),
+    # MEMORIA ENTRE SESIONES: "¿te acuerdas de...?" lo resuelve el sistema llamando a
+    # recordar (READ, sin gate), sin depender de que el modelo decida llamarla
+    ("¿te acuerdas de lo que hablamos de kafka la semana pasada?", "memoria", "recordar", "none"),
+    ("qué hablamos ayer",    "memoria", "recordar",         "none"),
+    ("¿Te acuerdas de lo que hablábamos de Kafka?", "memoria", "recordar", "none"),
+    ("¿Te acuerdas cuando te pregunté por el error del consumidor de Kafka?", "memoria", "recordar", "none"),
+    ("¿recuerdas lo de docker?", "memoria", "recordar", "none"),
+    ("la semana pasada hablamos de la entrevista", "memoria", "recordar", "none"),
 
     # CLAUDE conversacional
     ("quién eres",           "claude", None,               "none"),
@@ -389,6 +396,14 @@ class TestEvals(unittest.TestCase):
 
     def test_gate_supera_80(self):
         self.assertGreaterEqual(self.aciertos["GATE"], UMBRAL, self.informe)
+
+    def test_recuerdo_determinista_sin_umbral(self):
+        """"¿te acuerdas de...?" siempre llama a recordar, sin modelo (también con
+        JARVIS_EVALS_LIVE=1): todos estos casos aciertan ruta, tool y gate."""
+        recuerdo = [r for r in self.resultados if r["esperado"][:2] == ("memoria", "recordar")]
+        self.assertGreaterEqual(len(recuerdo), 6)
+        for r in recuerdo:
+            self.assertTrue(r["RUTA"] and r["TOOL"] and r["GATE"], r["texto"])
 
     def test_vision_determinista_sin_umbral(self):
         """Pedir la captura no depende del modelo: todos los casos de visión aciertan siempre

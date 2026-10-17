@@ -97,7 +97,19 @@ JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay
 
 **Dónde.** `C:\Jarvis-secrets\memoria_sesiones.db`, fuera del repo y junto a los tokens y el `.env`. Se puede cambiar con `JARVIS_MEMORIA_DB`.
 
-**Qué se guarda.** Un registro por sesión: fecha, resumen de 3 a 5 líneas, temas y tools usadas. Al cerrar JARVIS («adiós», «apágate» o un cierre normal), el resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se guarda solo la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse.
+**Qué se guarda.** Un registro por sesión: fecha, resumen de 3 a 5 líneas, temas y tools usadas. El resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se conserva el último resumen o, si no lo hay, la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse.
+
+**Cuándo se guarda.** Siempre sobre la misma fila de la sesión, para que un cierre brusco no pierda la conversación:
+
+| Momento | Cómo |
+|---|---|
+| Cada 4 turnos o tras 2 minutos sin hablar | En segundo plano, con resumen. No retrasa la respuesta. |
+| «adiós», «apágate», Ctrl+C o fin normal | Con resumen, al cerrar. |
+| «Cerrar JARVIS completamente» en la bandeja | La app pide el cierre por el WebSocket y JARVIS guarda con resumen y termina. Si en 20 s no ha terminado, la app lo cierra a la fuerza. |
+| Cerrar la ventana de la consola, Ctrl+Break, cerrar sesión o apagar Windows | Windows da unos 5 s: se guarda sin modelo, conservando el último resumen periódico y actualizando temas y tools. |
+| Cuelgue o proceso matado | Queda el último guardado periódico. |
+
+«olvida todo» o «olvida lo de X» durante un guardado en segundo plano descartan ese guardado: lo olvidado no vuelve a escribirse.
 
 **Qué no se guarda nunca.**
 - Direcciones de correo: se escriban o se dicten, salen como `<email>`.
@@ -106,13 +118,22 @@ JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay
 - La salida de `leer_archivo`, `git_diff`, `buscar_en_codigo`, `ejecutar_tests` y `ver_pantalla`. De esos turnos solo queda la pregunta.
 - Las órdenes de parada y las de memoria.
 
-**Cómo se consulta.** El modelo tiene la tool READ `recordar(consulta)`, que devuelve como mucho 3 resultados con fecha. La usa cuando dices «la semana pasada», «lo de ayer» o «¿te acuerdas de…?»; esas frases siempre van a Claude y nunca al modelo local. Las métricas registran cuántas consultas hay y si encuentran algo, nunca el texto.
+**Cómo se consulta.** No depende de que el modelo decida buscar. Las preguntas por algo hablado antes las resuelve el sistema: extrae el tema, llama a la tool READ `recordar` (como mucho 3 resultados con fecha) y responde con lo que encuentra, sin pasar por el modelo.
+
+| Di | Busca |
+|---|---|
+| «¿te acuerdas de lo que hablábamos de Kafka?» | kafka |
+| «¿te acuerdas cuando te pregunté por el error del consumidor de Kafka?» | error del consumidor de kafka |
+| «¿recuerdas lo de Docker?» / «qué recuerdas de Docker» | docker |
+| «la semana pasada hablamos de la entrevista» | entrevista, en las fechas de la semana pasada |
+| «qué hablamos ayer» | las sesiones de ayer |
+
+Si no encuentra nada, dice «No tengo nada guardado sobre X», sin pedir fecha ni más detalles. «Acuérdate de…» y «recuérdame…» son recordatorios y no entran. Otras referencias al pasado («lo que te dije el otro día») van a Claude, que tiene la tool `recordar`; si contesta «no recuerdo» sin haberla llamado, se descarta su respuesta y consulta el sistema. Las métricas registran cuántas consultas hay y si encuentran algo, nunca el texto.
 
 **Cómo se borra.**
 
 | Di | Qué pasa |
 |---|---|
-| «qué recuerdas de kafka» | Lee los resúmenes que mencionan el tema, sin modelo. |
 | «olvida lo de kafka» | Borra al momento las sesiones que mencionan el tema, también lo acumulado en la sesión actual. |
 | «olvida todo» | Acción DESTRUCTIVE del gate: JARVIS dice cuántas sesiones hay y solo borra tras «confirmo borrado de memoria» dicho al micrófono (un uso, 120 s). |
 
@@ -126,7 +147,7 @@ Al arrancar, JARVIS da un briefing hablado y corto: como mucho 6 frases contando
 2. GitHub, en los repos configurados: si el último CI ha fallado, los PRs abiertos esperando review y, si no hay nada urgente, que el CI está en verde.
 3. Correo sin leer.
 4. Tareas vencidas o pendientes.
-5. Tiempo.
+5. Tiempo (Open-Meteo). Si falla, dice la causa: «No hay conexión para el tiempo», «El servicio del tiempo no responde» o «…está saturado ahora mismo». Los fallos transitorios se reintentan una vez.
 
 Lo que no cabe se queda fuera. El aviso de reautorizar Google, si hace falta, va aparte, justo antes de la pregunta. El briefing solo lee: `events.list` de Calendar, los no leídos de Gmail y peticiones `GET` a la API de GitHub. Nunca ejecuta una acción ni usa la memoria entre sesiones. Con un token de Google roto no toca ese servicio.
 
@@ -166,7 +187,7 @@ Si no hay token, no es válido o no hay red, el briefing sigue sin la parte de G
 | Path traversal o lectura de secretos | Rutas validadas contra allowlists y árboles bloqueados. Patrones de secretos (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `*token*`, `*credential*`, `.git`) bloqueados en cada componente de la ruta y excluidos de diff y grep. |
 | Secretos escritos en el código | `leer_archivo`, `git_diff`, `git_log`, `buscar_en_codigo` y `ejecutar_tests` enmascaran los secretos (claves con prefijo conocido, asignaciones sospechosas, Bearer/Basic, claves privadas y URLs con credenciales) como `[SECRETO-REDACTADO:tipo]` antes de truncar y de enviar nada al modelo, la UI o el log. No hay parámetro para desactivarlo. |
 | Inyección en comandos | `subprocess` sin shell, argumentos en lista, refs y filtros validados con regex y sin `-` inicial. |
-| Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron. Del cliente solo atiende `{"type": "stop"}` (callar a JARVIS) e ignora el resto. CSP estricta y texto insertado con `textContent`. |
+| Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron. Del cliente solo atiende `{"type": "stop"}` (callar a JARVIS) y `{"type": "cerrar"}` (el cierre de la bandeja: guarda y termina, lo mismo que el menú ya hacía matando el proceso) e ignora el resto. CSP estricta y texto insertado con `textContent`. |
 | Eco del TTS o audio ajeno dando órdenes mientras JARVIS habla | Mientras habla o genera, solo se atiende una orden de parada. Tiene que ser una transcripción corta (≤ 2 s), con confianza de Whisper y sin nada más que la orden, y la voz tiene que dominar sobre el eco esperado, que se estima a partir de lo que JARVIS reproduce. Si lo que dice JARVIS contiene esa misma orden como frase, se descarta como eco. Todo lo demás que se oiga se ignora: nunca llega al modelo ni al gate. Con altavoces, una orden dicha encima de un eco fuerte puede no reconocerse; con auriculares es fiable. El botón y el atajo de teclado no dependen del micrófono. |
 | Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados, y el de los demás pasa por el mismo enmascarado (sin direcciones ni secretos). Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. Para los logs anteriores a estas reglas, `limpiar_logs.py` (de un solo uso) quita el texto de los turnos que hoy son privados y cambia las direcciones por `<email>`: primero muestra el recuento y pide confirmación, y guarda los originales en `logs/backup-<fecha>/`. |
 | Datos personales en la memoria de conversación | El historial de `memoria.json`, que vuelve al modelo como contexto, nunca guarda direcciones: se sustituyen por `<email>` con el mismo enmascarado que los logs. Un turno privado se guarda sin texto, con un marcador del tema, las tools usadas y si quedó algo por confirmar. Lo que el modelo necesite de esos turnos lo pone el sistema: destinatario `yo` (la cuenta de Gmail) o `dictada` (la última dirección dictada por el micrófono, durante 5 minutos). Las notas no se tocan. `limpiar_memoria.py` (de un solo uso) aplica lo mismo al `memoria.json` y al `memoria.json.bak` existentes, con recuento, confirmación y copia en `logs/backup-memoria-<fecha>/`. |
@@ -270,10 +291,10 @@ venv\Scripts\python.exe replay.py --resumen   # hoy y 7 días: p50/p95, coste, %
 ```powershell
 venv\Scripts\python.exe doctor.py            # tabla legible
 venv\Scripts\python.exe doctor.py --json     # JSON estable (version, estado, resumen, comprobaciones)
-venv\Scripts\python.exe doctor.py --live     # además valida la clave de Anthropic (max_tokens=1), la voz de ElevenLabs y los tokens de Google
+venv\Scripts\python.exe doctor.py --live     # además valida la clave de Anthropic (max_tokens=1), la voz de ElevenLabs, los tokens de Google y GitHub, y consulta el tiempo
 ```
 
-Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC, yt-dlp, Node y Electron, Ollama y su modelo, audio, Piper, Whisper y CUDA, credenciales y tokens de Google, `.gitignore` y secretos en git, el puerto 8765, la zona horaria, los proyectos del operador, `logs/` y git. Es de solo lectura: no escribe archivos, no graba audio ni carga modelos, y nunca imprime claves (solo "definida" y su longitud). Sin `--live` no hay red, así que los tokens de Google salen como "no verificado". Con `--live`, se renuevan en memoria con la misma comprobación que el arranque de JARVIS y salen con su estado real.
+Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC, yt-dlp, Node y Electron, Ollama y su modelo, audio, Piper, Whisper y CUDA, credenciales y tokens de Google, `.gitignore` y secretos en git, el puerto 8765, la zona horaria, los proyectos del operador, `logs/`, la memoria entre sesiones, el servicio del tiempo y git. Es de solo lectura: no escribe archivos, no graba audio ni carga modelos, y nunca imprime claves (solo "definida" y su longitud). Sin `--live` no hay red, así que los tokens de Google y el servicio del tiempo salen como "no verificado". Con `--live`, los tokens se renuevan en memoria con la misma comprobación que el arranque de JARVIS, y el tiempo se consulta de verdad con el mismo reintento que el briefing. Si falla, sale como AVISO con su causa (sin red, sin respuesta, saturado…).
 
 - **OK:** correcto.
 - **AVISO:** funciona con limitaciones (sin Ollama todo va a Claude, sin CUDA Whisper va en CPU, token de Google sin verificar por falta de red…). No cambia el código de salida.

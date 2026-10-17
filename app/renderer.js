@@ -1,4 +1,4 @@
-// Cliente WebSocket de JARVIS: muestra lo que envía ui_bridge.py y solo envía "stop".
+// Cliente WebSocket de JARVIS: muestra lo que envía ui_bridge.py y solo envía "stop" y "cerrar".
 // Todo el texto se inserta con textContent (nunca innerHTML).
 const URL_WS      = 'ws://127.0.0.1:8765';
 const RECONEXION  = 2000;
@@ -179,7 +179,7 @@ function manejar(msg) {
 }
 
 // ── Callar a JARVIS: botón, Esc en la ventana o Ctrl+Alt+P global (main.js) ──
-// El único mensaje que la app envía a Python; solo corta la voz, nunca confirma nada.
+// Solo corta la voz, nunca confirma nada.
 let socket = null;
 
 function parar(origen) {
@@ -194,6 +194,19 @@ document.addEventListener('keydown', (e) => {
 });
 if (window.jarvis && typeof window.jarvis.alAtajoParar === 'function') {
   window.jarvis.alAtajoParar(() => parar('teclado'));
+}
+
+// ── "Cerrar JARVIS completamente" (bandeja): Python guarda la sesión y termina ──
+function pedirCierre() {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'cerrar' }));
+    return true;
+  }
+  return false;
+}
+
+if (window.jarvis && typeof window.jarvis.alCerrar === 'function') {
+  window.jarvis.alCerrar(pedirCierre);
 }
 
 function conectar() {

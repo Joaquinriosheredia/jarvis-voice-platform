@@ -11,6 +11,8 @@ import numpy as np
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import tts_elevenlabs  # noqa: E402  (antes de audio: así audio usa este mismo módulo)
 

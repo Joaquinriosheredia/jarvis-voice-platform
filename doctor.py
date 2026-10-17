@@ -8,9 +8,10 @@ para arreglarlo. Código de salida: 0 sin ERROR, 1 con algún ERROR (los AVISO n
 Solo lectura: no escribe ni borra archivos, no graba audio, no carga Whisper ni genera
 texto con Ollama. La única red es la local (Ollama en 127.0.0.1) salvo con --live, que
 hace una llamada mínima a Anthropic (max_tokens=1), renueva en memoria los tokens de
-Gmail y Calendar con su refresh_token (sin leer correo ni eventos y sin guardar nada)
-y, si JARVIS_TTS=elevenlabs, consulta la voz configurada sin sintetizar. Sin --live los
-tokens de Google salen como "no verificado". Nunca imprime valores de claves ni rutas
+Gmail y Calendar con su refresh_token (sin leer correo ni eventos y sin guardar nada),
+lee GitHub con GITHUB_TOKEN, consulta el tiempo en Open-Meteo y, si
+JARVIS_TTS=elevenlabs, consulta la voz configurada sin sintetizar. Sin --live los
+tokens de Google y el tiempo salen como "no verificado". Nunca imprime valores de claves ni rutas
 fuera de C:\\Jarvis y C:\\Jarvis-secrets.
 """
 import argparse
@@ -581,6 +582,23 @@ def check_live_token_calendar():
     return _check_live_token("calendar")
 
 
+def check_tiempo():
+    from skills import sistema
+    host = sistema.URL_TIEMPO.split("/")[2]
+    return resultado(OK, f"{host} (no verificado; doctor.py --live lo consulta)")
+
+
+def check_live_tiempo():
+    """Consulta real del tiempo, con el mismo reintento y las mismas causas que el briefing."""
+    from skills import sistema
+    ok, texto, causa = sistema.consultar_tiempo()
+    if ok:
+        return resultado(OK, "Servicio del tiempo: respuesta correcta")
+    accion = ("Comprueba la conexión a internet" if causa in (sistema.SIN_RED, sistema.SIN_RESPUESTA)
+              else "Es un fallo de Open-Meteo: el briefing lo dirá con esta causa; vuelve a probar más tarde")
+    return resultado(AVISO, f"{texto} ({causa})", accion)
+
+
 COMPROBACIONES = [
     ("python",            "Python",                       check_python),
     ("dependencias",      "Dependencias",                 check_dependencias),
@@ -611,12 +629,14 @@ COMPROBACIONES = [
     ("proyectos",         "Proyectos del operador",       check_proyectos),
     ("logs",              "Logs",                         check_logs),
     ("memoria",           "Memoria entre sesiones",       check_memoria),
+    ("tiempo",            "Servicio del tiempo",          check_tiempo),
     ("git",               "Git",                          check_git),
 ]
 COMPROBACIONES_LIVE = [
     ("live_anthropic",    "API de Anthropic (--live)",    check_live_anthropic),
     ("live_elevenlabs",   "ElevenLabs (--live)",          check_live_elevenlabs),
     ("live_github",       "GitHub (--live)",              check_live_github),
+    ("live_tiempo",       "Servicio del tiempo (--live)", check_live_tiempo),
     ("live_token_gmail",  "Token de Gmail (--live)",      check_live_token_gmail),
     ("live_token_calendar","Token de Calendar (--live)",  check_live_token_calendar),
 ]

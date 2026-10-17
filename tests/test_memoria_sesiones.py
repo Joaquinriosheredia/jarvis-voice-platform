@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import brain  # noqa: E402
 import doctor  # noqa: E402
@@ -184,7 +186,7 @@ class TestRecordar(Base):
         self.assertEqual(len(r), 1)
         self.assertEqual(r[0]["fecha"][:10], "2026-10-09")
         self.assertIn("Kafka", r[0]["resumen"])
-        self.assertIn("El 2026-10-09:", ms.texto_resultados(r))
+        self.assertIn("El 9 de octubre:", ms.texto_resultados(r))
 
     def test_sin_tildes_ni_plurales(self):
         self.assertEqual(len(ms.recordar("entrevistas", hoy=FECHA)), 1)
@@ -193,7 +195,7 @@ class TestRecordar(Base):
     def test_no_encuentra(self):
         self.assertEqual(ms.recordar("recetas de lentejas", hoy=FECHA), [])
         self.assertEqual(ms.recordar("¿te acuerdas?", hoy=FECHA), [])   # sin tema ni fecha
-        self.assertEqual(ms.texto_resultados([], "lentejas"), "No recuerdo nada de lentejas.")
+        self.assertEqual(ms.texto_resultados([], "lentejas"), "No tengo nada guardado sobre lentejas.")
 
     def test_por_fecha(self):
         r = ms.recordar("qué hicimos ayer", hoy=FECHA)
@@ -219,7 +221,7 @@ class TestRecordar(Base):
             vacio = brain._ejecutar("recordar", {"consulta": "lentejas"}, {}, "te acuerdas de las lentejas")
         self.assertTrue(res["ok"])
         self.assertIn("Kafka", res["message"])
-        self.assertIn("No recuerdo", vacio["message"])
+        self.assertIn("No tengo nada guardado sobre", vacio["message"])
         self.assertEqual([len(c.args[0]) for c in reg.call_args_list], [1, 0])
 
     def test_no_se_inyecta_en_cada_turno(self):
@@ -253,7 +255,8 @@ class TestOrdenes(Base):
                       "recuerdas lo de kafka", "qué es kafka", "olvídate", ""):
             self.assertNotEqual(ms.orden(texto) and ms.orden(texto)[0], "olvidar_todo", texto)
         self.assertIsNone(ms.orden("no olvides lo de kafka"))
-        self.assertIsNone(ms.orden("recuerdas lo de kafka"))   # pregunta normal: el modelo usa recordar
+        # Cualquier pregunta por algo hablado antes es recordar (sin modelo)
+        self.assertEqual(ms.orden("recuerdas lo de kafka"), ("recordar", "kafka"))
 
     def test_olvidar_borra_del_indice_y_del_archivo(self):
         self.sesion("Revisamos el consumidor de Kafka.")
@@ -283,7 +286,7 @@ class TestOrdenes(Base):
             self.assertIn("Kafka", self.pensar("qué recuerdas de kafka"))
             self.assertEqual(brain.ultima_traza()["router"], "memoria")
             self.assertEqual(self.pensar("olvida lo de kafka"), "Hecho: he olvidado 1 sesión sobre kafka.")
-            self.assertEqual(self.pensar("qué recuerdas de kafka"), "No recuerdo nada de kafka.")
+            self.assertEqual(self.pensar("qué recuerdas de kafka"), "No tengo nada guardado sobre kafka.")
         self.assertEqual([len(c.args[0]) for c in reg.call_args_list], [1, 0])
 
     def test_las_ordenes_de_memoria_no_se_guardan_en_la_sesion(self):
@@ -402,6 +405,9 @@ class TestJarvis(Base):
             jarvis._cerrar_memoria_sesiones()
 
     def test_cleanup_guarda_la_sesion(self):
+        jarvis._cerrado.clear()
+        self.addCleanup(jarvis._cerrado.clear)
+        self.addCleanup(jarvis._parar_vigilancia.clear)
         with patch.object(jarvis, "_cerrar_memoria_sesiones") as cerrar, patch.object(jarvis, "musica"), \
              patch.object(jarvis, "mem"), contextlib.redirect_stdout(self.salida):
             jarvis.cleanup()

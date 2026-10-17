@@ -12,6 +12,8 @@ import numpy as np
 
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import frases  # noqa: E402
 import tts_elevenlabs  # noqa: E402

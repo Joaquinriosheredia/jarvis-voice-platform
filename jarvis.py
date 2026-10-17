@@ -3,6 +3,8 @@ load_dotenv(r"C:\Jarvis-secrets\.env")
 
 import whisper
 import atexit
+import os
+import threading
 
 import audio
 import tts_elevenlabs
@@ -38,7 +40,14 @@ SKILLS = {
 }
 
 # ── CLEANUP ───────────────────────────────────────────────────────
+_cerrado = threading.Event()
+
 def cleanup():
+    """Cierre ordenado (adiós, apágate, Ctrl+C, fin normal o la bandeja). Una sola vez."""
+    if _cerrado.is_set():
+        return
+    _cerrado.set()
+    _parar_vigilancia.set()
     musica.cleanup()
     mem.guardar(memoria)
     _cerrar_memoria_sesiones()
@@ -60,6 +69,87 @@ def _purgar_memoria_caducada():
             print(f"[MEMORIA] {n} sesión(es) caducadas borradas")
     except Exception as e:
         print(f"[MEMORIA] no se pudo aplicar la retención: {type(e).__name__}")
+
+# ── GUARDADO PERIÓDICO DE LA SESIÓN ──────────────────────────────
+# Cada pocos turnos o tras un rato sin hablar (memoria_sesiones.debe_guardar), en un
+# hilo aparte para no retrasar la respuesta: un cierre brusco no pierde la conversación.
+VIGILANCIA_S = 30
+_parar_vigilancia = threading.Event()
+
+def _guardado_periodico():
+    try:
+        if memoria_sesiones.guardar_parcial(resumir=brain.resumir_sesion):
+            brain._print_seguro("[MEMORIA] sesión guardada (parcial)")
+    except Exception as e:
+        brain._print_seguro(f"[MEMORIA] no se pudo guardar la sesión: {type(e).__name__}")
+
+def _guardar_si_toca():
+    try:
+        if not _cerrado.is_set() and memoria_sesiones.debe_guardar():
+            threading.Thread(target=_guardado_periodico, daemon=True, name="memoria-guardado").start()
+    except Exception:
+        pass
+
+def _vigilar_inactividad():
+    while not _parar_vigilancia.wait(VIGILANCIA_S):
+        _guardar_si_toca()
+
+# ── CIERRES BRUSCOS ───────────────────────────────────────────────
+# Cerrar la ventana de la consola, Ctrl+Break, cerrar sesión o apagar Windows: el proceso
+# muere sin atexit y Windows da ~5 s. Se guarda sin modelo (cierre_rapido conserva el
+# último resumen periódico). Ctrl+C sigue su camino normal (KeyboardInterrupt → atexit).
+EVENTOS_CIERRE = {1: "ctrl_break", 2: "consola_cerrada", 5: "cierre_de_sesion", 6: "apagado"}
+
+def _cierre_con_prisa():
+    if _cerrado.is_set():
+        return
+    _cerrado.set()
+    _parar_vigilancia.set()
+    try:
+        mem.guardar(memoria)
+    except Exception:
+        pass
+    try:
+        if memoria_sesiones.cierre_rapido():
+            brain._print_seguro("[MEMORIA] sesión guardada (cierre rápido)")
+    except Exception as e:
+        brain._print_seguro(f"[MEMORIA] no se pudo guardar la sesión: {type(e).__name__}")
+
+def _al_evento_consola(evento):
+    """Manejador de SetConsoleCtrlHandler. False: el siguiente manejador sigue (Windows cierra)."""
+    if evento in EVENTOS_CIERRE:
+        _cierre_con_prisa()
+    return False
+
+_manejador_consola = None   # referencia viva: si el callback de ctypes se libera, Windows falla
+
+def _instalar_cierre_consola():
+    global _manejador_consola
+    if os.name != "nt" or _manejador_consola is not None:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        tipo = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+        _manejador_consola = tipo(_al_evento_consola)
+        ctypes.windll.kernel32.SetConsoleCtrlHandler(_manejador_consola, True)
+    except Exception as e:
+        print(f"[MEMORIA] sin guardado al cerrar la consola: {type(e).__name__}")
+
+def _cerrar_desde_ui():
+    """«Cerrar JARVIS completamente» en la bandeja: guarda como un cierre normal (con
+    resumen) y termina. Electron fuerza el cierre si tarda demasiado."""
+    def cerrar():
+        brain._print_seguro("[UI] cierre pedido desde la bandeja")
+        try:
+            audio.parar_voz("ui")
+        except Exception:
+            pass
+        try:
+            cleanup()
+        finally:
+            os._exit(0)
+    threading.Thread(target=cerrar, name="cierre-ui").start()
 
 atexit.register(cleanup)
 
@@ -177,6 +267,9 @@ def main():
     import ui_bridge
     ui_bridge.start()
     _purgar_memoria_caducada()
+    _instalar_cierre_consola()
+    ui_bridge.al_cerrar = _cerrar_desde_ui
+    threading.Thread(target=_vigilar_inactividad, daemon=True, name="memoria-inactividad").start()
     audio.hay_confirmacion_pendiente = brain.hay_pendiente  # Whisper estricto si hay que confirmar
     # Parada por voz (mientras genera o habla), botón o atajo de la UI
     audio.modelo_whisper = whisper_model
@@ -271,6 +364,7 @@ def _registrar_en_memoria_sesiones(texto, dicho):
         return
     tools = [t.get("nombre") for t in traza.get("tools_ejecutadas") or [] if t.get("nombre")]
     memoria_sesiones.registrar_turno(texto, dicho, tools, tts_elevenlabs.turno_privado())
+    _guardar_si_toca()
 
 def _guardar_en_historial(texto, dicho):
     """Guarda el turno ya terminado (pregunta y, si se dijo, la respuesta)."""

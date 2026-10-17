@@ -1,8 +1,10 @@
 """Puente WebSocket local entre JARVIS y la app Electron (app/).
 
 Python es el servidor (127.0.0.1:8765) y emite eventos. Del cliente solo se
-acepta {"type": "stop", "origen": "ui"|"teclado"} (botón o atajo para callar a
-JARVIS); cualquier otro mensaje se ignora. emit() nunca lanza y no hace nada si el servidor no está
+aceptan {"type": "stop", "origen": "ui"|"teclado"} (botón o atajo para callar a
+JARVIS) y {"type": "cerrar"} ("Cerrar JARVIS completamente" en la bandeja: guarda la
+sesión y termina, lo mismo que ya hacía el menú matando el proceso); cualquier otro
+mensaje se ignora. emit() nunca lanza y no hace nada si el servidor no está
 arrancado o no hay ningún cliente conectado: JARVIS funciona igual sin la app.
 
 Protocolo: {"v": 1, "type": ..., "ts": "ISO8601", ...datos}
@@ -25,6 +27,7 @@ _loop     = None
 _clientes = set()       # solo se modifica desde el hilo del event loop
 _estado   = "idle"      # último estado emitido, se envía en el hello
 al_parar  = None        # jarvis.py: audio.parar_voz(origen). Solo calla; nunca confirma nada
+al_cerrar = None        # jarvis.py: guarda (historial y memoria entre sesiones) y termina
 _avisos   = []          # mensajes "warning" ya serializados (con su ts original)
 MAX_MENSAJE = 256
 _lock     = threading.Lock()
@@ -47,14 +50,17 @@ def _mensaje(tipo, **data):
 
 # ── MENSAJES DEL CLIENTE ──────────────────────────────────────────
 def recibir(mensaje):
-    """Atiende un mensaje del cliente: solo "stop". Nunca lanza."""
+    """Atiende un mensaje del cliente: solo "stop" y "cerrar". Nunca lanza."""
     try:
         if not isinstance(mensaje, str) or len(mensaje) > MAX_MENSAJE:
             return
         datos = json.loads(mensaje)
-        if not isinstance(datos, dict) or datos.get("type") != "stop" or not callable(al_parar):
+        if not isinstance(datos, dict):
             return
-        al_parar("teclado" if datos.get("origen") == "teclado" else "ui")
+        if datos.get("type") == "stop" and callable(al_parar):
+            al_parar("teclado" if datos.get("origen") == "teclado" else "ui")
+        elif datos.get("type") == "cerrar" and callable(al_cerrar):
+            al_cerrar()
     except Exception:
         pass
 
