@@ -285,7 +285,7 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 | `ejecutar_tests` | EXTERNAL | Ejecuta la suite del proyecto (código del repo, hasta 300 s) | Depende de los tests | Depende de los tests | **sí** | confirmo tests |
 | `mover_archivo` | EXTERNAL | Mueve un archivo dentro de la zona permitida | Parcial: si el destino existe, puede sobrescribirlo | No | **sí** | confirmo mover |
 | `organizar_directorio` | EXTERNAL | Reparte todos los archivos de Descargas en carpetas | Laborioso de deshacer | No | **sí** | confirmo organizar |
-| `siguiente_racha` | EXTERNAL | Lanza un proceso de AuthorityEngine y marca el tema en su roadmap | No del todo | Según el proceso | **sí** | confirmo racha |
+| `siguiente_racha` | EXTERNAL | Toma el siguiente tema pendiente del roadmap de DAM-Java-Mastery, lo marca como hecho y lanza `racha.py` en WSL. Este llama a `engine.py`, que busca el tema en Hacker News, GitHub y Tavily, genera un borrador con Ollama y lo sube con `git commit` y `git push` a `_Review/` del repo **público** DAM-Java-Mastery | No: el push queda publicado en GitHub (se puede revertir, pero ya ha sido visible) y el tema queda marcado en el roadmap | Sí: búsquedas con el tema en tres servicios y un push a un repo público | **sí** | confirmo racha |
 | `crear_carpeta` | EXTERNAL | Crea una carpeta en la zona permitida | Sí | No | no | — |
 | `abrir_web` | EXTERNAL | Abre un sitio de una lista fija, sin texto del modelo | — | Solo abre la URL fija | no | — |
 | `abrir_app` | EXTERNAL | Abre una app de una lista fija | Sí | No | no | — |
