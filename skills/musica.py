@@ -1,7 +1,9 @@
 import subprocess
 import threading
 
-VLC_PATH       = r"C:\Program Files\VideoLAN\VLC\vlc.exe"
+import rutas
+
+VLC_PATH       = rutas.vlc()
 musica_proceso = None
 lock           = threading.Lock()
 ultima_busqueda = None

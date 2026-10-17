@@ -307,8 +307,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 904 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 904 tests ... OK`
+- **Tests:** 915 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 915 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -328,12 +328,11 @@ Para llegar desde un clon del repo a una conversación por voz. Hace falta Windo
    winget install VideoLAN.VLC OpenJS.NodeJS.LTS Ollama.Ollama
    ```
    Abre una consola nueva para que se vean en el PATH.
-2. **Clona el repo en `C:\Jarvis`.** La voz y el proyecto `jarvis` del operador usan esa ruta.
+2. **Clona el repo** en la carpeta que quieras. Los ejemplos usan `C:\Jarvis`:
    ```powershell
    git clone https://github.com/Joaquinriosheredia/jarvis-voice-platform C:\Jarvis
    cd C:\Jarvis
    ```
-   Si lo clonas en otra carpeta, `.\instalar.cmd -CrearEnlace` crea `C:\Jarvis` como enlace a ella.
 3. **Instala:**
    ```powershell
    .\instalar.cmd
@@ -344,6 +343,7 @@ Para llegar desde un clon del repo a una conversación por voz. Hace falta Windo
    - comprueba ffmpeg, VLC, Node, Ollama y la GPU;
    - descarga la voz de Piper y el modelo `qwen2.5:3b` de Ollama;
    - crea `C:\Jarvis-secrets` con una plantilla `.env.example` sin valores;
+   - escribe `rutas.json` con tus carpetas reales de Descargas, Escritorio y perfil, si no existe ya (ver [Rutas](#rutas));
    - ejecuta `doctor.py` y termina con la lista de lo que falta.
 
    Se puede repetir: no rehace lo que ya está y nunca toca `.env`, tokens ni credenciales. Con `-SinDescargas` no descarga la voz ni el modelo de Ollama. Si la caché de `pip` está dañada, reintenta sin ella. Si Ollama no está en el PATH (por ejemplo, porque corre en WSL), lo busca por su API en `127.0.0.1:11434`. `-Secretos <carpeta>` solo sirve para probar el instalador sin tocar la carpeta real: JARVIS siempre lee `C:\Jarvis-secrets`.
@@ -357,7 +357,29 @@ Para llegar desde un clon del repo a una conversación por voz. Hace falta Windo
 
 Gmail, Calendar y Contactos son opcionales y necesitan un cliente OAuth propio (ver [Autorización de Google](#autorización-de-google)). Sin ellos, JARVIS conversa, busca en la web, da la hora y el tiempo, y usa las tools de archivos y de código.
 
-**Rutas fijas.** Las rutas de archivos permitidas son las de este equipo (Descargas en `E:\descargas ryzen` y el escritorio de `C:\Users\Usuario`), y lo mismo pasa con los alias de proyectos del operador. En otra máquina, las tools de archivos no tendrán dónde actuar hasta cambiar `ALLOWED_ROOTS` y `DESCARGAS` en `brain.py`, y `PROYECTOS` en `skills/operador.py`.
+### Rutas
+
+Ningún archivo del código escribe rutas de este equipo: todas salen de `rutas.py`, por este orden.
+1. **Variable de entorno**, que también puede ir en el `.env` de la carpeta de secretos.
+2. **`rutas.json` en la carpeta de secretos.** Lo crea `instalar.cmd` con tus carpetas reales; la de Descargas la toma de Windows aunque la hayas movido a otra unidad. No es un secreto, pero es de esta máquina y queda fuera del repo. Si ya existe, el instalador no lo toca.
+3. **Valor de respaldo:** el de la instalación original, para que nada cambie si no configuras nada.
+
+| Ruta | Variable | En `rutas.json` | Respaldo |
+|---|---|---|---|
+| Carpeta de secretos (`.env`, tokens, credenciales, memoria entre sesiones, `rutas.json`) | `JARVIS_SECRETOS` | — | `C:\Jarvis-secrets` |
+| Descargas (zona de archivos permitida y carpeta de `organizar_directorio`) | `JARVIS_DESCARGAS` | `descargas` | `E:\descargas ryzen` |
+| Perfil del usuario (bloqueado en sí; también su `AppData` y `OneDrive`) | `JARVIS_HOME` | `home` | `C:\Users\Usuario` |
+| Escritorio (zona de archivos permitida) | `JARVIS_ESCRITORIO` | `escritorio` | `<perfil>\Desktop` |
+| VLC | `JARVIS_VLC` | `vlc` | `C:\Program Files\VideoLAN\VLC\vlc.exe` |
+| Distribución y home de WSL (proyectos del operador, AuthorityEngine) | `JARVIS_WSL_DISTRO`, `JARVIS_WSL_HOME` | `wsl_distro`, `wsl_home` | `Ubuntu`, `/home/usuariojoaquin` |
+| Proyectos del operador | — | `proyectos`: `{"alias": "ruta"}` sustituye la lista entera | `jarvis` = carpeta del código; el resto, en WSL |
+
+**Rutas que no dependen de la configuración:**
+- La carpeta del código, la voz de Piper, `memoria.json` y `logs/` salen siempre de donde esté clonado el repo.
+- `app/start.vbs` también deduce la carpeta del repo de su propia ubicación.
+- El dueño de GitHub para los repos sin `dueño/` se cambia con `JARVIS_GITHUB_DUENIO`.
+
+`doctor.py` muestra cada carpeta, de dónde sale (entorno, `rutas.json` o respaldo) y si existe. Las rutas se leen al arrancar, así que un cambio necesita reiniciar JARVIS.
 
 ### Configuración
 
@@ -384,6 +406,7 @@ JARVIS_VOCABULARIO=             # otra ruta para el vocabulario de Whisper (por 
 JARVIS_AVISOS_CI=0              # 1 = avisos proactivos de CI en rojo (ver Avisos proactivos)
 JARVIS_AVISOS_CI_MIN=5          # minutos entre comprobaciones (2 a 60)
 JARVIS_AVISOS_CI_REPOS=         # repos a vigilar; si no, los de JARVIS_GITHUB_REPOS
+JARVIS_DESCARGAS=               # rutas: ver Rutas (por defecto, rutas.json o los valores de respaldo)
 ```
 
 Google (Gmail, Calendar y, opcionalmente, Contactos):
@@ -479,6 +502,7 @@ reautorizar.py       vuelve a autorizar Gmail, Calendar o Contactos (renombra el
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
 instalar.cmd / .ps1   instalación idempotente en Windows (venv, dependencias, voz, modelo, plantilla de secretos, doctor)
 env.example          plantilla de C:\Jarvis-secrets\.env sin valores
+rutas.py             rutas de la instalación (entorno > rutas.json > respaldo)
 avisos_ci.py         avisos proactivos v1: CI que pasa a rojo (desactivados por defecto)
 probar_vocabulario.py prueba manual con audio (Piper + Whisper) del vocabulario propio
 vocabulario_whisper.txt  términos propios que se pasan a Whisper como contexto inicial

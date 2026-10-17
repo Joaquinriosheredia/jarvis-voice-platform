@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
-load_dotenv(r"C:\Jarvis-secrets\.env")
+import rutas
+load_dotenv(rutas.en_secretos(".env"))
 
 import whisper
 import atexit

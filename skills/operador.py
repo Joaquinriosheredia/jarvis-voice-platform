@@ -15,15 +15,10 @@ import subprocess
 import threading
 import time
 
+import rutas
 from skills import secretos
 
-PROYECTOS = {
-    "jarvis":     "C:\\Jarvis",
-    "authority":  "\\\\wsl.localhost\\Ubuntu\\home\\usuariojoaquin\\AuthorityEngine",
-    "java-labs":  "\\\\wsl.localhost\\Ubuntu\\home\\usuariojoaquin\\Java-Production-Labs",
-    "dam":        "\\\\wsl.localhost\\Ubuntu\\home\\usuariojoaquin\\DAM-Java-Mastery",
-    "vibe-guard": "\\\\wsl.localhost\\Ubuntu\\home\\usuariojoaquin\\vibe-guard",
-}
+PROYECTOS = rutas.proyectos()   # jarvis = esta carpeta; el resto, en WSL (ver rutas.py)
 
 MAX_LINEAS  = 400
 MAX_BYTES   = 8 * 1024
@@ -56,8 +51,8 @@ EXCLUIR_SECRETOS = [f":(exclude,icase,glob)**/{patron}{sufijo}"
 # java-labs, dam y vibe-guard no tienen suite ejecutable en la raíz: sin entrada.
 COMANDOS_TEST = {
     "jarvis":    ["venv\\Scripts\\python.exe", "-m", "unittest", "discover", "-s", "tests"],
-    "authority": ["wsl.exe", "-d", "Ubuntu", "--cd",
-                  "/home/usuariojoaquin/AuthorityEngine/jarvis-runtime",
+    "authority": ["wsl.exe", "-d", rutas.valor("wsl_distro"), "--cd",
+                  rutas.wsl_ruta("AuthorityEngine/jarvis-runtime"),
                   "--", "venv/bin/python", "-m", "pytest", "-q", "--tb=short"],
 }
 TESTS_TIMEOUT = 300

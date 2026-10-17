@@ -18,10 +18,12 @@ import json
 import os
 import threading
 
+import rutas
+
 from skills import direccion
 from skills.secretos import redactar_secretos
 
-CREDENTIALS_FILE = r"C:\Jarvis-secrets\credentials.json"
+CREDENTIALS_FILE = rutas.en_secretos("credentials.json")
 TIMEOUT          = 10    # s por petición al endpoint de tokens
 COMANDO          = r"venv\Scripts\python.exe reautorizar.py {servicio}"
 
@@ -168,7 +170,7 @@ _DETALLE = {
     REVOCADO:         "la autorización ha caducado o se ha revocado (invalid_grant)",
     SIN_RED:          "no verificado: no hay conexión con Google",
     SIN_TOKEN:        "no autorizado: falta {archivo}",
-    SIN_CREDENCIALES: r"falta C:\Jarvis-secrets\credentials.json (el cliente OAuth de Google)",
+    SIN_CREDENCIALES: f"falta {CREDENTIALS_FILE} (el cliente OAuth de Google)",
     INVALIDO:         "{archivo} está dañado, incompleto o con otros permisos",
     ERROR:            "Google ha rechazado la renovación",
 }
@@ -206,8 +208,7 @@ def accion(r):
     if r["estado"] in REAUTORIZAR:
         return comando(r["servicio"])
     if r["estado"] == SIN_CREDENCIALES:
-        return (r"Descarga el cliente OAuth de escritorio de Google Cloud a "
-                r"C:\Jarvis-secrets\credentials.json")
+        return f"Descarga el cliente OAuth de escritorio de Google Cloud a {CREDENTIALS_FILE}"
     if r["estado"] == SIN_RED:
         return "Comprueba la conexión a internet"
     return ""

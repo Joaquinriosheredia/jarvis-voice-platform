@@ -15,6 +15,7 @@ from email.utils import parseaddr
 import anthropic
 import requests
 
+import rutas
 from skills import calendario, contactos, direccion, github, operador, pantalla, secretos, webs
 import briefing
 import memoria_sesiones
@@ -29,7 +30,7 @@ OLLAMA_URL     = "http://127.0.0.1:11434"
 OLLAMA_MODEL   = "qwen2.5:3b"
 OLLAMA_TIMEOUT = 8
 OLLAMA_KEEP    = "10m"
-DESCARGAS    = r"E:\descargas ryzen"
+DESCARGAS    = rutas.descargas()   # JARVIS_DESCARGAS o rutas.json (ver rutas.py)
 
 # ── HERRAMIENTAS ──────────────────────────────────────────────────
 TOOLS = [
@@ -173,7 +174,7 @@ TOOLS = [
         "name": "listar_directorio",
         "description": "Lista el contenido de una carpeta. En carpetas grandes solo muestra una parte del contenido, por lo que NO sirve para localizar archivos concretos. Para localizar un archivo específico usa buscar_archivo.",
         "input_schema": {"type": "object", "properties": {
-            "ruta": {"type": "string", "description": "Ruta. Descargas = E:\\descargas ryzen"}
+            "ruta": {"type": "string", "description": "Ruta. Descargas = " + DESCARGAS}
         }, "required": ["ruta"]}
     },
     {
@@ -419,9 +420,9 @@ SYSTEM = """Eres Jarvis, asistente personal de Joaquín Ríos Heredia.
 Joaquín es ingeniero backend: Java 21, Spring Boot, Python, IA.
 
 RUTAS:
-- Descargas: E:\\descargas ryzen
-- Home: C:\\Users\\Usuario
-- Desktop: C:\\Users\\Usuario\\Desktop
+- Descargas: {RUTA_DESCARGAS}
+- Home: {RUTA_HOME}
+- Desktop: {RUTA_ESCRITORIO}
 
 COMPORTAMIENTO:
 - Responde SIEMPRE en español castellano
@@ -464,6 +465,8 @@ COMPORTAMIENTO:
 # Se añade en un bloque de system aparte (sin caché) cuando el router clasifica la petición como "review"
 # Silenciar y cerrar JARVIS lo decide el sistema antes del modelo; si una pregunta se
 # escapa del atajo de ayuda, el modelo responde con el mismo texto (parada.texto_ayuda)
+SYSTEM = (SYSTEM.replace("{RUTA_DESCARGAS}", rutas.descargas()).replace("{RUTA_HOME}", rutas.home())
+          .replace("{RUTA_ESCRITORIO}", rutas.escritorio()))
 SYSTEM = SYSTEM.replace("{ORDENES_DE_VOZ}", (
     "- Callarte o cerrarte no lo decides tú: el sistema lo hace con frases cortas fijas antes de que "
     "te llegue el texto, y no tienes ninguna herramienta para cerrarte. Si te preguntan cómo hacerlo, "
@@ -570,14 +573,14 @@ TOOL_RISK = {
     "olvidar_todo": "DESTRUCTIVE",  # borra la memoria entre sesiones (memoria_sesiones)
 }
 
-ALLOWED_ROOTS   = [DESCARGAS, r"C:\Users\Usuario\Desktop"]
+ALLOWED_ROOTS   = [DESCARGAS, rutas.escritorio()]
 ORGANIZAR_ROOTS = [DESCARGAS]
 BLOCKED_TREES   = [
     r"C:\Windows", r"C:\Program Files", r"C:\Program Files (x86)",
-    r"C:\ProgramData", r"C:\Users\Usuario\AppData", r"C:\Users\Usuario\OneDrive",
-    r"C:\Jarvis", r"C:\Jarvis-secrets",
+    r"C:\ProgramData", os.path.join(rutas.home(), "AppData"), os.path.join(rutas.home(), "OneDrive"),
+    rutas.RAIZ, rutas.secretos(),
 ]
-BLOCKED_EXACT   = [r"C:\Users\Usuario"]
+BLOCKED_EXACT   = [rutas.home()]
 
 CONFIRM_PHRASES   = {
     "apagar_pc":      "confirmo apagado del pc",

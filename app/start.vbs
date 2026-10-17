@@ -1,12 +1,13 @@
 ' Lanzador de JARVIS (sin terminal visible).
-' 1. Si jarvis.py no esta corriendo, lo arranca oculto con la salida en C:\Jarvis\jarvis.log
+' 1. Si jarvis.py no esta corriendo, lo arranca oculto con la salida en <repo>\jarvis.log
 ' 2. Abre la ventana Electron (si ya esta abierta, Electron solo la muestra)
 Option Explicit
 
-Const JARVIS_DIR = "C:\Jarvis"
-
-Dim sh, wmi, procs, env, python, electron
+Dim sh, fso, wmi, procs, env, python, electron, JARVIS_DIR
 Set sh   = CreateObject("WScript.Shell")
+Set fso  = CreateObject("Scripting.FileSystemObject")
+' La carpeta del repo es la que contiene app\ (este script): sin rutas fijas
+JARVIS_DIR = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 python   = JARVIS_DIR & "\venv\Scripts\python.exe"
 electron = JARVIS_DIR & "\app\node_modules\electron\dist\electron.exe"
 
@@ -20,7 +21,8 @@ If procs.Count = 0 Then
     env("PYTHONUTF8")       = "1"
     env("PYTHONIOENCODING") = "utf-8"
     sh.CurrentDirectory = JARVIS_DIR
-    sh.Run "cmd /c " & python & " -u jarvis.py > jarvis.log 2>&1", 0, False
+    ' cmd /c ""<python>" -u jarvis.py > jarvis.log 2>&1": funciona aunque la ruta tenga espacios
+    sh.Run "cmd /c """"" & python & """ -u jarvis.py > jarvis.log 2>&1""", 0, False
 End If
 
 sh.Run """" & electron & """ """ & JARVIS_DIR & "\app""", 1, False

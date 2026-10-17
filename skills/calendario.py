@@ -11,11 +11,13 @@ import re
 
 from googleapiclient.discovery import build
 
+import rutas
+
 from skills import gmail
 
 # calendar.events basta para leer y crear eventos (no da acceso a borrar calendarios ni compartir)
 SCOPES_CAL   = ["https://www.googleapis.com/auth/calendar.events"]
-TOKEN_CAL    = r"C:\Jarvis-secrets\token_calendar.json"
+TOKEN_CAL    = rutas.en_secretos("token_calendar.json")
 ZONA         = "Europe/Madrid"
 MAX_DIAS     = 7
 MAX_EVENTOS  = 20

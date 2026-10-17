@@ -16,10 +16,11 @@ import tts_elevenlabs
 import metrics
 import frases
 import parada
+import rutas
 from skills import direccion
 
 SAMPLE_RATE  = 16000
-VOICE_MODEL  = r"C:\Jarvis\voices\es_ES-davefx-medium.onnx"
+VOICE_MODEL  = rutas.en_raiz("voices", "es_ES-davefx-medium.onnx")
 
 # Vocabulario habitual: orienta a Whisper hacia las órdenes de JARVIS
 WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cómo estás, qué tal, "

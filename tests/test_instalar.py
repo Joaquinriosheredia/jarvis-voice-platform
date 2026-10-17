@@ -30,11 +30,17 @@ class TestInstalar(unittest.TestCase):
     def test_nunca_escribe_env_ni_tokens(self):
         script = _leer("instalar.ps1")
         # Lo único que crea en la carpeta de secretos es la plantilla
-        escrituras = re.findall(r"(?:Copy-Item|Set-Content|Out-File|New-Item)[^\n]*", script)
+        escrituras = re.findall(r"(?:Copy-Item|Set-Content|Out-File|New-Item|WriteAllText)[^\n]*", script)
         for linea in escrituras:
             self.assertNotRegex(linea, r"\.env(?!\.example)|token|credentials", linea)
         self.assertIn('Join-Path $Secretos ".env.example"', script)
         self.assertNotIn("Get-Content", script)   # tampoco lee secretos
+
+    def test_rutas_json_solo_si_no_existe_y_con_las_carpetas_reales(self):
+        script = _leer("instalar.ps1")
+        self.assertIn('if (Test-Path $RutasJson) { Bien "rutas.json ya existe (no se toca)" }', script)
+        self.assertIn('NameSpace("shell:Downloads")', script)   # la carpeta Descargas real, aunque esté movida
+        self.assertIn('GetFolderPath("Desktop")', script)
 
     def test_plantilla_sin_valores_secretos(self):
         for linea in _leer("env.example").splitlines():

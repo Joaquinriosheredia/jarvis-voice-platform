@@ -18,8 +18,9 @@ import os
 import time
 
 import requests
+import rutas
 
-ELEVENLABS_JSON = r"C:\Jarvis-secrets\elevenlabs.json"
+ELEVENLABS_JSON = rutas.en_secretos("elevenlabs.json")
 URL             = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 MODELO          = "eleven_flash_v2_5"
 PCM_RATE        = 22050                 # output_format=pcm_22050: int16 mono sin cabecera

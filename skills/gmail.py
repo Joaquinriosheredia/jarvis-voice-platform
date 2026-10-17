@@ -1,6 +1,8 @@
 import os
 import time
 import base64
+
+import rutas
 from email.message import EmailMessage
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -8,8 +10,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 SCOPES           = ['https://www.googleapis.com/auth/gmail.modify']
-CREDENTIALS_FILE = r"C:\Jarvis-secrets\credentials.json"
-TOKEN_FILE       = r"C:\Jarvis-secrets\token.json"
+CREDENTIALS_FILE = rutas.en_secretos("credentials.json")
+TOKEN_FILE       = rutas.en_secretos("token.json")
 
 # Entradas {"id", "remitente", "asunto", "ts"} de la última lista leída al usuario
 cache_emails     = []

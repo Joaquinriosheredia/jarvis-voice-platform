@@ -24,9 +24,11 @@ import threading
 import time
 import unicodedata
 
+import rutas
+
 from skills import direccion
 
-RUTA_DB        = os.environ.get("JARVIS_MEMORIA_DB") or r"C:\Jarvis-secrets\memoria_sesiones.db"
+RUTA_DB        = os.environ.get("JARVIS_MEMORIA_DB") or rutas.en_secretos("memoria_sesiones.db")
 RETENCION_DIAS = 90
 MAX_RESULTADOS = 3
 MAX_LINEAS     = 5

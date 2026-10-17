@@ -3,7 +3,9 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
-MEMORIA_FILE = r"C:\Jarvis\memoria.json"
+import rutas
+
+MEMORIA_FILE = rutas.en_raiz("memoria.json")
 MAX_NOTAS    = 100
 MAX_TAREAS   = 50
 MAX_HISTORIAL = 50

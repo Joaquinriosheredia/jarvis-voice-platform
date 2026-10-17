@@ -11,10 +11,12 @@ import threading
 
 from googleapiclient.discovery import build
 
+import rutas
+
 from skills import direccion, gmail
 
 SCOPES_CONTACTOS = ["https://www.googleapis.com/auth/contacts.readonly"]
-TOKEN_CONTACTOS  = r"C:\Jarvis-secrets\token_contacts.json"
+TOKEN_CONTACTOS  = rutas.en_secretos("token_contacts.json")
 MAX_RESULTADOS   = 10
 MAX_NOMBRE       = 80
 

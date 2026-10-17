@@ -3,8 +3,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-ROADMAP_WSL = "/home/usuariojoaquin/.openclaw/workspace/DAM-Java-Mastery/ROADMAP_TEMAS.md"
-REPO_WSL    = "/home/usuariojoaquin/.openclaw/workspace/DAM-Java-Mastery"
+import rutas
+
+REPO_WSL    = rutas.wsl_ruta(".openclaw/workspace/DAM-Java-Mastery")
+ROADMAP_WSL = REPO_WSL + "/ROADMAP_TEMAS.md"
 HISTORICO   = Path.home() / "AuthorityEngine/score_historico.json"
 
 # ── WSL HELPER ROBUSTO ────────────────────────────────────────────

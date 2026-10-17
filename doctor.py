@@ -12,7 +12,7 @@ Gmail y Calendar con su refresh_token (sin leer correo ni eventos y sin guardar 
 lee GitHub con GITHUB_TOKEN, consulta el tiempo en Open-Meteo y, si
 JARVIS_TTS=elevenlabs, consulta la voz configurada sin sintetizar. Sin --live los
 tokens de Google y el tiempo salen como "no verificado". Nunca imprime valores de claves ni rutas
-fuera de C:\\Jarvis y C:\\Jarvis-secrets.
+fuera de la carpeta del código, la de secretos y las configuradas en rutas.py.
 """
 import argparse
 import ast
@@ -27,8 +27,10 @@ import subprocess
 import sys
 import urllib.request
 
+import rutas
+
 RAIZ      = os.path.dirname(os.path.abspath(__file__))
-SECRETOS  = r"C:\Jarvis-secrets"
+SECRETOS  = rutas.secretos()
 ENV_FILE  = os.path.join(SECRETOS, ".env")
 PUERTO_UI = 8765
 VERSION_JSON = 1
@@ -46,13 +48,23 @@ def resultado(estado, detalle, accion=""):
 
 
 # ── Lectura sin efectos ───────────────────────────────────────────
+def _valor_constante(nodo):
+    """Un literal, o una llamada rutas.funcion(literales) que se evalúa con rutas.py (ligero):
+    así las rutas configurables se leen sin importar el módulo que las usa."""
+    if (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
+            and isinstance(nodo.func.value, ast.Name) and nodo.func.value.id == "rutas"
+            and not nodo.keywords and not nodo.func.attr.startswith("_")):
+        return getattr(rutas, nodo.func.attr)(*[ast.literal_eval(a) for a in nodo.args])
+    return ast.literal_eval(nodo)
+
+
 def constante(archivo, nombre):
-    """Valor literal de NOMBRE = ... en un .py del proyecto, sin importarlo."""
+    """Valor de NOMBRE = ... en un .py del proyecto, sin importarlo (literal o rutas.xxx(...))."""
     with open(os.path.join(RAIZ, archivo), encoding="utf-8") as f:
         arbol = ast.parse(f.read())
     for nodo in arbol.body:
         if isinstance(nodo, ast.Assign) and any(isinstance(t, ast.Name) and t.id == nombre for t in nodo.targets):
-            return ast.literal_eval(nodo.value)
+            return _valor_constante(nodo.value)
     raise KeyError(f"{nombre} no está en {archivo}")
 
 
@@ -259,21 +271,21 @@ def check_cuda():
 
 def check_secretos_carpeta():
     if os.path.isdir(SECRETOS):
-        return resultado(OK, r"C:\Jarvis-secrets existe")
-    return resultado(ERROR, r"No existe C:\Jarvis-secrets", r"Crea C:\Jarvis-secrets con .env y credentials.json")
+        return resultado(OK, f"{SECRETOS} existe")
+    return resultado(ERROR, f"No existe {SECRETOS}", f"Crea {SECRETOS} con .env y credentials.json (instalar.cmd la crea)")
 
 
 def check_env():
     if os.path.isfile(ENV_FILE):
-        return resultado(OK, r"C:\Jarvis-secrets\.env presente")
-    return resultado(AVISO, r"No hay C:\Jarvis-secrets\.env (solo valdrán las variables del sistema)",
-                     r"Crea C:\Jarvis-secrets\.env con ANTHROPIC_API_KEY=...")
+        return resultado(OK, f"{ENV_FILE} presente")
+    return resultado(AVISO, f"No hay {ENV_FILE} (solo valdrán las variables del sistema)",
+                     f"Crea {ENV_FILE} con ANTHROPIC_API_KEY=...")
 
 
 def check_anthropic_key():
     clave = variable("ANTHROPIC_API_KEY")
     if not clave:
-        return resultado(ERROR, "ANTHROPIC_API_KEY no definida", r"Añádela a C:\Jarvis-secrets\.env")
+        return resultado(ERROR, "ANTHROPIC_API_KEY no definida", f"Añádela a {ENV_FILE}")
     return resultado(OK, f"ANTHROPIC_API_KEY definida ({len(clave)} caracteres)")
 
 
@@ -281,7 +293,7 @@ def check_tavily_key():
     clave = variable("TAVILY_API_KEY")
     if not clave:
         return resultado(AVISO, "TAVILY_API_KEY no definida: buscar_en_web solo usará Wikipedia y DuckDuckGo",
-                         r"Añádela a C:\Jarvis-secrets\.env (opcional)")
+                         f"Añádela a {ENV_FILE} (opcional)")
     return resultado(OK, f"TAVILY_API_KEY definida ({len(clave)} caracteres)")
 
 
@@ -291,7 +303,7 @@ def check_github_token():
     if not token:
         return resultado(AVISO, "GITHUB_TOKEN no definido: el briefing no dirá el estado de GitHub",
                          r"Crea un token fine-grained de solo lectura (Metadata, Pull requests y Actions) "
-                         r"y añádelo a C:\Jarvis-secrets\.env (opcional)")
+                         f"y añádelo a {ENV_FILE} (opcional)")
     if not token.startswith("github_pat_"):
         return resultado(AVISO, f"GITHUB_TOKEN definido ({len(token)} caracteres) pero no es fine-grained",
                          "Sustitúyelo por uno fine-grained limitado a los repos del briefing y de solo lectura")
@@ -301,9 +313,9 @@ def check_github_token():
 def check_google_credentials():
     ruta = constante(os.path.join("skills", "gmail.py"), "CREDENTIALS_FILE")
     if os.path.isfile(ruta):
-        return resultado(OK, r"credentials.json de Google en C:\Jarvis-secrets")
+        return resultado(OK, f"credentials.json de Google en {SECRETOS}")
     return resultado(AVISO, "Falta credentials.json: Gmail y Calendar no funcionarán",
-                     r"Descarga el cliente OAuth de Google Cloud a C:\Jarvis-secrets\credentials.json")
+                     f"Descarga el cliente OAuth de Google Cloud a {rutas.en_secretos('credentials.json')}")
 
 
 def _reautorizar(servicio):
@@ -368,7 +380,7 @@ def check_elevenlabs():
     falta = [n for n, v in (("ELEVENLABS_API_KEY", clave), ("ELEVENLABS_VOICE_ID", voz)) if not v]
     if falta:
         return resultado(AVISO, f"JARVIS_TTS=elevenlabs pero falta {' y '.join(falta)}: se usará Piper",
-                         r"Defínelas en C:\Jarvis-secrets\.env o en elevenlabs.json")
+                         f"Defínelas en {ENV_FILE} o en elevenlabs.json")
     return resultado(OK, f"ElevenLabs configurado (clave de {len(clave)} caracteres y voice_id)")
 
 
@@ -379,8 +391,8 @@ def check_secretos_fuera_del_repo():
     except ValueError:  # otra unidad
         dentro = False
     if dentro:
-        return resultado(ERROR, r"C:\Jarvis-secrets está dentro del repo", "Muévela fuera de C:\\Jarvis")
-    return resultado(OK, r"C:\Jarvis-secrets está fuera del repo")
+        return resultado(ERROR, f"{SECRETOS} está dentro del repo", f"Muévela fuera de {RAIZ}")
+    return resultado(OK, f"{SECRETOS} está fuera del repo")
 
 
 def check_gitignore():
@@ -462,7 +474,7 @@ def check_logs():
         return resultado(AVISO, "No existe logs/: se creará con el primer turno",
                          "Arranca JARVIS una vez o crea la carpeta logs/")
     if not os.access(carpeta, os.W_OK):
-        return resultado(ERROR, "logs/ no es escribible", "Da permisos de escritura a C:\\Jarvis\\logs")
+        return resultado(ERROR, "logs/ no es escribible", f"Da permisos de escritura a {os.path.join(RAIZ, 'logs')}")
     turnos = os.path.join(carpeta, "turnos.jsonl")
     tam = os.path.getsize(turnos) if os.path.isfile(turnos) else 0
     if tam > LOG_GRANDE:
@@ -514,7 +526,7 @@ def check_live_anthropic():
     clave = variable("ANTHROPIC_API_KEY")
     if not clave:
         return resultado(ERROR, "ANTHROPIC_API_KEY no definida: no se llama a la API",
-                         r"Añádela a C:\Jarvis-secrets\.env")
+                         f"Añádela a {ENV_FILE}")
     try:
         codigo = _post("https://api.anthropic.com/v1/messages",
                        {"x-api-key": clave, "anthropic-version": "2023-06-01", "content-type": "application/json"},
@@ -545,7 +557,7 @@ def check_live_github():
                 return resultado(ERROR, f"Sin respuesta de GitHub ({type(e).__name__})", "Comprueba la conexión")
             if codigo == 401:
                 return resultado(ERROR, "GitHub: HTTP 401, el token no es válido o ha caducado",
-                                 r"Genera otro y actualiza GITHUB_TOKEN en C:\Jarvis-secrets\.env")
+                                 f"Genera otro y actualiza GITHUB_TOKEN en {ENV_FILE}")
             if codigo != 200:
                 fallos.append(f"{repo} {nombre}: HTTP {codigo}")
     if fallos:
@@ -560,7 +572,7 @@ def check_live_elevenlabs():
     clave, voz = _elevenlabs()
     if not clave or not voz:
         return resultado(ERROR, "Falta la clave o el voice_id de ElevenLabs: no se llama a la API",
-                         r"Defínelos en C:\Jarvis-secrets\.env o en elevenlabs.json")
+                         f"Defínelos en {ENV_FILE} o en elevenlabs.json")
     try:
         codigo = _get(f"https://api.elevenlabs.io/v1/voices/{voz}", {"xi-api-key": clave})
     except Exception as e:
@@ -613,6 +625,22 @@ def check_live_tiempo():
     accion = ("Comprueba la conexión a internet" if causa in (sistema.SIN_RED, sistema.SIN_RESPUESTA)
               else "Es un fallo de Open-Meteo: el briefing lo dirá con esta causa; vuelve a probar más tarde")
     return resultado(AVISO, f"{texto} ({causa})", accion)
+
+
+def check_rutas():
+    """Las carpetas configurables (rutas.py): de dónde sale cada una y si existen."""
+    faltan, partes = [], []
+    for clave, nombre in (("descargas", "Descargas"), ("escritorio", "Escritorio"), ("home", "Home")):
+        ruta = rutas.valor(clave)
+        partes.append(f"{nombre} {ruta} ({rutas.origen(clave)})")
+        if not os.path.isdir(ruta):
+            faltan.append(nombre)
+    detalle = "; ".join(partes)
+    if faltan:
+        return resultado(AVISO, f"{detalle}. No existe: {', '.join(faltan)}",
+                         f"Ejecuta instalar.cmd (crea {rutas.en_secretos(rutas.ARCHIVO)}) o define "
+                         "JARVIS_DESCARGAS / JARVIS_HOME / JARVIS_ESCRITORIO")
+    return resultado(OK, detalle)
 
 
 def check_avisos_ci():
@@ -680,6 +708,7 @@ COMPROBACIONES = [
     ("logs",              "Logs",                         check_logs),
     ("memoria",           "Memoria entre sesiones",       check_memoria),
     ("tiempo",            "Servicio del tiempo",          check_tiempo),
+    ("rutas",             "Rutas configurables",          check_rutas),
     ("gate_estricto",     "Gate estricto",                check_gate_estricto),
     ("avisos_ci",         "Avisos de CI",                 check_avisos_ci),
     ("git",               "Git",                          check_git),

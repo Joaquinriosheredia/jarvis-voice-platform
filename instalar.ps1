@@ -7,19 +7,18 @@
   2. Crea el venv si no existe e instala requirements.txt (torch con CUDA desde el índice de PyTorch).
   3. Comprueba ffmpeg, VLC, Node, Ollama y CUDA, y dice cómo instalar lo que falte.
   4. Descarga la voz de Piper y el modelo de Ollama si faltan (salvo con -SinDescargas).
-  5. Crea la carpeta de secretos con una plantilla .env.example SIN valores. Nunca lee, crea ni
-     modifica .env, tokens ni credenciales.
+  5. Crea la carpeta de secretos con una plantilla .env.example SIN valores y rutas.json con las
+     carpetas reales de este usuario (Descargas, Escritorio, perfil), si no existe. Nunca lee,
+     crea ni modifica .env, tokens ni credenciales.
   6. Ejecuta doctor.py y resume lo que falta.
 
   Uso (desde la carpeta del repo):
     .\instalar.cmd
     .\instalar.cmd -SinDescargas            # sin voz de Piper ni modelo de Ollama
-    .\instalar.cmd -CrearEnlace             # si el repo no está en C:\Jarvis, crea C:\Jarvis -> repo
 #>
 param(
     [switch]$SinDescargas,
-    [switch]$CrearEnlace,
-    [string]$Secretos = "C:\Jarvis-secrets"
+    [string]$Secretos = $(if ($env:JARVIS_SECRETOS) { $env:JARVIS_SECRETOS } else { "C:\Jarvis-secrets" })
 )
 
 $ErrorActionPreference = "Stop"
@@ -143,21 +142,13 @@ if ($Ollama) {
     else { Aviso "Falta Ollama (respuestas locales; sin él todo va a Claude)" "winget install Ollama.Ollama y luego: ollama pull $ModeloOllama" }
 }
 
-# ── 5. Ubicación del repo y carpeta de secretos ──────────────────
+# ── 5. Carpeta de secretos, plantilla y rutas de este usuario ─────
 Paso "Rutas"
-$Esperada = "C:\Jarvis"
-$RaizReal = (Get-Item $Raiz).FullName.TrimEnd("\")
-$Enlace   = (Get-Item $Esperada -ErrorAction SilentlyContinue)
-if ($RaizReal -ieq $Esperada -or ($Enlace -and $Enlace.Target -and (($Enlace.Target | Select-Object -First 1).TrimEnd("\") -ieq $RaizReal))) {
-    Bien "El repo está en $Esperada (o enlazado)"
-} elseif (-not $Enlace -and $CrearEnlace) {
-    New-Item -ItemType Junction -Path $Esperada -Target $RaizReal | Out-Null
-    Bien "Creado el enlace $Esperada -> $RaizReal"
-} elseif (-not $Enlace) {
-    Aviso "El repo no está en $Esperada (la voz y el proyecto 'jarvis' del operador usan esa ruta)" ".\instalar.cmd -CrearEnlace"
-} else {
-    Aviso "$Esperada ya existe y no es este repo" "Usa ese repo o mueve este a $Esperada"
+Bien "Repo en $((Get-Item $Raiz).FullName) (cualquier carpeta vale: las rutas salen de rutas.py)"
+if ($Secretos -ine "C:\Jarvis-secrets" -and $Secretos -ine $env:JARVIS_SECRETOS) {
+    Aviso "La carpeta de secretos no es la de por defecto" "Define la variable de entorno de Windows JARVIS_SECRETOS=$Secretos"
 }
+$env:JARVIS_SECRETOS = $Secretos   # el doctor de abajo mira esta carpeta
 
 if (Test-Path $Secretos) { Bien "Carpeta de secretos $Secretos" }
 else { New-Item -ItemType Directory -Path $Secretos | Out-Null; Bien "Creada la carpeta de secretos $Secretos" }
@@ -166,6 +157,21 @@ if (Test-Path $Plantilla) { Bien ".env.example ya existe (no se toca)" }
 else {
     Copy-Item (Join-Path $Raiz "env.example") $Plantilla
     Bien "Plantilla .env.example creada (sin valores)"
+}
+# rutas.json: las carpetas reales del usuario de Windows (no es un secreto; es de esta máquina)
+$RutasJson = Join-Path $Secretos "rutas.json"
+if (Test-Path $RutasJson) { Bien "rutas.json ya existe (no se toca)" }
+else {
+    $descargas = $null
+    try { $descargas = (New-Object -ComObject Shell.Application).NameSpace("shell:Downloads").Self.Path } catch { }
+    if (-not $descargas) { $descargas = Join-Path $env:USERPROFILE "Downloads" }
+    $rutasUsuario = [ordered]@{
+        descargas  = $descargas
+        escritorio = [Environment]::GetFolderPath("Desktop")
+        home       = $env:USERPROFILE
+    }
+    [System.IO.File]::WriteAllText($RutasJson, ($rutasUsuario | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
+    Bien "rutas.json creado: Descargas = $descargas"
 }
 if (-not (Test-Path (Join-Path $Secretos ".env"))) {
     Aviso "No hay .env" "Copia $Plantilla a $Secretos\.env y rellena al menos ANTHROPIC_API_KEY"

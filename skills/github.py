@@ -15,7 +15,7 @@ import re
 import requests
 
 API         = "https://api.github.com"
-DUENIO      = "Joaquinriosheredia"
+DUENIO      = os.environ.get("JARVIS_GITHUB_DUENIO", "").strip() or "Joaquinriosheredia"  # repos sin "dueño/"
 REPOS       = ("jarvis-voice-platform",)
 TIMEOUT     = 5
 MAX_PRS     = 5     # PRs abiertos que se miran por repo (una llamada de reviews por cada uno)

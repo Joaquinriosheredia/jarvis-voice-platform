@@ -518,9 +518,9 @@ class TestEjecutarTests(Base):
                    return_value=completado("....\nRan 4 tests in 0.1s\n\nOK\n")) as run:
             ok, msg = operador.ejecutar_tests("jarvis", "test_gate")
         cmd, kw = run.call_args.args[0], run.call_args.kwargs
-        self.assertEqual(cmd[0], os.path.join("C:\\Jarvis", "venv\\Scripts\\python.exe"))
+        self.assertEqual(cmd[0], os.path.join(operador.PROYECTOS["jarvis"], "venv\\Scripts\\python.exe"))
         self.assertEqual(cmd[-2:], ["-k", "test_gate"])
-        self.assertEqual(kw["cwd"], "C:\\Jarvis")
+        self.assertEqual(kw["cwd"], operador.PROYECTOS["jarvis"])
         self.assertEqual(kw["timeout"], 300)
         self.assertEqual(kw["stderr"], subprocess.STDOUT)
         self.assertNotIn("shell", kw)
