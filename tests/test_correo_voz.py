@@ -96,7 +96,7 @@ class TestMiPropiaDireccion(Base):
         res = self._ej(PARAMS, PEDIDO)
         self.assertFalse(res["ok"])                      # armado, a la espera de confirmar
         self.assertIn(f"Enviar email a {PROPIA} con asunto prueba de JARVIS", res["message"])
-        self.assertEqual(brain._pendiente["firma"], ("enviar_email", PROPIA, ""))
+        self.assertEqual(brain._pendiente["firma"][:3], ("enviar_email", PROPIA, ""))
         self.assertEqual(brain._pendiente["params"]["destinatario"], PROPIA)
         self.perfil.assert_called_once()
         self.send.assert_not_called()
@@ -238,7 +238,9 @@ class TestDireccionDictada(Base):
         self._turno("mándalo a pepe punto garcia arroba correo punto es", ("enviar_email", params))
         anuncio = brain.anuncio_confirmacion()
         self.assertEqual(anuncio, f"Vas a enviar un email a {DICTADA}. Se deletrea: "
-                                  f"{direccion.deletrear(DICTADA)}. ¿Confirmas con 'confirmo envío'?")
+                                  f"{direccion.deletrear(DICTADA)}. Asunto: «prueba de JARVIS». "
+                                  f"Texto: «hola, esto es una prueba». Sin adjuntos. "
+                                  f"¿Confirmas con 'confirmo envío'?")
         self.assertIn("pe, e, pe, e, punto, ge, a, erre, ce, i, a, arroba", anuncio)
         self.send.assert_not_called()
         self._turno(CONF_E, ("enviar_email", params), final="Enviado.")

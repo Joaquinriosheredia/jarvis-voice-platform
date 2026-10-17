@@ -148,7 +148,9 @@ class TestGateEnviar(Base):
         self.assertFalse(res["ok"])
         self.assertIn(f"Enviar email a {DEST} con asunto Mi CV y adjunto CV_Joaquin.pdf", res["message"])
         self.assertIn(f'"{CONF_E}"', res["message"])
-        self.assertEqual(brain._pendiente["firma"], ("enviar_email", DEST, brain._real(self.cv)))
+        self.assertEqual(brain._pendiente["firma"][:3], ("enviar_email", DEST, brain._real(self.cv)))
+        self.assertEqual(brain._pendiente["firma"][3], brain._huella_envio(DEST, "Mi CV", "Adjunto mi CV.",
+                                                                           brain._real(self.cv)))
         self.send.assert_not_called()
 
     def test_confirmacion_valida_envia_con_datos_correctos(self):
@@ -226,8 +228,8 @@ class TestAnuncioConfirmacion(Base):
     def test_anuncio_usa_la_direccion_real_no_la_del_modelo(self):
         self._turno(self.params())
         self.assertEqual(brain.anuncio_confirmacion(),
-                         f"Vas a enviar un email a tu dirección {DEST} con el archivo CV_Joaquin.pdf. "
-                         f"¿Confirmas con 'confirmo envío'?")
+                         f"Vas a enviar un email a tu dirección {DEST}. Asunto: «Mi CV». "
+                         f"Texto: «Adjunto mi CV.». Adjunto: CV_Joaquin.pdf. ¿Confirmas con 'confirmo envío'?")
 
     def test_sin_envio_pendiente_no_hay_anuncio(self):
         self._turno(self.params(destinatario="atacante@evil.com"))  # bloqueado, no arma
@@ -240,6 +242,92 @@ class TestAnuncioConfirmacion(Base):
                                           content=[NS(type="text", text="ok")])), \
              contextlib.redirect_stdout(io.StringIO()):
             brain.pensar("espera un momento", skills=self.skills)
+        self.assertIsNone(brain.anuncio_confirmacion())
+
+
+class TestAnuncioCompleto(Base):
+    """El anuncio dice destinatario, asunto, cuerpo y adjunto, y la confirmación queda
+    ligada a un hash de esos campos: cualquier cambio posterior obliga a anunciar de nuevo."""
+
+    def _turno(self, texto, *llamadas):
+        respuestas = [NS(stop_reason="tool_use", usage=None,
+                         content=[NS(type="tool_use", id=f"e{i}", name="enviar_email", input=dict(p))])
+                      for i, p in enumerate(llamadas)]
+        respuestas.append(NS(stop_reason="end_turn", usage=None, content=[NS(type="text", text="Hecho.")]))
+        with patch.object(brain.cliente.messages, "create", side_effect=respuestas), \
+             contextlib.redirect_stdout(io.StringIO()):
+            brain.pensar(texto, skills=self.skills)
+        return brain.anuncio_confirmacion()
+
+    def test_cuerpo_largo_se_corta_en_una_palabra_y_dice_cuanto_queda(self):
+        cuerpo = " ".join(f"palabra{i}" for i in range(80))
+        anuncio = self._turno("mándame el cv", self.params(cuerpo=cuerpo))
+        texto = anuncio.split("Texto: «", 1)[1].split("»", 1)[0]
+        self.assertTrue(texto.startswith("palabra0 palabra1"))
+        self.assertLessEqual(len(texto.split("…")[0]), brain.MAX_ANUNCIO_CUERPO)
+        dichas = len(texto.split("…")[0].split())
+        self.assertIn(f"… y {80 - dichas} palabras más", texto)
+
+    def test_direcciones_y_secretos_del_cuerpo_no_se_leen(self):
+        anuncio = self._turno("mándame el cv", self.params(
+            asunto="para otro@example.net", cuerpo="clave password=Abc123456789 y escribe a otro@example.net"))
+        self.assertNotIn("otro@example.net", anuncio)
+        self.assertNotIn("Abc123456789", anuncio)
+        self.assertIn("[otra dirección]", anuncio)
+        self.assertIn(f"a tu dirección {DEST}", anuncio)
+
+    def test_sin_asunto_texto_ni_adjunto_se_dice(self):
+        anuncio = self._turno("mándame algo", {"destinatario": DEST, "asunto": "", "cuerpo": ""})
+        self.assertIn("Sin asunto. Sin texto. Sin adjuntos.", anuncio)
+
+    def _cambio_tras_anuncio(self, **cambio):
+        self._turno("mándame el cv", self.params())
+        res = self._ej(self.params(**cambio), CONF_E)
+        self.assertFalse(res["ok"])
+        self.assertIn("la confirmación no corresponde al email anunciado", res["message"])
+        self.send.assert_not_called()
+        self.assertIsNone(brain._pendiente)          # gastada: hay que pedirlo y anunciarlo de nuevo
+
+    def test_cambiar_el_cuerpo_tras_el_anuncio_invalida_la_confirmacion(self):
+        self._cambio_tras_anuncio(cuerpo="Otro texto distinto.")
+
+    def test_cambiar_el_asunto_tras_el_anuncio_invalida_la_confirmacion(self):
+        self._cambio_tras_anuncio(asunto="Otro asunto")
+
+    def test_quitar_el_adjunto_tras_el_anuncio_invalida_la_confirmacion(self):
+        self._cambio_tras_anuncio(adjunto=None)
+
+    def test_el_sistema_avisa_del_cambio_y_hay_que_anunciar_de_nuevo(self):
+        self._turno("mándame el cv", self.params())
+        self.assertEqual(self._turno(CONF_E, self.params(cuerpo="Cambiado.")), brain.MSG_ENVIO_CAMBIADO)
+        self.send.assert_not_called()
+        anuncio = self._turno("mándamelo otra vez", self.params(cuerpo="Cambiado."))
+        self.assertIn("Texto: «Cambiado.»", anuncio)
+        self._turno(CONF_E, self.params(cuerpo="Cambiado."))
+        self.send.assert_called_once()
+        cuerpo = next(p for p in self.enviado().walk() if p.get_content_type() == "text/plain")
+        self.assertIn(b"Cambiado.", cuerpo.get_payload(decode=True))
+
+    def test_solo_espacios_distintos_no_invalida(self):
+        self._turno("mándame el cv", self.params(cuerpo="Adjunto  mi\nCV."))
+        self.assertTrue(self._ej(self.params(cuerpo="Adjunto mi CV."), CONF_E)["ok"])
+        self.send.assert_called_once()
+
+    def test_mismo_email_se_envia_tal_cual_se_anuncio(self):
+        anuncio = self._turno("mándame el cv", self.params())
+        self.assertIn("Asunto: «Mi CV». Texto: «Adjunto mi CV.». Adjunto: CV_Joaquin.pdf.", anuncio)
+        self.assertTrue(self._ej(self.params(), CONF_E)["ok"])
+        m = self.enviado()
+        self.assertEqual((m["To"], m["Subject"]), (DEST, "Mi CV"))
+
+    def test_otro_turno_sin_confirmar_no_repite_el_aviso_de_cambio(self):
+        self._turno("mándame el cv", self.params())
+        self._turno(CONF_E, self.params(cuerpo="Cambiado."))
+        with patch.object(brain.cliente.messages, "create",
+                          return_value=NS(stop_reason="end_turn", usage=None,
+                                          content=[NS(type="text", text="ok")])), \
+             contextlib.redirect_stdout(io.StringIO()):
+            brain.pensar("vale", skills=self.skills)
         self.assertIsNone(brain.anuncio_confirmacion())
 
 

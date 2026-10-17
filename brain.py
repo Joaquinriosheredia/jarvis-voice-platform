@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from email.utils import parseaddr
 import anthropic
 import requests
 
-from skills import calendario, direccion, github, operador, pantalla, webs
+from skills import calendario, direccion, github, operador, pantalla, secretos, webs
 import briefing
 import memoria_sesiones
 import metrics
@@ -603,6 +604,14 @@ _dictada    = None
 # Última acción destructiva bloqueada: {"firma": (...), "ts": monotonic}
 _pendiente = None
 
+# Anuncio de envío: asunto y cuerpo resumidos para la voz (el envío lleva el texto completo)
+MAX_ANUNCIO_ASUNTO = 80
+MAX_ANUNCIO_CUERPO = 200
+MSG_ENVIO_CAMBIADO = ("El email ha cambiado desde que te lo anuncié, así que no lo he enviado. "
+                      "Pídemelo otra vez y te lo anuncio de nuevo.")
+# True si en este turno se dijo "confirmo envío" para un email distinto del anunciado
+_envio_cambiado = False
+
 
 def _real(ruta):
     return os.path.normcase(os.path.realpath(ruta))
@@ -737,13 +746,23 @@ def _firma(nombre, parametros):
     if nombre == "borrar_multiples_emails":  # mismo conjunto de IDs = misma firma, sin importar el orden
         ids = parametros.get("msg_ids")
         return (nombre, tuple(sorted(set(ids if isinstance(ids, list) else []))))
-    if nombre == "enviar_email":  # lo que el usuario confirma en voz: a quién y qué archivo
-        adjunto = parametros.get("adjunto")
-        return (nombre, (parametros.get("destinatario") or "").strip().lower(),
-                _real(adjunto) if adjunto else "")
+    if nombre == "enviar_email":  # lo que el usuario confirma en voz: a quién, qué archivo y qué texto
+        adjunto      = parametros.get("adjunto")
+        destinatario = (parametros.get("destinatario") or "").strip().lower()
+        adjunto_real = _real(adjunto) if adjunto else ""
+        return (nombre, destinatario, adjunto_real,
+                _huella_envio(destinatario, parametros.get("asunto"), parametros.get("cuerpo"), adjunto_real))
     if nombre == "ver_pantalla":  # se confirma la captura, no la pregunta (puede cambiar al confirmar)
         return (nombre,)
     return (nombre, repr(sorted(parametros.items())))
+
+
+def _huella_envio(destinatario, asunto, cuerpo, adjunto_real):
+    """Hash de lo que se anuncia: cambiar destinatario, asunto, cuerpo o adjunto (salvo espacios)
+    después del anuncio invalida la confirmación."""
+    campos = [destinatario, " ".join(str(asunto or "").split()), " ".join(str(cuerpo or "").split()),
+              adjunto_real]
+    return hashlib.sha256(json.dumps(campos, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def _resumen_remitentes(entradas):
@@ -769,7 +788,7 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
     del micro en este turno). El modelo no puede producirla: ni sus
     parámetros, ni sus respuestas, ni el contexto se miran.
     """
-    global _pendiente
+    global _pendiente, _envio_cambiado
     riesgo = TOOL_RISK.get(nombre)
     if riesgo is None:
         return f"BLOQUEADO: la herramienta '{nombre}' no tiene nivel de riesgo asignado."
@@ -840,6 +859,12 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
         _pendiente = None
         if dicha == nombre and pend and pend["firma"] == firma and ahora - pend["ts"] <= CONFIRM_TTL:
             return None
+        if (dicha == nombre == "enviar_email" and pend and pend["firma"][0] == nombre
+                and ahora - pend["ts"] <= CONFIRM_TTL):
+            _envio_cambiado = True   # jarvis.py dice MSG_ENVIO_CAMBIADO, no la paráfrasis del modelo
+            return ("BLOQUEADO: la confirmación no corresponde al email anunciado (cambió el destinatario, el "
+                    "asunto, el cuerpo o el adjunto), así que ya no vale y no se ha enviado. El usuario tiene "
+                    "que volver a pedir el envío para oír el anuncio nuevo.")
         return ("BLOQUEADO: la confirmación no corresponde a una acción pendiente vigente "
                 "(distinta acción, ya usada o caducada). Pide de nuevo la acción al usuario.")
 
@@ -972,11 +997,45 @@ def cargar_destinatarios_permitidos(skills):
         DESTINATARIOS_PERMITIDOS.append(mi_email.strip().lower())
 
 
+def _para_anuncio(texto, maximo):
+    """Asunto o cuerpo para leer en voz alta: una línea, sin secretos ni direcciones (se dicen
+    como "otra dirección") y, si es largo, cortado en una palabra con cuántas quedan."""
+    t = secretos.redactar_secretos(" ".join(str(texto or "").split()))
+    t = direccion._RE_OCULTAR_LITERAL.sub("[otra dirección]", t).replace("«", "\"").replace("»", "\"")
+    if len(t) <= maximo:
+        return t
+    corte = t[:maximo].rsplit(" ", 1)[0] if " " in t[:maximo] else t[:maximo]
+    resto = len(t[len(corte):].split())
+    return f"{corte}… y {resto} palabra{'s' if resto != 1 else ''} más"
+
+
+def _anuncio_envio(pend):
+    destinatario = pend["firma"][1]
+    params       = pend.get("params") or {}
+    adjunto      = params.get("adjunto")
+    frase        = CONFIRM_PHRASES["enviar_email"]
+    if destinatario in DESTINATARIOS_PERMITIDOS:
+        partes = [f"Vas a enviar un email a tu dirección {destinatario}."]
+    else:  # dictada: se deletrea para que el usuario compruebe lo que entendió Whisper
+        partes = [f"Vas a enviar un email a {destinatario}. Se deletrea: {direccion.deletrear(destinatario)}."]
+    asunto = _para_anuncio(params.get("asunto"), MAX_ANUNCIO_ASUNTO)
+    cuerpo = _para_anuncio(params.get("cuerpo"), MAX_ANUNCIO_CUERPO)
+    partes.append(f"Asunto: «{asunto}»." if asunto else "Sin asunto.")
+    partes.append(f"Texto: «{cuerpo}»." if cuerpo else "Sin texto.")
+    partes.append(f"Adjunto: {os.path.basename(adjunto)}." if adjunto else "Sin adjuntos.")
+    partes.append(f"¿Confirmas con '{frase}'?")
+    return " ".join(partes)
+
+
 def anuncio_confirmacion():
     """Texto fijo (no del modelo) para leer en voz alta si este turno dejó un
     enviar_email pendiente de confirmar; None si no. Sale de _pendiente, que
-    es exactamente lo que se ejecutará al confirmar."""
+    es exactamente lo que se ejecutará al confirmar: destinatario, asunto,
+    cuerpo y adjunto. Si en este turno se confirmó un email distinto del
+    anunciado, el aviso de que no se ha enviado."""
     traza = _ultima_traza or {}
+    if _envio_cambiado and not hay_pendiente():
+        return MSG_ENVIO_CAMBIADO
     if not hay_pendiente() or _pendiente["firma"][0] not in ("enviar_email", "ver_pantalla"):
         return None
     tool = _pendiente["firma"][0]
@@ -984,15 +1043,7 @@ def anuncio_confirmacion():
         return None
     if tool == "ver_pantalla":
         return ANUNCIO_CAPTURA
-    destinatario = _pendiente["firma"][1]
-    adjunto      = (_pendiente.get("params") or {}).get("adjunto")
-    con_adjunto  = f" con el archivo {os.path.basename(adjunto)}" if adjunto else ""
-    frase        = CONFIRM_PHRASES["enviar_email"]
-    if destinatario in DESTINATARIOS_PERMITIDOS:
-        return f"Vas a enviar un email a tu dirección {destinatario}{con_adjunto}. ¿Confirmas con '{frase}'?"
-    # Dictada: se deletrea para que el usuario compruebe lo que entendió Whisper
-    return (f"Vas a enviar un email a {destinatario}{con_adjunto}. Se deletrea: "
-            f"{direccion.deletrear(destinatario)}. ¿Confirmas con '{frase}'?")
+    return _anuncio_envio(_pendiente)
 
 
 def consumir_pendiente():
@@ -1763,7 +1814,8 @@ def _llamar_claude(params):
 def pensar(texto, contexto="", skills=None, conversacion_reciente=False):
     """contexto: lista de mensajes previos (memoria.obtener_mensajes) que se
     pasan a Claude como turnos reales, o texto plano (formato antiguo)."""
-    global _ultima_traza
+    global _ultima_traza, _envio_cambiado
+    _envio_cambiado = False
     tts_elevenlabs.nuevo_turno()
     _registrar_dictada(texto)
     t0              = time.monotonic()
