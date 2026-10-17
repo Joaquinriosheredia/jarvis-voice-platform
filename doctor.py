@@ -448,6 +448,17 @@ def check_logs():
     return resultado(OK, f"logs/ escribible; turnos.jsonl {tam // 1024} KB")
 
 
+def check_memoria():
+    """Memoria entre sesiones: existe, se puede leer y cuántas sesiones guarda (sin contenido)."""
+    import memoria_sesiones
+    existe, legible, _, detalle = memoria_sesiones.estado()
+    if not existe:
+        return resultado(AVISO, detalle, "Normal en la primera ejecución; se crea al cerrar JARVIS")
+    if not legible:
+        return resultado(ERROR, detalle, "Revisa permisos o borra la base (perderás la memoria entre sesiones)")
+    return resultado(OK, detalle)
+
+
 def check_git():
     estado = git("status", "--porcelain")
     if estado.returncode != 0:
@@ -560,6 +571,7 @@ COMPROBACIONES = [
     ("zona_horaria",      "Zona horaria",                 check_zona_horaria),
     ("proyectos",         "Proyectos del operador",       check_proyectos),
     ("logs",              "Logs",                         check_logs),
+    ("memoria",           "Memoria entre sesiones",       check_memoria),
     ("git",               "Git",                          check_git),
 ]
 COMPROBACIONES_LIVE = [

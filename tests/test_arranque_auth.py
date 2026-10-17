@@ -24,6 +24,22 @@ with patch.dict(sys.modules, _STUBS), contextlib.redirect_stdout(io.StringIO()):
 atexit.unregister(jarvis.cleanup)
 
 
+# La memoria entre sesiones de estos tests nunca es la real (jarvis.main purga al arrancar)
+import tempfile  # noqa: E402
+import memoria_sesiones  # noqa: E402
+_DIR_MEMORIA = tempfile.TemporaryDirectory()
+_RUTA_MEMORIA = patch.object(memoria_sesiones, "RUTA_DB", os.path.join(_DIR_MEMORIA.name, "memoria.db"))
+
+
+def setUpModule():
+    _RUTA_MEMORIA.start()
+
+
+def tearDownModule():
+    _RUTA_MEMORIA.stop()
+    _DIR_MEMORIA.cleanup()
+
+
 def todos(gmail, calendar=ga.VALIDO):
     return {"gmail": ga._resultado("gmail", gmail), "calendar": ga._resultado("calendar", calendar)}
 

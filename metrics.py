@@ -21,6 +21,7 @@ from contextlib import contextmanager
 
 import tts_elevenlabs
 import ui_bridge
+from skills import direccion
 
 # ── PRECIOS (USD por millón de tokens; estimado, Claude Haiku 4.5) ──
 PRECIO_INPUT       = 1.00
@@ -153,6 +154,15 @@ def registrar_interrupcion(origen, ms, fase):
     _en_turno(f)
 
 
+def registrar_memoria(resultados):
+    """Una consulta a la memoria entre sesiones: solo cuántas y si encontró algo, sin texto."""
+    def f(t):
+        t["memoria_consultas"] = t.get("memoria_consultas", 0) + 1
+        if resultados:
+            t["memoria_con_resultados"] = t.get("memoria_con_resultados", 0) + 1
+    _en_turno(f)
+
+
 def registrar_tool(nombre):
     def f(t):
         t["tools"].append(nombre)
@@ -194,8 +204,10 @@ def percentil(valores, p):
 
 
 def _truncar(texto):
+    """Texto apto para el log: sin direcciones ni secretos (direccion.redactar) y acotado."""
     if not isinstance(texto, str):
         return None
+    texto = direccion.redactar(texto)
     return texto if len(texto) <= MAX_TEXTO else texto[:MAX_TEXTO] + "…"
 
 
@@ -218,6 +230,9 @@ def _registro(t, texto_usuario, respuesta, privado):
         reg["ttft_ms"] = t["ttft_ms"]
     if t.get("t_primera_voz") is not None:
         reg["primera_voz_ms"] = int((t["t_primera_voz"] - t["t0"]) * 1000)
+    for campo in ("memoria_consultas", "memoria_con_resultados"):
+        if t.get(campo):
+            reg[campo] = t[campo]
     if t.get("interrupciones"):
         reg["interrupciones"] = [dict(i) for i in t["interrupciones"]]
     # Turnos con email/agenda o JARVIS_LOG_TEXTO=0 (se lee en cada turno): solo metadatos

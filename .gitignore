@@ -17,3 +17,6 @@ test_voz3.py
 *.bak_f3
 app/node_modules/
 logs/
+
+# Memoria entre sesiones (por defecto vive en C:\Jarvis-secrets)
+memoria_sesiones.db*

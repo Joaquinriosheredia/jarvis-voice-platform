@@ -12,6 +12,7 @@ import frases
 import parada
 import brain
 import memoria as mem
+import memoria_sesiones
 from skills import musica, sistema, webs, authority, tareas, gmail, google_auth
 
 # ── CARGAR MODELOS ────────────────────────────────────────────────
@@ -40,7 +41,25 @@ SKILLS = {
 def cleanup():
     musica.cleanup()
     mem.guardar(memoria)
+    _cerrar_memoria_sesiones()
     print("👋 Jarvis cerrado correctamente")
+
+def _cerrar_memoria_sesiones():
+    """Al cerrar (adiós, apágate, Ctrl+C o fin normal): resume la sesión y la guarda.
+    Nunca impide cerrar."""
+    try:
+        if memoria_sesiones.cerrar_sesion(resumir=brain.resumir_sesion):
+            print("[MEMORIA] sesión guardada")
+    except Exception as e:
+        print(f"[MEMORIA] no se pudo guardar la sesión: {type(e).__name__}")
+
+def _purgar_memoria_caducada():
+    try:
+        n = memoria_sesiones.purgar_caducados()
+        if n:
+            print(f"[MEMORIA] {n} sesión(es) caducadas borradas")
+    except Exception as e:
+        print(f"[MEMORIA] no se pudo aplicar la retención: {type(e).__name__}")
 
 atexit.register(cleanup)
 
@@ -207,6 +226,7 @@ def _callar_sin_voz():
 def main():
     import ui_bridge
     ui_bridge.start()
+    _purgar_memoria_caducada()
     audio.hay_confirmacion_pendiente = brain.hay_pendiente  # Whisper estricto si hay que confirmar
     # Parada por voz (mientras genera o habla), botón o atajo de la UI
     audio.modelo_whisper = whisper_model
@@ -290,6 +310,17 @@ def _respuesta_privada():
         texto += f". Pendiente de confirmar por voz: {info['tool']}"
     return texto + "]"
 
+# Rutas que no son conversación: órdenes de parada y de memoria ("olvida lo de X" no
+# puede acabar guardando X en el resumen de la sesión)
+RUTAS_FUERA_DE_MEMORIA = {"parada", "apagado", "memoria"}
+
+def _registrar_en_memoria_sesiones(texto, dicho):
+    traza = brain.ultima_traza() or {}
+    if traza.get("router") in RUTAS_FUERA_DE_MEMORIA:
+        return
+    tools = [t.get("nombre") for t in traza.get("tools_ejecutadas") or [] if t.get("nombre")]
+    memoria_sesiones.registrar_turno(texto, dicho, tools, tts_elevenlabs.turno_privado())
+
 def _guardar_en_historial(texto, dicho):
     """Guarda el turno ya terminado (pregunta y, si se dijo, la respuesta)."""
     if tts_elevenlabs.turno_privado():
@@ -344,6 +375,7 @@ def _turno(texto):
         return respuesta, False
     finally:
         _guardar_en_historial(texto, dicho)
+        _registrar_en_memoria_sesiones(texto, dicho)
 
 if __name__ == "__main__":
     main()

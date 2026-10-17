@@ -97,6 +97,10 @@ CASOS = [
     ("ejecuta los tests de jarvis",
                              "claude", "ejecutar_tests",   "none"),
 
+    # MEMORIA ENTRE SESIONES: referencias al pasado → claude + recordar (READ, sin gate)
+    ("¿te acuerdas de lo que hablamos de kafka la semana pasada?", "claude", "recordar", "none"),
+    ("qué hablamos ayer",    "claude", "recordar",         "none"),
+
     # CLAUDE conversacional
     ("quién eres",           "claude", None,               "none"),
     ("qué puedes hacer",     "claude", None,               "none"),

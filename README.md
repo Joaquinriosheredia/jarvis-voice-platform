@@ -89,6 +89,33 @@ Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "�
 - Nunca cuentan como confirmación de una acción ni llegan al modelo o al gate. El modelo no tiene ninguna tool para cerrar JARVIS.
 - Sin voz: botón «Callar» de la UI, Esc o Ctrl+Alt+P silencian.
 
+## Memoria
+
+JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay embeddings ni servicios externos: es una base SQLite local con búsqueda de texto completo (FTS5). Nunca se inyecta en cada turno; solo se consulta cuando hablas del pasado.
+
+**Dónde.** `C:\Jarvis-secrets\memoria_sesiones.db`, fuera del repo y junto a los tokens y el `.env`. Se puede cambiar con `JARVIS_MEMORIA_DB`.
+
+**Qué se guarda.** Un registro por sesión: fecha, resumen de 3 a 5 líneas, temas y tools usadas. Al cerrar JARVIS («adiós», «apágate» o un cierre normal), el resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se guarda solo la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse.
+
+**Qué no se guarda nunca.**
+- Direcciones de correo: se escriban o se dicten, salen como `<email>`.
+- Secretos: salen como `[SECRETO-REDACTADO:tipo]`.
+- El texto de los turnos privados (correo, agenda, pantalla o una dirección dictada). De esos turnos quedan, como mucho, el tema y las tools.
+- La salida de `leer_archivo`, `git_diff`, `buscar_en_codigo`, `ejecutar_tests` y `ver_pantalla`. De esos turnos solo queda la pregunta.
+- Las órdenes de parada y las de memoria.
+
+**Cómo se consulta.** El modelo tiene la tool READ `recordar(consulta)`, que devuelve como mucho 3 resultados con fecha. La usa cuando dices «la semana pasada», «lo de ayer» o «¿te acuerdas de…?»; esas frases siempre van a Claude y nunca al modelo local. Las métricas registran cuántas consultas hay y si encuentran algo, nunca el texto.
+
+**Cómo se borra.**
+
+| Di | Qué pasa |
+|---|---|
+| «qué recuerdas de kafka» | Lee los resúmenes que mencionan el tema, sin modelo. |
+| «olvida lo de kafka» | Borra al momento las sesiones que mencionan el tema, también lo acumulado en la sesión actual. |
+| «olvida todo» | Acción DESTRUCTIVE del gate: JARVIS dice cuántas sesiones hay y solo borra tras «confirmo borrado de memoria» dicho al micrófono (un uso, 120 s). |
+
+Borrar quita las filas, compacta el índice FTS y reescribe el archivo (`secure_delete` y `VACUUM`), así que el texto no queda en páginas libres. La retención es de 90 días (`JARVIS_MEMORIA_DIAS`): lo caducado se borra al arrancar. También puedes borrar el archivo `memoria_sesiones.db` con JARVIS cerrado. `python doctor.py` dice si la base existe, si se puede leer y cuántas sesiones tiene.
+
 ## Decisiones de diseño
 
 - **Router por capas:** el coste y la latencia se pagan solo cuando hacen falta. Los atajos no tocan ningún modelo y la capa local es gratuita.
@@ -114,8 +141,9 @@ Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "�
 | Inyección en comandos | `subprocess` sin shell, argumentos en lista, refs y filtros validados con regex y sin `-` inicial. |
 | Otra web o proceso local hablando con la UI | WebSocket solo en `127.0.0.1:8765`. Solo acepta el Origin `file://` de Electron. Del cliente solo atiende `{"type": "stop"}` (callar a JARVIS) e ignora el resto. CSP estricta y texto insertado con `textContent`. |
 | Eco del TTS o audio ajeno dando órdenes mientras JARVIS habla | Mientras habla o genera, solo se atiende una orden de parada. Tiene que ser una transcripción corta (≤ 2 s), con confianza de Whisper y sin nada más que la orden, y la voz tiene que dominar sobre el eco esperado, que se estima a partir de lo que JARVIS reproduce. Si lo que dice JARVIS contiene esa misma orden como frase, se descarta como eco. Todo lo demás que se oiga se ignora: nunca llega al modelo ni al gate. Con altavoces, una orden dicha encima de un eco fuerte puede no reconocerse; con auriculares es fiable. El botón y el atajo de teclado no dependen del micrófono. |
-| Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados. Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. Para los logs anteriores a estas reglas, `limpiar_logs.py` (de un solo uso) quita el texto de los turnos que hoy son privados y cambia las direcciones por `<email>`: primero muestra el recuento y pide confirmación, y guarda los originales en `logs/backup-<fecha>/`. |
+| Datos personales en el log | `turnos.jsonl` no guarda texto en turnos privados, y el de los demás pasa por el mismo enmascarado (sin direcciones ni secretos). Los turnos que leen código o tests no guardan la respuesta. `JARVIS_LOG_TEXTO=0` deja solo metadatos en todos. El texto provisional del streaming nunca se guarda. Un turno con una dirección de email dictada es privado, y la consola (que `app/start.vbs` guarda en `jarvis.log`) sustituye cada dirección por `<email>`. Para los logs anteriores a estas reglas, `limpiar_logs.py` (de un solo uso) quita el texto de los turnos que hoy son privados y cambia las direcciones por `<email>`: primero muestra el recuento y pide confirmación, y guarda los originales en `logs/backup-<fecha>/`. |
 | Datos personales en la memoria de conversación | El historial de `memoria.json`, que vuelve al modelo como contexto, nunca guarda direcciones: se sustituyen por `<email>` con el mismo enmascarado que los logs. Un turno privado se guarda sin texto, con un marcador del tema, las tools usadas y si quedó algo por confirmar. Lo que el modelo necesite de esos turnos lo pone el sistema: destinatario `yo` (la cuenta de Gmail) o `dictada` (la última dirección dictada por el micrófono, durante 5 minutos). Las notas no se tocan. `limpiar_memoria.py` (de un solo uso) aplica lo mismo al `memoria.json` y al `memoria.json.bak` existentes, con recuento, confirmación y copia en `logs/backup-memoria-<fecha>/`. |
+| Datos personales en la memoria entre sesiones | Solo resúmenes enmascarados de turnos no privados, fuera del repo, con retención de 90 días y borrado por voz. Ver [Memoria](#memoria). |
 | Fuga de credenciales | Secretos fuera del repo, en `C:\Jarvis-secrets`. La clave de ElevenLabs nunca se escribe en logs (hay un test). |
 
 ## Calidad
@@ -236,6 +264,7 @@ limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y tur
 limpiar_memoria.py   limpieza de un solo uso de direcciones en el historial de memoria.json
 ui_bridge.py         servidor WebSocket local para la UI
 memoria.py           historial de conversación
+memoria_sesiones.py  memoria entre sesiones: resúmenes en SQLite FTS5, recordar, olvidar y retención
 skills/              gmail, calendario, google_auth, pantalla, operador, musica, sistema, tareas, webs
 app/                 UI Electron (main.js, preload.js, renderer.js, index.html, styles.css)
 tests/               tests unitarios y evals (test_evals.py)
