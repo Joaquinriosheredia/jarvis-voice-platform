@@ -18,6 +18,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
+import rutas  # noqa: E402
 
 import brain  # noqa: E402
 import doctor  # noqa: E402
@@ -27,7 +28,7 @@ import tts_elevenlabs  # noqa: E402
 from skills import contactos, direccion, gmail, google_auth  # noqa: E402
 
 CONF_E = "confirmo envío"
-PROPIA = "joaquin@example.com"
+PROPIA = "ana@example.com"
 ANA_G  = {"nombre": "Ana García", "email": "ana.garcia@example.org", "tipo": "work"}
 ANA_L  = {"nombre": "Ana López", "email": "ana.lopez@example.net", "tipo": "home"}
 PARAMS = {"asunto": "Informe", "cuerpo": "Te paso el informe."}
@@ -122,7 +123,7 @@ class TestSkill(unittest.TestCase):
 
     def test_solo_lectura(self):
         self.assertEqual(contactos.SCOPES_CONTACTOS, ["https://www.googleapis.com/auth/contacts.readonly"])
-        self.assertTrue(contactos.TOKEN_CONTACTOS.startswith("C:\\Jarvis-secrets\\"))
+        self.assertEqual(contactos.TOKEN_CONTACTOS, rutas.en_secretos("token_contacts.json"))
 
     def test_etiqueta(self):
         self.assertEqual(contactos.etiqueta(ANA_G), "Ana García (trabajo)")

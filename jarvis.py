@@ -258,7 +258,7 @@ def _decir_respuesta(respuesta):
     else:
         audio.hablar(voz, texto_pantalla=respuesta)
 
-DESPEDIDA = "Hasta luego Joaquín. Que tengas un buen día."
+DESPEDIDA = f"Hasta luego{', ' + rutas.perfil('nombre') if rutas.perfil('nombre') else ''}. Que tengas un buen día."
 
 def _despedirse():
     """Orden de parada.APAGADO: la voz ya está cortada; se despide y el bucle termina."""

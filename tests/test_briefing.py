@@ -23,7 +23,7 @@ import doctor  # noqa: E402
 from skills import calendario, github  # noqa: E402
 
 TOKEN = "github_pat_FALSO0000000000000000000000000000000000000000000000000000000000000000000000000000"
-REPO  = "Joaquinriosheredia/jarvis-voice-platform"
+REPO  = "dueno-prueba/jarvis-voice-platform"
 
 
 def respuesta(codigo=200, datos=None):
@@ -68,7 +68,7 @@ class TestGitHub(Base):
     def test_repos_por_defecto_y_configurables(self):
         self.assertEqual(github.repos(), [REPO])
         with patch.dict(os.environ, {"JARVIS_GITHUB_REPOS": "otro, ajeno/lib , mal nombre;rm, otro"}):
-            self.assertEqual(github.repos(), ["Joaquinriosheredia/otro", "ajeno/lib"])
+            self.assertEqual(github.repos(), ["dueno-prueba/otro", "ajeno/lib"])
 
     def test_prs_con_review_pendiente(self):
         prs = [{"number": 1, "title": "Borrador", "draft": True},

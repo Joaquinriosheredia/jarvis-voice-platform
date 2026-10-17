@@ -154,7 +154,7 @@ Lo que no cabe se queda fuera. El aviso de reautorizar Google, si hace falta, va
 - **Por voz:** «dame el briefing» (o «resumen del día») lo repite en cualquier momento, sin pasar por el modelo. Es un turno privado (agenda y correo): se dice con Piper y el log no guarda su texto.
 - **GitHub por voz:** «cómo va el CI de jarvis en GitHub» usa la tool READ `github_estado`.
 - **Desactivarlo:** `JARVIS_BRIEFING=0` deja solo el saludo y los avisos al arrancar; «dame el briefing» sigue funcionando.
-- **Repos:** `JARVIS_GITHUB_REPOS`, separados por comas (`dueño/repo`, o solo `repo` si es de Joaquinriosheredia). Por defecto, solo `jarvis-voice-platform`.
+- **Repos:** `JARVIS_GITHUB_REPOS`, separados por comas (`dueño/repo`, o solo `repo` si es del dueño del perfil, `JARVIS_GITHUB_DUENIO`). Por defecto, solo `jarvis-voice-platform`.
 - **«Review pendiente»:** PR abierto, que no es borrador y sin ninguna review aprobada (como mucho 5 PRs por repo).
 
 **Token de GitHub.** Crea un token *fine-grained* en GitHub → Settings → Developer settings → Fine-grained tokens:
@@ -209,6 +209,8 @@ Si falla una pieza, JARVIS lo dice por voz con una frase útil. No se queda call
 - **Observabilidad por turno:** latencia por fase, tiempo hasta el primer token, tiempo hasta la primera voz, tokens con caché y coste estimado, para decidir con datos.
 
 ## Seguridad y privacidad
+
+El modelo de amenazas, qué datos se guardan y dónde, y cómo reportar un fallo están en [SECURITY.md](SECURITY.md). Los cambios desde el primer commit están en [CHANGELOG.md](CHANGELOG.md).
 
 | Amenaza | Mitigación |
 |---|---|
@@ -335,8 +337,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 970 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 970 tests ... OK`
+- **Tests:** 975 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 975 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -390,22 +392,35 @@ Gmail, Calendar y Contactos son opcionales y necesitan un cliente OAuth propio (
 Ningún archivo del código escribe rutas de este equipo: todas salen de `rutas.py`, por este orden.
 1. **Variable de entorno**, que también puede ir en el `.env` de la carpeta de secretos.
 2. **`rutas.json` en la carpeta de secretos.** Lo crea `instalar.cmd` con tus carpetas reales; la de Descargas la toma de Windows aunque la hayas movido a otra unidad. No es un secreto, pero es de esta máquina y queda fuera del repo. Si ya existe, el instalador no lo toca.
-3. **Valor de respaldo:** el de la instalación original, para que nada cambie si no configuras nada.
+3. **Valor de respaldo, genérico:** tu carpeta personal de Windows, su Descargas y su Escritorio, y en WSL `/home/<tu usuario de Windows en minúsculas>`. El código no lleva ningún usuario concreto.
 
 | Ruta | Variable | En `rutas.json` | Respaldo |
 |---|---|---|---|
 | Carpeta de secretos (`.env`, tokens, credenciales, memoria entre sesiones, `rutas.json`) | `JARVIS_SECRETOS` | — | `C:\Jarvis-secrets` |
-| Descargas (zona de archivos permitida y carpeta de `organizar_directorio`) | `JARVIS_DESCARGAS` | `descargas` | `E:\descargas ryzen` |
-| Perfil del usuario (bloqueado en sí; también su `AppData` y `OneDrive`) | `JARVIS_HOME` | `home` | `C:\Users\Usuario` |
+| Descargas (zona de archivos permitida y carpeta de `organizar_directorio`) | `JARVIS_DESCARGAS` | `descargas` | `<perfil>\Downloads` |
+| Perfil del usuario (bloqueado en sí; también su `AppData` y `OneDrive`) | `JARVIS_HOME` | `home` | tu carpeta personal (`~`) |
 | Escritorio (zona de archivos permitida) | `JARVIS_ESCRITORIO` | `escritorio` | `<perfil>\Desktop` |
 | VLC | `JARVIS_VLC` | `vlc` | `C:\Program Files\VideoLAN\VLC\vlc.exe` |
-| Distribución y home de WSL (proyectos del operador, AuthorityEngine) | `JARVIS_WSL_DISTRO`, `JARVIS_WSL_HOME` | `wsl_distro`, `wsl_home` | `Ubuntu`, `/home/usuariojoaquin` |
+| Distribución y home de WSL (proyectos del operador, AuthorityEngine) | `JARVIS_WSL_DISTRO`, `JARVIS_WSL_HOME` | `wsl_distro`, `wsl_home` | `Ubuntu`, `/home/<usuario de Windows>` |
 | Proyectos del operador | — | `proyectos`: `{"alias": "ruta"}` sustituye la lista entera | `jarvis` = carpeta del código; el resto, en WSL |
 
 **Rutas que no dependen de la configuración:**
 - La carpeta del código, la voz de Piper, `memoria.json` y `logs/` salen siempre de donde esté clonado el repo.
 - `app/start.vbs` también deduce la carpeta del repo de su propia ubicación.
-- El dueño de GitHub para los repos sin `dueño/` se cambia con `JARVIS_GITHUB_DUENIO`.
+
+**Perfil.** Los datos del usuario tampoco están en el código. Salen de una variable de entorno o del bloque `"perfil"` de `rutas.json`; si no hay ninguno, quedan vacíos y JARVIS no usa nombre:
+
+| Dato | Variable | En `"perfil"` |
+|---|---|---|
+| Cómo te llama («Hasta luego, Ana») | `JARVIS_NOMBRE` | `nombre` |
+| Nombre completo y una línea sobre ti (prompt de sistema) | `JARVIS_NOMBRE_COMPLETO`, `JARVIS_DESCRIPCION` | `nombre_completo`, `descripcion` |
+| Dueño de GitHub de los repos sin `dueño/` | `JARVIS_GITHUB_DUENIO` | `github_usuario` |
+| Webs propias («abre github», «abre el portfolio») | `JARVIS_WEB_GITHUB`, `JARVIS_WEB_PORTFOLIO` | `web_github`, `web_portfolio` |
+| Bucket S3 de AuthorityEngine | `JARVIS_AUTHORITY_BUCKET` | `bucket_authority` |
+
+```json
+{"descargas": "D:\\Descargas", "perfil": {"nombre": "Ana", "github_usuario": "ana-dev"}}
+```
 
 `doctor.py` muestra cada carpeta, de dónde sale (entorno, `rutas.json` o respaldo) y si existe. Las rutas se leen al arrancar, así que un cambio necesita reiniciar JARVIS.
 

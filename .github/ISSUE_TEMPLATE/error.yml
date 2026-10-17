@@ -1,0 +1,51 @@
+name: Error
+description: Algo no funciona como dice el README.
+labels: ["error"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **No pegues** claves, tokens, el `.env`, direcciones de correo, texto de tus turnos ni capturas con datos personales. Si hace falta un ejemplo, invéntalo.
+        Si es un fallo de seguridad, no sigas aquí: lee [SECURITY.md](../blob/main/SECURITY.md).
+  - type: textarea
+    id: que
+    attributes:
+      label: Qué pasa
+      description: Qué esperabas y qué ocurrió.
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Cómo reproducirlo
+      description: Pasos mínimos. Si es por voz, la orden con datos inventados.
+      placeholder: |
+        1. Arrancar JARVIS
+        2. Decir «…»
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Resultado de `git rev-parse --short HEAD`.
+    validations:
+      required: true
+  - type: dropdown
+    id: gate
+    attributes:
+      label: Modo del gate (JARVIS_GATE_ESTRICTO)
+      options: ["Por defecto (sin la variable)", "=1 (completo)", "=0 (desactivado)", "No lo sé"]
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Salida de doctor.py
+      description: "`venv\\Scripts\\python.exe doctor.py`. No imprime claves, pero revisa que no haya rutas o nombres que no quieras publicar."
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Líneas del log (opcional)
+      description: Solo las líneas relevantes de jarvis.log o de `replay.py`, revisadas y sin texto de turnos.
+      render: text

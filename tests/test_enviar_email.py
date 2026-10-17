@@ -33,7 +33,7 @@ atexit.unregister(jarvis.cleanup)
 
 CONF_E = "confirmo envío"
 CONF_C = "confirmo borrado de correo"
-DEST   = "joaquin@example.com"
+DEST   = "ana@example.com"
 BLOQUEO_NO_DICTADA = ("BLOQUEADO: solo puedes enviar a la dirección del usuario (destinatario 'yo') o a una "
                       "dirección que el usuario haya dictado por voz. Pídele que la dicte.")
 
@@ -60,7 +60,7 @@ class Base(unittest.TestCase):
             p = patch.object(brain, nombre, valor)
             p.start()
             self.addCleanup(p.stop)
-        self.cv = os.path.join(self.dir, "CV_Joaquin.pdf")
+        self.cv = os.path.join(self.dir, "CV_Ana.pdf")
         with open(self.cv, "wb") as f:
             f.write(b"%PDF-1.4 cv")
 
@@ -102,13 +102,13 @@ class TestGmailEnviar(Base):
         self.send.assert_not_called()
 
     def test_envio_con_adjunto_y_tildes(self):
-        ok, msg = gmail.enviar_email(DEST, "Currículum de Joaquín", "Aquí está.", self.cv)
+        ok, msg = gmail.enviar_email(DEST, "Currículum de Ana", "Aquí está.", self.cv)
         self.assertEqual((ok, msg), (True, f"Email enviado a {DEST}"))
         m = self.enviado()
         self.assertEqual(str(email.header.make_header(email.header.decode_header(m["Subject"]))),
-                         "Currículum de Joaquín")
+                         "Currículum de Ana")
         adj = [p for p in m.walk() if p.get_filename()]
-        self.assertEqual(adj[0].get_filename(), "CV_Joaquin.pdf")
+        self.assertEqual(adj[0].get_filename(), "CV_Ana.pdf")
         self.assertEqual(adj[0].get_content_type(), "application/octet-stream")
         self.assertEqual(adj[0].get_payload(decode=True), b"%PDF-1.4 cv")
 
@@ -147,7 +147,7 @@ class TestGateEnviar(Base):
     def test_primera_llamada_pide_confirmacion_con_destinatario_y_adjunto(self):
         res = self._ej(self.params(), "mándame el cv")
         self.assertFalse(res["ok"])
-        self.assertIn(f"Enviar email a {DEST} con asunto Mi CV y adjunto CV_Joaquin.pdf", res["message"])
+        self.assertIn(f"Enviar email a {DEST} con asunto Mi CV y adjunto CV_Ana.pdf", res["message"])
         self.assertIn(f'"{CONF_E}"', res["message"])
         self.assertEqual(brain._pendiente["firma"][:3], ("enviar_email", DEST, brain._real(self.cv)))
         self.assertEqual(brain._pendiente["firma"][3], brain._huella_envio(DEST, "Mi CV", "Adjunto mi CV.",
@@ -161,7 +161,7 @@ class TestGateEnviar(Base):
         self.send.assert_called_once()
         m = self.enviado()
         self.assertEqual((m["To"], m["Subject"]), (DEST, "Mi CV"))
-        self.assertEqual([p.get_filename() for p in m.walk() if p.get_filename()], ["CV_Joaquin.pdf"])
+        self.assertEqual([p.get_filename() for p in m.walk() if p.get_filename()], ["CV_Ana.pdf"])
         self.assertFalse(brain.hay_pendiente())
 
     def test_confirmo_borrado_de_correo_no_activa_enviar_email(self):
@@ -230,7 +230,7 @@ class TestAnuncioConfirmacion(Base):
         self._turno(self.params())
         self.assertEqual(brain.anuncio_confirmacion(),
                          f"Vas a enviar un email a tu dirección {DEST}. Asunto: «Mi CV». "
-                         f"Texto: «Adjunto mi CV.». Adjunto: CV_Joaquin.pdf. ¿Confirmas con 'confirmo envío'?")
+                         f"Texto: «Adjunto mi CV.». Adjunto: CV_Ana.pdf. ¿Confirmas con 'confirmo envío'?")
 
     def test_sin_envio_pendiente_no_hay_anuncio(self):
         self._turno(self.params(destinatario="atacante@evil.com"))  # bloqueado, no arma
@@ -317,7 +317,7 @@ class TestAnuncioCompleto(Base):
 
     def test_mismo_email_se_envia_tal_cual_se_anuncio(self):
         anuncio = self._turno("mándame el cv", self.params())
-        self.assertIn("Asunto: «Mi CV». Texto: «Adjunto mi CV.». Adjunto: CV_Joaquin.pdf.", anuncio)
+        self.assertIn("Asunto: «Mi CV». Texto: «Adjunto mi CV.». Adjunto: CV_Ana.pdf.", anuncio)
         self.assertTrue(self._ej(self.params(), CONF_E)["ok"])
         m = self.enviado()
         self.assertEqual((m["To"], m["Subject"]), (DEST, "Mi CV"))

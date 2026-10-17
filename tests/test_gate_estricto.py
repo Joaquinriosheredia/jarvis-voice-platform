@@ -37,8 +37,8 @@ PARAMS = {
     "crear_evento": EVENTO,
     "archivar_email": {"indice": 0},
     "ejecutar_tests": {"proyecto": "jarvis"},
-    "mover_archivo": {"origen": r"E:\descargas ryzen\a.pdf", "destino": r"E:\descargas ryzen\sub"},
-    "organizar_directorio": {"ruta": r"E:\descargas ryzen"},
+    "mover_archivo": {"origen": r"D:\Descargas\a.pdf", "destino": r"D:\Descargas\sub"},
+    "organizar_directorio": {"ruta": r"D:\Descargas"},
     "siguiente_racha": {},
 }
 
@@ -125,7 +125,7 @@ class TestModoDesactivado(Base):
             self.assertIsNone(brain._frase_confirmacion(frase))
 
     def test_las_frases_estrictas_no_gastan_una_confirmacion_pendiente(self):
-        _gate("borrar_archivo", {"ruta": r"E:\descargas ryzen\a.pdf"}, "borra a.pdf")
+        _gate("borrar_archivo", {"ruta": r"D:\Descargas\a.pdf"}, "borra a.pdf")
         _gate("crear_evento", EVENTO, "confirmo evento")
         self.assertIsNotNone(brain._pendiente)
 
@@ -175,7 +175,7 @@ class TestModoCompleto(Base):
                 self.assertIsNone(_gate(nombre, params, "hazlo"))
 
     def test_las_destructivas_no_cambian(self):
-        bloqueo = _gate("borrar_archivo", {"ruta": r"E:\descargas ryzen\a.pdf"}, "borra a.pdf")
+        bloqueo = _gate("borrar_archivo", {"ruta": r"D:\Descargas\a.pdf"}, "borra a.pdf")
         self.assertIn("irreversible", bloqueo)
 
     def test_solo_las_recomendadas_son_write_o_external(self):

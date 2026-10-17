@@ -11,6 +11,17 @@ import shutil
 import sys
 import tempfile
 
+# Ni la carpeta de secretos real (su .env, tokens o rutas.json con datos del usuario) ni sus
+# rutas: valores neutros, iguales en este equipo y en el CI
+CARPETA_SECRETOS = tempfile.mkdtemp(prefix="jarvis-tests-secretos-")
+atexit.register(shutil.rmtree, CARPETA_SECRETOS, True)
+os.environ["JARVIS_SECRETOS"] = CARPETA_SECRETOS
+os.environ.update({"JARVIS_DESCARGAS": r"D:\Descargas", "JARVIS_HOME": r"C:\Users\prueba",
+                   "JARVIS_WSL_HOME": "/home/prueba", "JARVIS_GITHUB_DUENIO": "dueno-prueba"})
+for _v in ("JARVIS_ESCRITORIO", "JARVIS_WSL_DISTRO", "JARVIS_NOMBRE", "JARVIS_NOMBRE_COMPLETO",
+           "JARVIS_DESCRIPCION", "JARVIS_WEB_GITHUB", "JARVIS_WEB_PORTFOLIO", "JARVIS_AUTHORITY_BUCKET"):
+    os.environ.pop(_v, None)
+
 # Ningún test llama a la API real de Anthropic, aunque el entorno tenga una clave de verdad:
 # lo que no esté mockeado falla al momento contra un puerto local cerrado
 os.environ["ANTHROPIC_API_KEY"] = "test-key-no-real"

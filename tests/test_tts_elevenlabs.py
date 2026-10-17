@@ -93,14 +93,14 @@ class TestExito(Base):
     def test_llama_a_la_api_con_voz_modelo_y_texto(self):
         self.env(ENV_EL)
         with patch("tts_elevenlabs.requests.post", return_value=respuesta()) as post:
-            self.assertEqual(tts_elevenlabs.sintetizar("Hola Joaquín"), PCM)
+            self.assertEqual(tts_elevenlabs.sintetizar("Hola Ana"), PCM)
         args, kw = post.call_args.args, post.call_args.kwargs
         self.assertEqual(args[0], f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ}")
-        self.assertEqual(kw["json"], {"text": "Hola Joaquín", "model_id": "eleven_flash_v2_5"})
+        self.assertEqual(kw["json"], {"text": "Hola Ana", "model_id": "eleven_flash_v2_5"})
         self.assertEqual(kw["params"], {"output_format": "pcm_22050"})
         self.assertEqual(kw["headers"]["xi-api-key"], CLAVE)
         self.assertEqual(kw["timeout"], 10)
-        self.assertIn("[TTS] elevenlabs chars=12 total=12", self.salida.getvalue())
+        self.assertIn("[TTS] elevenlabs chars=8 total=8", self.salida.getvalue())
 
     def test_hablar_reproduce_el_audio_de_elevenlabs(self):
         self.env(ENV_EL)

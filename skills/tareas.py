@@ -3,6 +3,8 @@ import time
 import re
 from datetime import datetime, timedelta
 
+import rutas
+
 # ── RECORDATORIOS ────────────────────────────────────────────────
 recordatorios_activos = []
 
@@ -23,7 +25,8 @@ def _timer_recordatorio(memoria, hablar_fn, tarea, minutos=None, hora_str=None):
                 time.sleep(espera)
         except Exception:
             return
-    hablar_fn(f"Joaquin, recordatorio: {tarea}")
+    nombre = rutas.perfil("nombre")
+    hablar_fn(f"{nombre}, recordatorio: {tarea}" if nombre else f"Recordatorio: {tarea}")
 
 def añadir_recordatorio(memoria, hablar_fn, tarea, hora_str=None, minutos=None):
     from memoria import añadir_tarea

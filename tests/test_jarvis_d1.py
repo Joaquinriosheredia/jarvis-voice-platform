@@ -24,7 +24,7 @@ with patch.dict(sys.modules, _STUBS), contextlib.redirect_stdout(io.StringIO()):
     import jarvis  # noqa: E402
 atexit.unregister(jarvis.cleanup)  # no ejecutar el cleanup real al salir de los tests
 
-FILE_A = r"E:\descargas ryzen\informe.pdf"
+FILE_A = r"D:\Descargas\informe.pdf"
 CONF_B = "confirmo borrado"
 
 

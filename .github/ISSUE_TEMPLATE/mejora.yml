@@ -1,0 +1,25 @@
+name: Mejora
+description: Una idea o una función nueva.
+labels: ["mejora"]
+body:
+  - type: markdown
+    attributes:
+      value: "No pegues datos personales ni claves. Si la idea afecta al gate de permisos, explica qué riesgo cubre o añade."
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qué problema resuelve
+    validations:
+      required: true
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: Propuesta
+      description: Cómo lo usarías por voz y qué haría JARVIS.
+    validations:
+      required: true
+  - type: dropdown
+    id: riesgo
+    attributes:
+      label: ¿Saca datos de la máquina, ejecuta algo o modifica datos?
+      options: ["No", "Sí (pasaría por el gate: indica qué confirmación pediría)", "No lo sé"]

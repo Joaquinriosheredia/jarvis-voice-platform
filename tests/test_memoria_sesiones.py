@@ -19,6 +19,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-no-real")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
+import rutas  # noqa: E402
 
 import brain  # noqa: E402
 import doctor  # noqa: E402
@@ -169,7 +170,7 @@ class TestNuncaSeGuarda(Base):
         with patch.dict(os.environ):
             os.environ.pop("JARVIS_MEMORIA_DB", None)
             importlib.reload(ms)
-        self.assertEqual(ms.RUTA_DB, r"C:\Jarvis-secrets\memoria_sesiones.db")
+        self.assertEqual(ms.RUTA_DB, rutas.en_secretos("memoria_sesiones.db"))
         self.assertFalse(os.path.normcase(ms.RUTA_DB).startswith(os.path.normcase(raiz) + os.sep))
 
 

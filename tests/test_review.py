@@ -67,7 +67,7 @@ class TestRouterReview(Base):
 
     def test_respeta_confirmacion_pendiente_y_atajos(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            brain._gate("borrar_archivo", {"ruta": r"E:\descargas ryzen\x.pdf"}, "borra x")
+            brain._gate("borrar_archivo", {"ruta": r"D:\Descargas\x.pdf"}, "borra x")
         self.assertEqual(brain._clasificar_peticion("revisa mis cambios"), "claude")
         brain._pendiente = None
         self.assertEqual(brain._clasificar_peticion("qué hora es"), "atajo")

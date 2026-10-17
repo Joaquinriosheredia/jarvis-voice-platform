@@ -34,7 +34,7 @@ with patch.dict(sys.modules, _STUBS), contextlib.redirect_stdout(io.StringIO()):
 atexit.unregister(jarvis.cleanup)
 
 CONF_E  = "confirmo envío"
-PROPIA  = "joaquin@example.com"
+PROPIA  = "ana@example.com"
 PEDIDO  = "envíame un correo a mi propia dirección con el asunto prueba de JARVIS y el texto hola, esto es una prueba"
 PARAMS  = {"destinatario": "yo", "asunto": "prueba de JARVIS", "cuerpo": "hola, esto es una prueba"}
 DICTADA = "pepe.garcia@correo.es"
@@ -56,7 +56,7 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
         self.service = MagicMock()
         self.perfil = self.service.users().getProfile.return_value.execute
-        self.perfil.return_value = {"emailAddress": "Joaquin@Example.com"}
+        self.perfil.return_value = {"emailAddress": "Ana@Example.com"}
         self.get_service = patch.object(gmail, "get_service", return_value=self.service).start()
         self.addCleanup(patch.stopall)
         self.skills = {"gmail": gmail}

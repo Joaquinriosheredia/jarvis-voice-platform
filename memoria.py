@@ -157,7 +157,8 @@ def estado_actual(mem):
 # ── RESUMEN SESIÓN ANTERIOR ───────────────────────────────────────
 def resumen_sesion_anterior(mem):
     if not mem["ultima_sesion"]:
-        return "Es la primera vez que arranco, Joaquin."
+        nombre = rutas.perfil("nombre")
+        return f"Es la primera vez que arranco{', ' + nombre if nombre else ''}."
 
     tareas = tareas_pendientes(mem)
     notas  = mem["notas"][-3:] if mem["notas"] else []

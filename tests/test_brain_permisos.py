@@ -16,8 +16,8 @@ import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import brain  # noqa: E402
 
-DESC   = r"E:\descargas ryzen"
-DESK   = r"C:\Users\Usuario\Desktop"
+DESC   = r"D:\Descargas"
+DESK   = r"C:\Users\prueba\Desktop"
 FILE_A = DESC + r"\informe.pdf"
 FILE_B = DESC + r"\otro.pdf"
 CONF_B = "confirmo borrado"
@@ -125,8 +125,8 @@ class TestConfirmacion(Base):
 
 class TestRutas(Base):
     def test_fuera_de_allowlist_bloqueada(self):
-        for ruta in (r"C:\Windows\System32\x.dll", r"C:\Users\Usuario\Documents\a.txt",
-                     r"C:\Users\Usuario", "C:\\", "E:\\", r"E:\otra\a.txt",
+        for ruta in (r"C:\Windows\System32\x.dll", r"C:\Users\prueba\Documents\a.txt",
+                     r"C:\Users\prueba", "C:\\", "E:\\", r"E:\otra\a.txt",
                      DESC + "2" + r"\a.txt",  # prefijo de texto, no de componente
                      r"\\servidor\share\a.txt", "relativa\\a.txt", ""):
             ok, _ = brain._validate_path(ruta)
@@ -135,7 +135,7 @@ class TestRutas(Base):
 
     def test_zonas_de_jarvis_y_sistema_bloqueadas(self):
         for ruta in (r"C:\Jarvis-secrets\.env", r"C:\Jarvis\brain.py",
-                     r"C:\Users\Usuario\OneDrive\a.txt", r"C:\Users\Usuario\AppData\x"):
+                     r"C:\Users\prueba\OneDrive\a.txt", r"C:\Users\prueba\AppData\x"):
             self.assertFalse(brain._validate_path(ruta)[0], ruta)
 
     def test_traversal_bloqueado(self):
@@ -169,7 +169,7 @@ class TestRutas(Base):
         self.assertIn("gate estricto", brain._gate("organizar_directorio", {"ruta": DESC}, "x"))
         brain._pendiente = None
         self.assertTrue(bloqueado(brain._gate("organizar_directorio", {"ruta": DESK}, "x")))
-        self.assertTrue(bloqueado(brain._gate("organizar_directorio", {"ruta": r"C:\Users\Usuario"}, "x")))
+        self.assertTrue(bloqueado(brain._gate("organizar_directorio", {"ruta": r"C:\Users\prueba"}, "x")))
 
 
 class TestBorrarMultiples(Base):

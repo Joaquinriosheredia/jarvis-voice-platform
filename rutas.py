@@ -4,7 +4,11 @@ Cada valor sale, por este orden:
   1. de su variable de entorno (también en el .env de la carpeta de secretos, que carga jarvis.py);
   2. de rutas.json en la carpeta de secretos (lo escribe instalar.cmd con las carpetas reales
      del usuario de Windows; no es un secreto, pero es de esta máquina y queda fuera del repo);
-  3. del valor de respaldo: el de la instalación original, para que no cambie.
+  3. del valor de respaldo, genérico: la carpeta personal de Windows (~), su Descargas y
+     /home/<usuario de Windows> en WSL. Ningún usuario concreto escrito en el código.
+
+Lo mismo para el perfil (perfil()): nombre, descripción, usuario de GitHub, webs propias…
+Entorno > "perfil" de rutas.json > vacío. Son datos del usuario, no del código.
 
 La carpeta de secretos solo se configura por entorno (JARVIS_SECRETOS): rutas.json vive dentro.
 La carpeta del código es siempre la de este archivo.
@@ -17,14 +21,25 @@ import os
 RAIZ    = os.path.dirname(os.path.abspath(__file__))
 ARCHIVO = "rutas.json"
 
-# clave: (variable de entorno, respaldo)
+# clave: (variable de entorno, respaldo). None: se calcula (ver _respaldo)
 CLAVES = {
-    "descargas":  ("JARVIS_DESCARGAS",  r"E:\descargas ryzen"),
-    "home":       ("JARVIS_HOME",       r"C:\Users\Usuario"),
-    "escritorio": ("JARVIS_ESCRITORIO", None),                    # None: <home>\Desktop
+    "descargas":  ("JARVIS_DESCARGAS",  None),                    # <home>\Downloads
+    "home":       ("JARVIS_HOME",       None),                    # la carpeta personal (~)
+    "escritorio": ("JARVIS_ESCRITORIO", None),                    # <home>\Desktop
     "vlc":        ("JARVIS_VLC",        r"C:\Program Files\VideoLAN\VLC\vlc.exe"),
     "wsl_distro": ("JARVIS_WSL_DISTRO", "Ubuntu"),
-    "wsl_home":   ("JARVIS_WSL_HOME",   "/home/usuariojoaquin"),
+    "wsl_home":   ("JARVIS_WSL_HOME",   None),                    # /home/<usuario de Windows>
+}
+
+# Perfil: clave -> variable de entorno
+PERFIL = {
+    "nombre":           "JARVIS_NOMBRE",            # cómo te llama JARVIS («Hasta luego, …»)
+    "nombre_completo":  "JARVIS_NOMBRE_COMPLETO",   # para el system prompt
+    "descripcion":      "JARVIS_DESCRIPCION",       # una línea sobre ti para el system prompt
+    "github_usuario":   "JARVIS_GITHUB_DUENIO",     # dueño de los repos escritos sin «dueño/»
+    "web_github":       "JARVIS_WEB_GITHUB",        # «abre github»
+    "web_portfolio":    "JARVIS_WEB_PORTFOLIO",     # «abre el portfolio»
+    "bucket_authority": "JARVIS_AUTHORITY_BUCKET",  # bucket S3 de AuthorityEngine
 }
 SECRETOS_RESPALDO = r"C:\Jarvis-secrets"
 
@@ -70,9 +85,30 @@ def valor(clave):
     del_archivo = _archivo().get(clave)
     if isinstance(del_archivo, str) and del_archivo.strip():
         return del_archivo.strip()
+    return respaldo if respaldo is not None else _respaldo(clave)
+
+
+def _respaldo(clave):
+    if clave == "home":
+        return os.path.expanduser("~")
+    if clave == "descargas":
+        return os.path.join(valor("home"), "Downloads")
     if clave == "escritorio":
         return os.path.join(valor("home"), "Desktop")
-    return respaldo
+    if clave == "wsl_home":   # en WSL el usuario suele ser el de Windows en minúsculas
+        return "/home/" + ((os.environ.get("USERNAME") or os.environ.get("USER") or "usuario").strip().lower()
+                           or "usuario")
+    return None
+
+
+def perfil(clave):
+    """Dato del perfil del usuario ("" si no está configurado)."""
+    del_entorno = os.environ.get(PERFIL[clave], "").strip()
+    if del_entorno:
+        return del_entorno
+    datos = _archivo().get("perfil")
+    v = datos.get(clave) if isinstance(datos, dict) else None
+    return v.strip() if isinstance(v, str) else ""
 
 
 def descargas():

@@ -18,7 +18,7 @@ import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 import brain  # noqa: E402
 from skills import operador  # noqa: E402
 
-DESC = r"E:\descargas ryzen"
+DESC = r"D:\Descargas"
 
 
 def bloqueado(res):
@@ -45,7 +45,7 @@ class TestGateLectura(Base):
         self.assertTrue(bloqueado(res))
 
     def test_blocked_exact_y_trees_bloqueados(self):
-        for ruta in (r"C:\Users\Usuario", r"C:\Windows", r"C:\Users\Usuario\AppData\Local",
+        for ruta in (r"C:\Users\prueba", r"C:\Windows", r"C:\Users\prueba\AppData\Local",
                      r"C:\Program Files", r"C:\Jarvis", r"C:\Jarvis\skills"):
             for nombre, clave in (("listar_directorio", "ruta"), ("buscar_archivo", "directorio")):
                 self.assertTrue(bloqueado(brain._gate(nombre, {clave: ruta, "nombre": "a"}, "x")), (nombre, ruta))
@@ -56,7 +56,7 @@ class TestGateLectura(Base):
 
     def test_rutas_de_lectura_permitidas(self):
         self.assertIsNone(brain._gate("listar_directorio", {}, "x"))  # default DESCARGAS
-        for ruta in (DESC, r"C:\Users\Usuario\Desktop", r"C:\Users\Usuario\Documents", "C:\\"):
+        for ruta in (DESC, r"C:\Users\prueba\Desktop", r"C:\Users\prueba\Documents", "C:\\"):
             self.assertIsNone(brain._gate("listar_directorio", {"ruta": ruta}, "x"), ruta)
         self.assertIsNone(brain._gate("buscar_archivo", {"nombre": "a"}, "x"))
 
@@ -212,7 +212,7 @@ class TestGitEstado(ProyectoTemporal):
             operador.git_estado("vibe-guard")
         cmd, kw = run.call_args.args[0], run.call_args.kwargs
         self.assertEqual(cmd[:3], ["git", "--no-pager", "--no-optional-locks"])
-        self.assertIn("safe.directory=//wsl.localhost/Ubuntu/home/usuariojoaquin/vibe-guard", cmd)
+        self.assertIn("safe.directory=//wsl.localhost/Ubuntu/home/prueba/vibe-guard", cmd)
         self.assertIn("core.fsmonitor=", cmd)
         self.assertIn("core.hooksPath=/dev/null", cmd)
         self.assertEqual(cmd[-2:], ["status", "--short"])
@@ -225,9 +225,14 @@ class TestGitEstado(ProyectoTemporal):
         self.assertFalse(ok)
         self.assertIn("superó 10 s", msg)
 
-    @unittest.skipUnless(os.path.isdir(operador.PROYECTOS["vibe-guard"]), "WSL no accesible")
+    # Integración local: los tests usan rutas neutras, así que el repo real de WSL se indica
+    # aparte, p. ej. JARVIS_TEST_REPO_WSL=\\wsl.localhost\Ubuntu\home\<usuario>\vibe-guard
+    REPO_WSL = os.environ.get("JARVIS_TEST_REPO_WSL", "")
+
+    @unittest.skipUnless(REPO_WSL and os.path.isdir(REPO_WSL), "sin JARVIS_TEST_REPO_WSL (repo real en WSL)")
     def test_repo_en_wsl_no_falla_por_dubious_ownership(self):
-        ok, msg = operador.git_estado("vibe-guard")
+        with patch.dict(operador.PROYECTOS, {"vibe-guard": self.REPO_WSL}):
+            ok, msg = operador.git_estado("vibe-guard")
         self.assertTrue(ok, msg)
 
 
@@ -533,7 +538,7 @@ class TestEjecutarTests(Base):
             ok, msg = operador.ejecutar_tests("authority")
         cmd, kw = run.call_args.args[0], run.call_args.kwargs
         self.assertEqual(cmd[:5], ["wsl.exe", "-d", "Ubuntu", "--cd",
-                                   "/home/usuariojoaquin/AuthorityEngine/jarvis-runtime"])
+                                   "/home/prueba/AuthorityEngine/jarvis-runtime"])
         self.assertIsNone(kw["cwd"])
         self.assertFalse(ok)
         self.assertIn("FALLAN (código 1)", msg)

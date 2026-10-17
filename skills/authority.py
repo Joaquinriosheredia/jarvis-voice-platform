@@ -1,3 +1,4 @@
+import re
 import subprocess
 import json
 from pathlib import Path
@@ -81,7 +82,10 @@ def documentos_en_review():
 
 # ── S3 ────────────────────────────────────────────────────────────
 def documentos_s3():
-    n = wsl("aws s3 ls s3://authority-engine-docs-joaquin/ 2>/dev/null | wc -l")
+    bucket = rutas.perfil("bucket_authority")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{2,62}", bucket):
+        return "No hay bucket de AuthorityEngine configurado (JARVIS_AUTHORITY_BUCKET)"
+    n = wsl(f"aws s3 ls s3://{bucket}/ 2>/dev/null | wc -l")
     if not n:
         return "No puedo conectar con AWS S3 ahora mismo"
     return f"Hay {n} documentos en AWS S3"

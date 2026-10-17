@@ -421,8 +421,7 @@ def _tools_con_cache():
     return TOOLS[:-1] + [{**TOOLS[-1], "cache_control": CACHE_EFIMERA}]
 
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────
-SYSTEM = """Eres Jarvis, asistente personal de Joaquín Ríos Heredia.
-Joaquín es ingeniero backend: Java 21, Spring Boot, Python, IA.
+SYSTEM = """{CABECERA}
 
 RUTAS:
 - Descargas: {RUTA_DESCARGAS}
@@ -470,6 +469,16 @@ COMPORTAMIENTO:
 # Se añade en un bloque de system aparte (sin caché) cuando el router clasifica la petición como "review"
 # Silenciar y cerrar JARVIS lo decide el sistema antes del modelo; si una pregunta se
 # escapa del atajo de ayuda, el modelo responde con el mismo texto (parada.texto_ayuda)
+def _cabecera():
+    """Quién es el usuario, del perfil (rutas.perfil): el código no lleva ningún nombre."""
+    nombre = rutas.perfil("nombre_completo") or rutas.perfil("nombre")
+    lineas = [f"Eres Jarvis, asistente personal de {nombre}." if nombre else "Eres Jarvis, asistente personal."]
+    if rutas.perfil("descripcion"):
+        lineas.append(rutas.perfil("descripcion"))
+    return "\n".join(lineas)
+
+
+SYSTEM = SYSTEM.replace("{CABECERA}", _cabecera())
 SYSTEM = (SYSTEM.replace("{RUTA_DESCARGAS}", rutas.descargas()).replace("{RUTA_HOME}", rutas.home())
           .replace("{RUTA_ESCRITORIO}", rutas.escritorio()))
 SYSTEM = SYSTEM.replace("{ORDENES_DE_VOZ}", (
@@ -584,6 +593,7 @@ BLOCKED_TREES   = [
     r"C:\Windows", r"C:\Program Files", r"C:\Program Files (x86)",
     r"C:\ProgramData", os.path.join(rutas.home(), "AppData"), os.path.join(rutas.home(), "OneDrive"),
     rutas.RAIZ, rutas.secretos(),
+    rutas.SECRETOS_RESPALDO,   # también la de por defecto si JARVIS_SECRETOS apunta a otra
 ]
 BLOCKED_EXACT   = [rutas.home()]
 

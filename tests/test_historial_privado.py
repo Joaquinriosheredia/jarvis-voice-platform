@@ -35,7 +35,7 @@ with patch.dict(sys.modules, _STUBS), contextlib.redirect_stdout(io.StringIO()):
     import jarvis  # noqa: E402
 atexit.unregister(jarvis.cleanup)
 
-PROPIA  = "joaquin@example.com"
+PROPIA  = "ana@example.com"
 DICTADA = "pepe.garcia@correo.es"
 CONF_E  = "confirmo envío"
 RE_EMAIL = re.compile(r"[\w.%+-]+@[\w-]+(?:\.[\w-]+)+|arroba", re.I)

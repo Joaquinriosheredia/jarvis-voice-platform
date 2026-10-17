@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   test:
-    # Windows: los tests usan rutas reales de Windows (C:\Jarvis, E:\descargas ryzen...)
+    # Windows: los tests usan rutas reales de Windows (C:\Jarvis, D:\Descargas...)
     runs-on: windows-latest
     timeout-minutes: 15
     env:

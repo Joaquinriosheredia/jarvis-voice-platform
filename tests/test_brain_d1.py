@@ -16,7 +16,7 @@ import aislar_memoria  # noqa: E402,F401  (nunca la base real de memoria)
 
 import brain  # noqa: E402
 
-FILE_A = r"E:\descargas ryzen\informe.pdf"
+FILE_A = r"D:\Descargas\informe.pdf"
 CONF_B = "confirmo borrado"
 
 

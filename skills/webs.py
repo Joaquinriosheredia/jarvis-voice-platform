@@ -7,6 +7,8 @@ import subprocess
 import os
 import requests
 
+import rutas
+
 try:
     from tavily import TavilyClient
 except ImportError:  # sin el paquete, la búsqueda sigue funcionando solo con DuckDuckGo
@@ -14,9 +16,9 @@ except ImportError:  # sin el paquete, la búsqueda sigue funcionando solo con D
 
 # ── URLS CONOCIDAS ────────────────────────────────────────────────
 URLS = {
-    "github":    "https://github.com/Joaquinriosheredia/DAM-Java-Mastery",
+    "github":    rutas.perfil("web_github") or "https://github.com",   # webs propias: perfil (rutas.py)
     "linkedin":  "https://www.linkedin.com",
-    "portfolio": "https://joaquinriosheredia.github.io/DAM-Java-Mastery/",
+    **({"portfolio": rutas.perfil("web_portfolio")} if rutas.perfil("web_portfolio") else {}),
     "malt":      "https://www.malt.es",
     "workana":   "https://www.workana.com",
     "gmail":     "https://mail.google.com",

@@ -27,7 +27,7 @@ with patch.dict(sys.modules, _STUBS), contextlib.redirect_stdout(io.StringIO()):
         sys.modules["jarvis"] = _previo
 atexit.unregister(jarvis.cleanup)
 
-REPO = "Joaquinriosheredia/jarvis-voice-platform"
+REPO = "dueno-prueba/jarvis-voice-platform"
 
 
 def ci(id_, estado, rama="main"):
@@ -152,7 +152,7 @@ class TestFallos(Base):
         self.assertEqual(self.entregar(), 1)
 
     def test_repo_sin_acceso_no_corta_los_demas(self):
-        otro = "Joaquinriosheredia/otro"
+        otro = "dueno-prueba/otro"
         self.v.lista = [REPO, otro]
         self.respuestas[otro] = github.ErrorGitHub(github.NO_EXISTE)
         self.pasada(ci(1, "verde"))
@@ -179,9 +179,9 @@ class TestConfiguracion(unittest.TestCase):
     def test_repos_propios_o_los_del_briefing(self):
         with patch.dict(os.environ, {"JARVIS_AVISOS_CI_REPOS": "uno, dueño/dos, mal nombre",
                                      "JARVIS_GITHUB_REPOS": "tres"}):
-            self.assertEqual(avisos_ci.repos(), ["Joaquinriosheredia/uno"])
+            self.assertEqual(avisos_ci.repos(), ["dueno-prueba/uno"])
         with patch.dict(os.environ, {"JARVIS_AVISOS_CI_REPOS": "", "JARVIS_GITHUB_REPOS": "tres"}):
-            self.assertEqual(avisos_ci.repos(), ["Joaquinriosheredia/tres"])
+            self.assertEqual(avisos_ci.repos(), ["dueno-prueba/tres"])
 
     def test_solo_lectura_y_sin_acciones(self):
         codigo = open(avisos_ci.__file__, encoding="utf-8").read()

@@ -7,15 +7,18 @@ Nada más: sin Contents, sin permisos de cuenta ni de organización. Este módul
 hace GET; el token nunca se imprime, ni se registra, ni sale en un mensaje de error.
 
 Repos: JARVIS_GITHUB_REPOS, separados por comas ("dueño/repo" o solo "repo", que se
-toma de DUENIO). Por defecto, solo jarvis-voice-platform.
+toma de DUENIO: JARVIS_GITHUB_DUENIO o el perfil de rutas.json; sin dueño, esos se ignoran).
+Por defecto, solo jarvis-voice-platform.
 """
 import os
 import re
 
 import requests
 
+import rutas
+
 API         = "https://api.github.com"
-DUENIO      = os.environ.get("JARVIS_GITHUB_DUENIO", "").strip() or "Joaquinriosheredia"  # repos sin "dueño/"
+DUENIO      = rutas.perfil("github_usuario")   # JARVIS_GITHUB_DUENIO: dueño de los repos sin "dueño/"
 REPOS       = ("jarvis-voice-platform",)
 TIMEOUT     = 5
 MAX_PRS     = 5     # PRs abiertos que se miran por repo (una llamada de reviews por cada uno)
