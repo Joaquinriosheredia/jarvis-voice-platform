@@ -197,7 +197,8 @@ def _d1_fix(texto):
     traza = brain.ultima_traza()
     if traza and traza.get("d1_detectado"):
         info = brain.pendiente_info()
-        if info and info["tool"] in ("borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails", "enviar_email"):
+        if info and (info["tool"] in ("borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails",
+                                      "enviar_email") or info["tool"] in brain.CONFIRM_PHRASES_ESTRICTO):
             with metrics.cronometro("tools"):
                 res = brain._ejecutar(info["tool"], info["params"], SKILLS, texto)
             metrics.registrar_tool(info["tool"])

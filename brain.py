@@ -582,6 +582,36 @@ CONFIRM_PHRASES   = {
 }
 # No DESTRUCTIVE pero con la misma confirmación por voz (frase del micro, un uso, TTL)
 REQUIERE_CONFIRMACION = {"ver_pantalla"}
+# Modo estricto (opt-in, JARVIS_GATE_ESTRICTO=1): estas tools WRITE/EXTERNAL también piden su frase
+# por voz, con la misma lógica del gate. Son las que sacan texto del modelo fuera de la máquina,
+# ejecutan código, lanzan procesos o mueven/modifican datos de forma difícil de deshacer (análisis
+# en el README). Por defecto no se usan: ni sus frases existen para _frase_confirmacion.
+CONFIRM_PHRASES_ESTRICTO = {
+    "buscar_en_navegador":  "confirmo búsqueda",
+    "abrir_youtube":        "confirmo youtube",
+    "reproducir_musica":    "confirmo música",
+    "crear_evento":         "confirmo evento",
+    "archivar_email":       "confirmo archivar",
+    "ejecutar_tests":       "confirmo tests",
+    "mover_archivo":        "confirmo mover",
+    "organizar_directorio": "confirmo organizar",
+    "siguiente_racha":      "confirmo racha",
+}
+
+
+def modo_estricto():
+    return os.environ.get("JARVIS_GATE_ESTRICTO", "").strip() == "1"
+
+
+def _frases_confirmacion():
+    """CONFIRM_PHRASES y, solo en modo estricto, las de CONFIRM_PHRASES_ESTRICTO."""
+    return {**CONFIRM_PHRASES, **CONFIRM_PHRASES_ESTRICTO} if modo_estricto() else CONFIRM_PHRASES
+
+
+def _requiere_confirmacion(nombre):
+    return (TOOL_RISK.get(nombre) == "DESTRUCTIVE" or nombre in REQUIERE_CONFIRMACION
+            or (modo_estricto() and nombre in CONFIRM_PHRASES_ESTRICTO))
+
 ANUNCIO_CAPTURA = "Voy a capturar tu pantalla y enviarla a Claude. Di confirmo captura."
 CONFIRM_TTL       = 120
 MAX_BORRAR_EMAILS = 10
@@ -730,7 +760,7 @@ def _frase_confirmacion(texto_usuario):
     """Nombre de la tool cuya frase (o una variante) ES el enunciado completo, o None.
     "sí", "vale" u "ok" nunca valen: falta el verbo confirmar y la acción."""
     texto_norm = _normalizar(texto_usuario).replace(" ", "")
-    for tool, frase in CONFIRM_PHRASES.items():
+    for tool, frase in _frases_confirmacion().items():
         if texto_norm in _variantes_confirmacion(frase):
             return tool
     return None
@@ -840,10 +870,11 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
             if tam > MAX_ADJUNTO:
                 return f"BLOQUEADO: el adjunto supera 20 MB ({tam // (1024 * 1024)} MB)."
 
-    if riesgo != "DESTRUCTIVE" and nombre not in REQUIERE_CONFIRMACION:
+    if not _requiere_confirmacion(nombre):
         return None
 
-    if nombre not in CONFIRM_PHRASES:
+    frases = _frases_confirmacion()
+    if nombre not in frases:
         # Antes de tocar _pendiente: no arma ni gasta ninguna confirmación.
         return (f"BLOQUEADO: '{nombre}' está clasificada como DESTRUCTIVE pero no tiene "
                 f"frase de confirmación definida (CONFIRM_PHRASES); no se ejecuta.")
@@ -869,11 +900,11 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
                 "(distinta acción, ya usada o caducada). Pide de nuevo la acción al usuario.")
 
     _pendiente = {"firma": firma, "ts": ahora}
-    if nombre == "enviar_email":
-        # La firma no lleva asunto/cuerpo; sin esto, el D1-fix (que ejecuta
-        # pendiente_info()["params"] sin modelo) enviaría el email vacío
+    if nombre == "enviar_email" or nombre in CONFIRM_PHRASES_ESTRICTO:
+        # El D1-fix ejecuta pendiente_info()["params"] sin modelo: los params completos
+        # (la firma de enviar_email solo lleva un hash del asunto y el cuerpo)
         _pendiente["params"] = dict(parametros)
-    frase = CONFIRM_PHRASES[nombre]
+    frase = frases[nombre]
     if nombre == "borrar_email":
         objeto = f"email de {email['remitente']}: {email['asunto']}"
     elif nombre == "borrar_multiples_emails":
@@ -884,6 +915,10 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
             objeto += f" y adjunto {os.path.basename(parametros['adjunto'])}"
     else:
         objeto = "captura de la pantalla principal" if nombre == "ver_pantalla" else firma[1]
+    if nombre in CONFIRM_PHRASES_ESTRICTO:
+        return (f"BLOQUEADO: modo estricto: '{nombre}' ({objeto}) requiere confirmación del usuario. "
+                f"JARVIS ya le ha dicho qué se va a hacer; que responda solo: \"{frase}\". "
+                f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
     return (f"BLOQUEADO: '{nombre}' ({objeto}) es irreversible y requiere confirmación del usuario. "
             f"Dile exactamente qué se va a hacer y que responda solo: \"{frase}\". "
             f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
@@ -1027,6 +1062,36 @@ def _anuncio_envio(pend):
     return " ".join(partes)
 
 
+def _anuncio_estricto(tool, p):
+    """Lo que se va a hacer, dicho por el sistema (no por el modelo), para el modo estricto."""
+    texto = lambda clave, maximo=MAX_ANUNCIO_ASUNTO: _para_anuncio(p.get(clave), maximo)  # noqa: E731
+    if tool == "buscar_en_navegador":
+        que = f"Voy a buscar «{texto('consulta')}» en {texto('motor', 20) or 'el navegador'}."
+    elif tool == "abrir_youtube":
+        que = f"Voy a abrir YouTube buscando «{texto('query')}»."
+    elif tool == "reproducir_musica":
+        que = f"Voy a buscar en YouTube y reproducir «{texto('query')}»."
+    elif tool == "crear_evento":
+        que = (f"Voy a crear en tu calendario el evento «{texto('titulo')}» el {texto('fecha', 20)} "
+               f"a las {texto('hora_inicio', 10)}.")
+        if p.get("descripcion"):
+            que += f" Descripción: «{texto('descripcion', MAX_ANUNCIO_CUERPO)}»."
+    elif tool == "archivar_email":
+        indice = p.get("indice", 0)
+        numero = indice + 1 if isinstance(indice, int) and not isinstance(indice, bool) else indice
+        que = f"Voy a archivar el email número {numero} de la última lista."
+    elif tool == "ejecutar_tests":
+        filtro = f" con el filtro «{texto('filtro', 80)}»" if p.get("filtro") else ""
+        que = f"Voy a ejecutar los tests de {texto('proyecto', 40)}{filtro}."
+    elif tool == "mover_archivo":
+        que = f"Voy a mover {os.path.basename(str(p.get('origen', '')))} a {texto('destino', 120)}."
+    elif tool == "organizar_directorio":
+        que = f"Voy a organizar la carpeta {texto('ruta', 120) or DESCARGAS}."
+    else:
+        que = "Voy a lanzar la siguiente racha de AuthorityEngine."
+    return f"{que} ¿Confirmas con '{CONFIRM_PHRASES_ESTRICTO[tool]}'?"
+
+
 def anuncio_confirmacion():
     """Texto fijo (no del modelo) para leer en voz alta si este turno dejó un
     enviar_email pendiente de confirmar; None si no. Sale de _pendiente, que
@@ -1036,13 +1101,16 @@ def anuncio_confirmacion():
     traza = _ultima_traza or {}
     if _envio_cambiado and not hay_pendiente():
         return MSG_ENVIO_CAMBIADO
-    if not hay_pendiente() or _pendiente["firma"][0] not in ("enviar_email", "ver_pantalla"):
+    anunciables = ("enviar_email", "ver_pantalla", *(CONFIRM_PHRASES_ESTRICTO if modo_estricto() else ()))
+    if not hay_pendiente() or _pendiente["firma"][0] not in anunciables:
         return None
     tool = _pendiente["firma"][0]
     if not any(t.get("nombre") == tool for t in traza.get("tools_ejecutadas") or []):
         return None
     if tool == "ver_pantalla":
         return ANUNCIO_CAPTURA
+    if tool in CONFIRM_PHRASES_ESTRICTO:
+        return _anuncio_estricto(tool, _pendiente.get("params") or {})
     return _anuncio_envio(_pendiente)
 
 

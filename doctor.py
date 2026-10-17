@@ -599,6 +599,19 @@ def check_live_tiempo():
     return resultado(AVISO, f"{texto} ({causa})", accion)
 
 
+def check_gate_estricto():
+    """Solo informa: el modo estricto es opcional (JARVIS_GATE_ESTRICTO=1)."""
+    valor = variable("JARVIS_GATE_ESTRICTO").strip()
+    if valor == "1":
+        tools = constante("brain.py", "CONFIRM_PHRASES_ESTRICTO")
+        return resultado(OK, f"Gate estricto ACTIVO: {len(tools)} tools WRITE/EXTERNAL piden confirmación "
+                             f"por voz ({', '.join(sorted(tools))})")
+    if valor in ("", "0"):
+        return resultado(OK, "Gate estricto inactivo (por defecto); JARVIS_GATE_ESTRICTO=1 lo activa")
+    return resultado(AVISO, f"JARVIS_GATE_ESTRICTO={valor!r} no se reconoce: el gate estricto está inactivo",
+                     "Usa JARVIS_GATE_ESTRICTO=1 para activarlo o quítala")
+
+
 COMPROBACIONES = [
     ("python",            "Python",                       check_python),
     ("dependencias",      "Dependencias",                 check_dependencias),
@@ -630,6 +643,7 @@ COMPROBACIONES = [
     ("logs",              "Logs",                         check_logs),
     ("memoria",           "Memoria entre sesiones",       check_memoria),
     ("tiempo",            "Servicio del tiempo",          check_tiempo),
+    ("gate_estricto",     "Gate estricto",                check_gate_estricto),
     ("git",               "Git",                          check_git),
 ]
 COMPROBACIONES_LIVE = [
