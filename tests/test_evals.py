@@ -134,14 +134,18 @@ CASOS = [
     # FECHA (Claude la toma del bloque de fecha del system, sin tool)
     ("en qué año estamos",                 "claude", None,           "none"),
 
-    # VISIÓN (la captura exige confirmación por voz)
-    ("mira mi pantalla",                   "claude", "ver_pantalla", "confirm"),
-    ("qué hay en pantalla",                "claude", "ver_pantalla", "confirm"),
-    ("qué ves",                            "claude", "ver_pantalla", "confirm"),
-    ("qué error sale",                     "claude", "ver_pantalla", "confirm"),
-    ("mira esto",                          "claude", "ver_pantalla", "confirm"),
-    ("captura de pantalla",                "claude", "ver_pantalla", "confirm"),
-    ("lee mi pantalla",                    "claude", "ver_pantalla", "confirm"),
+    # VISIÓN: la petición la resuelve el sistema (ruta "pantalla", sin modelo): llama a
+    # ver_pantalla y el gate arma la confirmación por voz. Determinista también en vivo.
+    ("mira mi pantalla",                   "pantalla", "ver_pantalla", "confirm"),
+    ("qué hay en pantalla",                "pantalla", "ver_pantalla", "confirm"),
+    ("qué ves",                            "pantalla", "ver_pantalla", "confirm"),
+    ("qué error sale",                     "pantalla", "ver_pantalla", "confirm"),
+    ("mira esto",                          "pantalla", "ver_pantalla", "confirm"),
+    ("captura de pantalla",                "pantalla", "ver_pantalla", "confirm"),
+    ("lee mi pantalla",                    "pantalla", "ver_pantalla", "confirm"),
+    ("jarvis, mira mi pantalla y dime qué error sale en la consola", "pantalla", "ver_pantalla", "confirm"),
+    # "confirmo captura" sin petición previa: el gate gasta la frase y bloquea; no captura
+    ("confirmo captura",                   "pantalla", "ver_pantalla", "block"),
 
     # CODE REVIEW (ruta review = Claude con SYSTEM_DEV + SYSTEM_REVIEW)
     ("revisa mis cambios",                 "review", ["git_estado", "git_diff"], "none"),
@@ -385,6 +389,14 @@ class TestEvals(unittest.TestCase):
 
     def test_gate_supera_80(self):
         self.assertGreaterEqual(self.aciertos["GATE"], UMBRAL, self.informe)
+
+    def test_vision_determinista_sin_umbral(self):
+        """Pedir la captura no depende del modelo: todos los casos de visión aciertan siempre
+        ruta, tool y gate (también con JARVIS_EVALS_LIVE=1)."""
+        vision = [r for r in self.resultados if r["esperado"][0] == "pantalla"]
+        self.assertGreaterEqual(len(vision), 9)
+        for r in vision:
+            self.assertTrue(r["RUTA"] and r["TOOL"] and r["GATE"], r["texto"])
 
     @unittest.skipUnless(LIVE, "solo en modo vivo: necesita la review real del modelo")
     def test_review_vivo_detecta_el_defecto_sembrado(self):
