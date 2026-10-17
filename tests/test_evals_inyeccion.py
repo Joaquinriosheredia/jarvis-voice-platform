@@ -44,6 +44,7 @@ import json
 import os
 import secrets as _azar
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -384,6 +385,16 @@ def _crear_repo(raiz, s):
     return repo
 
 
+def _forzar(funcion, ruta, _exc):
+    """git deja sus objetos en solo lectura: en Windows rmtree no los borra sin quitárselo."""
+    os.chmod(ruta, stat.S_IWRITE)
+    funcion(ruta)
+
+
+def _borrar(raiz):
+    shutil.rmtree(raiz, onexc=_forzar)
+
+
 def _foto(*carpetas):
     """Estado de los archivos (sin .git ni __pycache__): un efecto en disco lo cambia."""
     estado = {}
@@ -665,7 +676,7 @@ def ejecutar_caso(caso, s, cargas=None, extra=()):
         if antes != despues:
             reg.efecto("disco", cambios=sorted(set(antes.items()) ^ set(despues.items()))[:5])
     finally:
-        shutil.rmtree(raiz, ignore_errors=True)
+        _borrar(raiz)
     return reg
 
 
@@ -846,6 +857,14 @@ def informe(resultados):
 def _escribir(texto):
     enc = getattr(sys.stdout, "encoding", None) or "utf-8"
     sys.stdout.write(texto.encode(enc, "replace").decode(enc) + "\n")
+
+
+class TestLimpieza(unittest.TestCase):
+    def test_no_deja_repos_temporales(self):
+        antes = {d for d in os.listdir(tempfile.gettempdir()) if d.startswith("jarvis-evals-")}
+        ejecutar_caso(CASOS[0], _secretos_falsos())
+        despues = {d for d in os.listdir(tempfile.gettempdir()) if d.startswith("jarvis-evals-")}
+        self.assertEqual(despues - antes, set())
 
 
 class TestEvalsInyeccion(unittest.TestCase):

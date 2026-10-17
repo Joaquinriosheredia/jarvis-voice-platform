@@ -297,8 +297,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 896 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 896 tests ... OK`
+- **Tests:** 897 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 897 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
