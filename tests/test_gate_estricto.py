@@ -66,33 +66,44 @@ class Base(unittest.TestCase):
         self.addCleanup(p.stop)
 
 
-SEIS = {"buscar_en_navegador", "crear_evento", "archivar_email", "ejecutar_tests", "mover_archivo",
-        "organizar_directorio"}
+SIETE = {"buscar_en_navegador", "crear_evento", "archivar_email", "ejecutar_tests", "mover_archivo",
+         "organizar_directorio", "siguiente_racha"}
 
 
 class TestModoPorDefecto(Base):
-    def test_sin_variable_confirman_las_seis(self):
+    def test_sin_variable_confirman_las_siete(self):
         self.assertEqual(brain.modo_gate(), brain.MODO_POR_DEFECTO)
-        self.assertEqual(set(brain.tools_estrictas()), SEIS)
+        self.assertEqual(set(brain.tools_estrictas()), SIETE)
         for nombre, params in PARAMS.items():
             with self.subTest(nombre):
                 brain._pendiente = None
                 bloqueo = _gate(nombre, params, "hazlo")
-                if nombre in SEIS:
+                if nombre in SIETE:
                     self.assertIn("gate estricto", bloqueo)
                     self.assertIsNone(_gate(nombre, params, brain.CONFIRM_PHRASES_ESTRICTO[nombre]))
                 else:
                     self.assertIsNone(bloqueo)
                     self.assertIsNone(brain._pendiente)
 
-    def test_youtube_musica_y_racha_sin_confirmacion_ni_frase(self):
-        for nombre in ("abrir_youtube", "reproducir_musica", "siguiente_racha"):
+    def test_youtube_y_musica_sin_confirmacion_ni_frase(self):
+        for nombre in ("abrir_youtube", "reproducir_musica"):
             self.assertIsNone(brain._frase_confirmacion(brain.CONFIRM_PHRASES_ESTRICTO[nombre]), nombre)
 
     def test_valores_no_reconocidos_usan_el_modo_por_defecto(self):
         for valor in ("true", "si", " 2 ", ""):
             with patch.dict(os.environ, {"JARVIS_GATE_ESTRICTO": valor}):
                 self.assertEqual(brain.modo_gate(), brain.MODO_POR_DEFECTO, valor)
+
+    def test_racha_por_defecto_anuncia_el_push_publico_y_se_confirma_por_voz(self):
+        self.assertIn("gate estricto", _gate("siguiente_racha", {}, "lanza la siguiente racha"))
+        self.assertIn("confirmo racha", brain._gate_core("siguiente_racha", {}, "vale") or "")  # sigue sin confirmar
+        brain._pendiente = None
+        _gate("siguiente_racha", {}, "lanza la siguiente racha")
+        anuncio = brain._anuncio_estricto("siguiente_racha", {})
+        self.assertIn("publicará un push en un repo público", anuncio)
+        self.assertTrue(anuncio.endswith("¿Confirmas con 'confirmo racha'?"))
+        self.assertIsNone(_gate("siguiente_racha", {}, "confirmo racha"))          # solo desde el micro
+        self.assertIn("BLOQUEADO", _gate("siguiente_racha", {}, "confirmo racha"))  # un solo uso
 
     def test_el_bloqueo_no_lleva_los_argumentos(self):
         # El mensaje va a la consola (jarvis.log): una consulta privada no puede salir ahí
@@ -223,7 +234,8 @@ class TestDoctor(unittest.TestCase):
     def test_muestra_el_modo_y_la_lista_efectiva(self):
         por_defecto = self._check("")
         self.assertEqual(por_defecto["estado"], doctor.OK)
-        self.assertIn("por defecto: 6 tools", por_defecto["detalle"])
+        self.assertIn("por defecto: 7 tools", por_defecto["detalle"])
+        self.assertIn("siguiente_racha", por_defecto["detalle"])
         self.assertIn("crear_evento", por_defecto["detalle"])
         self.assertNotIn("reproducir_musica", por_defecto["detalle"])
         completo = self._check("1")

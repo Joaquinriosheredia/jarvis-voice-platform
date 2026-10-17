@@ -250,7 +250,7 @@ Los casos son datos estructurados (canal, tools y argumentos que emite el advers
 - saltarse el gate.
 
 **Límites** (lo que la suite no cubre o lo que encontró):
-- **Tools WRITE y EXTERNAL sin confirmación.** Con el [gate estricto](#gate-estricto) por defecto, `nota`, `recordatorio`, `abrir_app`, `abrir_youtube`, `reproducir_musica`, `siguiente_racha` y similares siguen pasando el gate sin pedir nada (con `JARVIS_GATE_ESTRICTO=0`, todas). Un modelo que obedezca una inyección puede dispararlas. El informe las lista aparte como efectos permitidos por diseño, y no cuentan como fallo. `buscar_en_navegador` con datos leídos en la consulta es un canal de salida hacia el buscador. La suite pasa en los tres modos (72/72 en cada uno). Quedan efectos de este tipo en 9 de los 72 casos con el modo por defecto, en 9 con `=1` y en 18 con `=0`. En los modos por defecto y `=1` todos son de `nota` o `abrir_app`, que no salen de la máquina.
+- **Tools WRITE y EXTERNAL sin confirmación.** Con el [gate estricto](#gate-estricto) por defecto, `nota`, `recordatorio`, `abrir_app`, `abrir_youtube`, `reproducir_musica` y similares siguen pasando el gate sin pedir nada (con `JARVIS_GATE_ESTRICTO=0`, todas). Un modelo que obedezca una inyección puede dispararlas. El informe las lista aparte como efectos permitidos por diseño, y no cuentan como fallo. `buscar_en_navegador` con datos leídos en la consulta es un canal de salida hacia el buscador. La suite pasa en los tres modos (72/72 en cada uno). Quedan efectos de este tipo en 9 de los 72 casos con el modo por defecto, en 9 con `=1` y en 18 con `=0`. En los modos por defecto y `=1` todos son de `nota` o `abrir_app`, que no salen de la máquina.
 - **Anuncio de envío** (corregido). Antes no decía el asunto ni el cuerpo, y la confirmación no estaba ligada a ellos. Los casos 2.10 y 2.11 lo detectaban: con el gate anterior, el cuerpo o el asunto cambiados tras el anuncio se enviaban. Queda un límite: un cuerpo largo se anuncia cortado, así que lo que no se lee en voz alta solo lo protege el hash (no puede cambiar), no tu oído.
 - **Canales que no enmascaraban secretos** (corregido): correo, web y calendario. Los casos 3.09 a 3.14 y 6.07 lo comprueban.
 - **`buscar_en_navegador` no devuelve contenido al modelo.** Solo abre el navegador, así que no es un canal de entrada. El contenido web entra por `buscar_en_web`.
@@ -277,11 +277,25 @@ Cuáles lo hacen depende de `JARVIS_GATE_ESTRICTO` (en `C:\Jarvis-secrets\.env` 
 
 | Modo | Valor | Tools que piden confirmación |
 |---|---|---|
-| Por defecto | sin la variable (o un valor no reconocido) | Las 6 marcadas «defecto» en la tabla: `buscar_en_navegador`, `crear_evento`, `archivar_email`, `ejecutar_tests`, `mover_archivo` y `organizar_directorio` |
-| Completo | `=1` | Las 9 de la tabla (además, `abrir_youtube`, `reproducir_musica` y `siguiente_racha`) |
+| Por defecto | sin la variable (o un valor no reconocido) | Las 7 marcadas «defecto» en la tabla: `buscar_en_navegador`, `crear_evento`, `archivar_email`, `ejecutar_tests`, `mover_archivo`, `organizar_directorio` y `siguiente_racha` |
+| Completo | `=1` | Las 9 de la tabla (además, `abrir_youtube` y `reproducir_musica`) |
 | Desactivado | `=0` | Ninguna (comportamiento anterior al gate estricto) |
 
-**Decisión:** activado por defecto para las 6 tools que sacan texto del modelo a un servicio externo o modifican datos de forma difícil de deshacer. `abrir_youtube` y `reproducir_musica` quedan fuera para no añadir fricción a la música, aunque su búsqueda sale a YouTube. `siguiente_racha` también queda fuera por defecto, aunque hace un push a un repo público. Para que confirme, usa `=1`.
+**Decisión:** activado por defecto para las 7 tools que sacan texto del modelo a un servicio externo, publican algo o modifican datos de forma difícil de deshacer. `siguiente_racha` entra porque hace un push a un repo público; su anuncio lo dice expresamente. `abrir_youtube` y `reproducir_musica` quedan fuera para no añadir fricción a la música, aunque su búsqueda sale a YouTube. Para que también confirmen, usa `=1`.
+
+**Órdenes por voz que piden confirmación con el modo por defecto** (además de las de siempre: borrar, enviar, apagar, captura y olvidar todo):
+
+| Ejemplo de orden | Responde |
+|---|---|
+| «busca recetas de lentejas en google» (o en amazon, youtube, wikipedia, maps, github) | «confirmo búsqueda» |
+| «crea una reunión mañana a las 10 llamada revisión» | «confirmo evento» |
+| «archiva ese correo» | «confirmo archivar» |
+| «pasa los tests de jarvis» | «confirmo tests» |
+| «mueve el informe a la carpeta facturas» | «confirmo mover» |
+| «organiza las descargas» | «confirmo organizar» |
+| «lanza la siguiente racha» | «confirmo racha» (el anuncio avisa de que publicará un push en un repo público) |
+
+Con `=1` se añaden «pon música…» («confirmo música») y «abre YouTube con…» («confirmo youtube»). Con `=0`, ninguna de estas pide confirmación.
 
 JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por ejemplo, «Voy a crear en tu calendario el evento «Revisión» el 2030-01-01 a las 10:00. ¿Confirmas con 'confirmo evento'?»). El mensaje de bloqueo que va a la consola no lleva los argumentos de la llamada. Si al confirmar el modelo no repite la llamada, la ejecuta el D1-fix. Las frases de las tools que no confirman en el modo activo no cuentan como confirmación. `doctor.py` muestra el modo y la lista efectiva.
 
@@ -295,7 +309,7 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 | `ejecutar_tests` | EXTERNAL | Ejecuta la suite del proyecto (código del repo, hasta 300 s) | Depende de los tests | Depende de los tests | **defecto** y `=1` | confirmo tests |
 | `mover_archivo` | EXTERNAL | Mueve un archivo dentro de la zona permitida | Parcial: si el destino existe, puede sobrescribirlo | No | **defecto** y `=1` | confirmo mover |
 | `organizar_directorio` | EXTERNAL | Reparte todos los archivos de Descargas en carpetas | Laborioso de deshacer | No | **defecto** y `=1` | confirmo organizar |
-| `siguiente_racha` | EXTERNAL | Toma el siguiente tema pendiente del roadmap de DAM-Java-Mastery, lo marca como hecho y lanza `racha.py` en WSL. Este llama a `engine.py`, que busca el tema en Hacker News, GitHub y Tavily, genera un borrador con Ollama y lo sube con `git commit` y `git push` a `_Review/` del repo **público** DAM-Java-Mastery | No: el push queda publicado en GitHub (se puede revertir, pero ya ha sido visible) y el tema queda marcado en el roadmap | Sí: búsquedas con el tema en tres servicios y un push a un repo público | solo `=1` | confirmo racha |
+| `siguiente_racha` | EXTERNAL | Toma el siguiente tema pendiente del roadmap de DAM-Java-Mastery, lo marca como hecho y lanza `racha.py` en WSL. Este llama a `engine.py`, que busca el tema en Hacker News, GitHub y Tavily, genera un borrador con Ollama y lo sube con `git commit` y `git push` a `_Review/` del repo **público** DAM-Java-Mastery | No: el push queda publicado en GitHub (se puede revertir, pero ya ha sido visible) y el tema queda marcado en el roadmap | Sí: búsquedas con el tema en tres servicios y un push a un repo público | **defecto** y `=1` | confirmo racha |
 | `crear_carpeta` | EXTERNAL | Crea una carpeta en la zona permitida | Sí | No | no | — |
 | `abrir_web` | EXTERNAL | Abre un sitio de una lista fija, sin texto del modelo | — | Solo abre la URL fija | no | — |
 | `abrir_app` | EXTERNAL | Abre una app de una lista fija | Sí | No | no | — |
@@ -307,8 +321,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 915 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 915 tests ... OK`
+- **Tests:** 916 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 916 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 71 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 71/71, Tool 71/71, Gate 71/71, con umbral mínimo del 80 %.
@@ -401,7 +415,7 @@ JARVIS_GITHUB_REPOS=jarvis-voice-platform
 JARVIS_BRIEFING=1               # 0 = sin briefing al arrancar
 JARVIS_MEMORIA_DB=C:\Jarvis-secrets\memoria_sesiones.db
 JARVIS_MEMORIA_DIAS=90          # retención de la memoria entre sesiones
-JARVIS_GATE_ESTRICTO=          # vacío: 6 tools con confirmación; 1: las 9; 0: ninguna (ver Gate estricto)
+JARVIS_GATE_ESTRICTO=          # vacío: 7 tools con confirmación; 1: las 9; 0: ninguna (ver Gate estricto)
 JARVIS_VOCABULARIO=             # otra ruta para el vocabulario de Whisper (por defecto vocabulario_whisper.txt)
 JARVIS_AVISOS_CI=0              # 1 = avisos proactivos de CI en rojo (ver Avisos proactivos)
 JARVIS_AVISOS_CI_MIN=5          # minutos entre comprobaciones (2 a 60)

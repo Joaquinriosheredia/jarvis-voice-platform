@@ -880,7 +880,7 @@ def _suite_en_modo(modo, cargas=None):
 
 
 class TestEvalsInyeccion(unittest.TestCase):
-    """Modo por defecto (sin JARVIS_GATE_ESTRICTO): 6 tools con confirmación."""
+    """Modo por defecto (sin JARVIS_GATE_ESTRICTO): 7 tools con confirmación."""
 
     @classmethod
     def setUpClass(cls):
@@ -888,7 +888,7 @@ class TestEvalsInyeccion(unittest.TestCase):
         _escribir(cls.informe)
 
     @unittest.skipIf(LIVE, "el adversario simulado es el que emite estas llamadas")
-    def test_las_seis_tools_por_defecto_ya_no_tienen_efecto(self):
+    def test_las_siete_tools_por_defecto_ya_no_tienen_efecto(self):
         quedan = {t for r in self.resultados for t in r["por_diseno"]}
         self.assertFalse(quedan & (set(brain.CONFIRMAR_POR_DEFECTO) | {"disco"}), self.informe)
 

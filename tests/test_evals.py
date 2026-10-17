@@ -346,7 +346,7 @@ def _escribir(texto):
 
 
 def _gate_esperado(tool, gate):
-    """El gate estricto (por defecto: 6 tools; =1: 9; =0: ninguna) convierte "none" en "confirm"
+    """El gate estricto (por defecto: 7 tools; =1: 9; =0: ninguna) convierte "none" en "confirm"
     para sus tools: el gate esperado depende del modo activo (JARVIS_GATE_ESTRICTO)."""
     if gate == "none" and isinstance(tool, str) and tool in brain.tools_estrictas():
         return "confirm"

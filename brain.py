@@ -595,7 +595,7 @@ CONFIRM_PHRASES   = {
 REQUIERE_CONFIRMACION = {"ver_pantalla"}
 # Gate estricto: tools WRITE/EXTERNAL que también piden su frase por voz, con la misma lógica del
 # gate (solo micro, un uso, TTL, ligada a la acción, anuncio del sistema). Análisis en el README.
-#   sin JARVIS_GATE_ESTRICTO (por defecto): las de CONFIRMAR_POR_DEFECTO
+#   sin JARVIS_GATE_ESTRICTO (por defecto): las 7 de CONFIRMAR_POR_DEFECTO
 #   JARVIS_GATE_ESTRICTO=1: todas las de CONFIRM_PHRASES_ESTRICTO
 #   JARVIS_GATE_ESTRICTO=0: ninguna
 # Las frases de las tools que no piden confirmación en el modo activo no existen para
@@ -612,7 +612,7 @@ CONFIRM_PHRASES_ESTRICTO = {
     "siguiente_racha":      "confirmo racha",
 }
 CONFIRMAR_POR_DEFECTO = ("buscar_en_navegador", "crear_evento", "archivar_email", "ejecutar_tests",
-                         "mover_archivo", "organizar_directorio")
+                         "mover_archivo", "organizar_directorio", "siguiente_racha")
 MODO_DESACTIVADO, MODO_POR_DEFECTO, MODO_COMPLETO = "desactivado", "por defecto", "completo"
 
 
@@ -1173,7 +1173,8 @@ def _anuncio_estricto(tool, p):
     elif tool == "organizar_directorio":
         que = f"Voy a organizar la carpeta {texto('ruta', 120) or DESCARGAS}."
     else:
-        que = "Voy a lanzar la siguiente racha de AuthorityEngine."
+        que = ("Voy a lanzar la siguiente racha de AuthorityEngine: generará un borrador con el siguiente "
+               "tema del roadmap y publicará un push en un repo público de GitHub, DAM-Java-Mastery.")
     return f"{que} ¿Confirmas con '{CONFIRM_PHRASES_ESTRICTO[tool]}'?"
 
 
