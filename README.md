@@ -128,7 +128,7 @@ JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay
 | «la semana pasada hablamos de la entrevista» | entrevista, en las fechas de la semana pasada |
 | «qué hablamos ayer» | las sesiones de ayer |
 
-Si no encuentra nada, dice «No tengo nada guardado sobre X», sin pedir fecha ni más detalles. «Acuérdate de…» y «recuérdame…» son recordatorios y no entran. Otras referencias al pasado («lo que te dije el otro día») van a Claude, que tiene la tool `recordar`; si contesta «no recuerdo» sin haberla llamado, se descarta su respuesta y consulta el sistema. Las métricas registran cuántas consultas hay y si encuentran algo, nunca el texto.
+Si la búsqueda exacta no encuentra nada, prueba una aproximada por cómo suenan las palabras (Whisper puede escribir «Cazca» en vez de «Kafka»). La compara con los temas y resúmenes guardados y, si algo se parece lo bastante, responde marcándolo como aproximado: «No tengo nada guardado exactamente sobre cazca, pero esto se parece a «kafka» (resultado aproximado): …». Si tampoco así encuentra nada, dice «No tengo nada guardado sobre X», sin pedir fecha ni más detalles. «Acuérdate de…» y «recuérdame…» son recordatorios y no entran. Otras referencias al pasado («lo que te dije el otro día») van a Claude, que tiene la tool `recordar`; si contesta «no recuerdo» sin haberla llamado, se descarta su respuesta y consulta el sistema. Las métricas registran cuántas consultas hay y si encuentran algo, nunca el texto.
 
 **Cómo se borra.**
 
@@ -168,6 +168,7 @@ Si no hay token, no es válido o no hay red, el briefing sigue sin la parte de G
 
 - **Router por capas:** el coste y la latencia se pagan solo cuando hacen falta. Los atajos no tocan ningún modelo y la capa local es gratuita.
 - **Confirmación leída del micrófono:** el gate solo acepta la frase del texto que transcribió Whisper en ese turno. El modelo no puede fabricarla. Va ligada a la firma de la acción, sirve una sola vez y caduca a los 120 s.
+- **Vocabulario propio para Whisper:** `vocabulario_whisper.txt` (un término por línea, fuera del código; otra ruta con `JARVIS_VOCABULARIO`) lleva tecnologías, herramientas y proyectos como Kafka, Kubernetes, FastAPI, Spring Boot, Ollama, Whisper, Piper y JARVIS. Se pasa a Whisper como contexto inicial en la escucha normal, delante de las órdenes, porque Whisper solo usa el final de un contexto largo y las órdenes no pueden quedarse fuera. Admite hasta 40 términos, y se ignora cualquiera que contenga «confirm», para no sesgar a Whisper hacia oír una confirmación. No cambia ningún umbral de confianza, y la escucha de parada sigue sin contexto. `probar_vocabulario.py` lo comprueba con audio de Piper y Whisper `small`. Con la voz sintética, «Kafka» salía «Cazca» sin vocabulario y sale bien con él, las frases técnicas bajan de 0,33 a 0,14 de error por palabra y las normales no empeoran (0,07 → 0,05).
 - **Confianza de Whisper más estricta con una acción pendiente:** normalmente se descarta lo que tenga `avg_logprob` medio < -1.0 o `compression_ratio` > 2.4. Con una confirmación pendiente se exige ≥ -0.7, y si falta la métrica el texto se descarta. Un texto dudoso nunca confirma una acción.
 - **No hablar de más con streaming:** el texto de cada iteración se retiene hasta saber que no acaba en `tool_use`. Si empieza un bloque `tool_use`, lo retenido se descarta, también en pantalla. Solo se dice la respuesta final, y lo decide `jarvis.py`, que también elige entre la respuesta, el anuncio real del gate o el resultado de una confirmación.
 - **Prompt caching con fecha real:** el system prompt y las tools llevan `cache_control` (más de 5.000 tokens de prefijo). La fecha y la hora van en un segundo bloque de system sin caché, recalculado en cada turno, así que el prefijo cacheado no cambia.
@@ -280,8 +281,8 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Calidad
 
-- **Tests:** 838 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
-  `python -m unittest discover -s tests -q` → `Ran 838 tests ... OK`
+- **Tests:** 851 tests con `unittest`, sin red ni hardware: micrófono, Whisper, Piper, captura de pantalla, Gmail, Calendar y la API de Claude, incluido su streaming, están mockeados.
+  `python -m unittest discover -s tests -q` → `Ran 851 tests ... OK`
 - **CI en GitHub Actions:** tests con mocks en cada push (`.github/workflows/ci.yml`, Windows, Python 3.12, sin claves ni red), `doctor.py --json` (solo se valida que produce JSON: en el runner no hay audio, Ollama ni credenciales) y escaneo de secretos con gitleaks.
 - **Evals:** 60 casos que miden, por petición, la ruta del router, la tool elegida y la decisión del gate.
   `python -m unittest tests.test_evals -v` → Ruta 60/60, Tool 60/60, Gate 60/60, con umbral mínimo del 80 %.
@@ -398,6 +399,8 @@ replay.py            consulta del log de turnos
 doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
 reautorizar.py       vuelve a autorizar Gmail o Calendar (renombra el token, OAuth y comprobación)
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
+probar_vocabulario.py prueba manual con audio (Piper + Whisper) del vocabulario propio
+vocabulario_whisper.txt  términos propios que se pasan a Whisper como contexto inicial
 limpiar_memoria.py   limpieza de un solo uso de direcciones en el historial de memoria.json
 ui_bridge.py         servidor WebSocket local para la UI
 memoria.py           historial de conversación

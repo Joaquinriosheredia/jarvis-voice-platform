@@ -6,6 +6,7 @@ import contextlib
 import io
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -72,6 +73,7 @@ class TestFiltro(unittest.TestCase):
 
     def test_prompt_sin_crear(self):
         self.assertNotIn("crear", audio.WHISPER_PROMPT)
+        self.assertNotIn("crear", audio.prompt_whisper())
 
 
 class TestEscuchar(unittest.TestCase):
@@ -110,7 +112,57 @@ class TestEscuchar(unittest.TestCase):
         self.assertEqual(texto, "Jarvis, pon música")
         bridge.emit.assert_any_call("user_message", text="Jarvis, pon música")
         _, kwargs = whisper.transcribe.call_args
-        self.assertEqual(kwargs["initial_prompt"], audio.WHISPER_PROMPT)
+        self.assertEqual(kwargs["initial_prompt"], audio.prompt_whisper())
+        self.assertTrue(kwargs["initial_prompt"].endswith(audio.WHISPER_PROMPT))
+
+
+# ── Vocabulario propio (vocabulario_whisper.txt): contexto inicial de la escucha normal ──
+def _archivo(texto):
+    f = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8")
+    f.write(texto)
+    f.close()
+    return f.name
+
+
+class TestVocabulario(unittest.TestCase):
+    def setUp(self):
+        p = patch.object(audio, "_vocabulario", None)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_archivo_por_defecto_trae_los_terminos_iniciales(self):
+        terminos = audio.vocabulario(audio.RUTA_VOCABULARIO)
+        for t in ("Kafka", "Kubernetes", "FastAPI", "Spring Boot", "Ollama", "Whisper", "Piper", "JARVIS"):
+            self.assertIn(t, terminos)
+        self.assertLessEqual(len(terminos), audio.MAX_TERMINOS)
+
+    def test_comentarios_vacias_repetidos_y_limites(self):
+        ruta = _archivo("# comentario\n\nKafka\nkafka\n  Spring   Boot ,\n" + "x" * 50 + "\nconfirmo envío\n"
+                        + "\n".join(f"t{i}" for i in range(60)))
+        self.addCleanup(os.remove, ruta)
+        terminos = audio.vocabulario(ruta)
+        self.assertEqual(terminos[:3], ["Kafka", "Spring Boot", "t0"])
+        self.assertEqual(len(terminos), audio.MAX_TERMINOS)
+        self.assertFalse(any("confirm" in t.lower() for t in terminos))
+
+    def test_sin_archivo_queda_el_prompt_de_siempre(self):
+        with patch.dict(os.environ, {"JARVIS_VOCABULARIO": r"C:\no\existe.txt"}):
+            self.assertEqual(audio.prompt_whisper(), audio.WHISPER_PROMPT)
+
+    def test_vocabulario_delante_y_ordenes_al_final(self):
+        ruta = _archivo("Kafka\nOllama\n")
+        self.addCleanup(os.remove, ruta)
+        with patch.dict(os.environ, {"JARVIS_VOCABULARIO": ruta}):
+            prompt = audio.prompt_whisper()
+        self.assertEqual(prompt, "Kafka, Ollama. " + audio.WHISPER_PROMPT)
+        self.assertTrue(prompt.endswith(audio.WHISPER_PROMPT))
+
+    def test_el_prompt_completo_no_lleva_crear(self):
+        self.assertNotIn("crear", audio.prompt_whisper())
+
+    def test_los_umbrales_no_cambian(self):
+        self.assertEqual((audio.WHISPER_MIN_LOGPROB, audio.WHISPER_MAX_COMPRESSION,
+                          audio.WHISPER_MIN_LOGPROB_CONFIRMACION), (-1.0, 2.4, -0.7))
 
 
 if __name__ == "__main__":

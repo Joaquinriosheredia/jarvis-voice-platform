@@ -239,6 +239,54 @@ class TestRecordar(Base):
 
 
 # ── Órdenes de voz y olvidar ──────────────────────────────────────
+class TestRecordarAproximado(Base):
+    """Si la búsqueda exacta no encuentra nada, se prueba una por parecido fonético sobre
+    temas y resúmenes, y el resultado se marca como aproximado."""
+
+    def setUp(self):
+        super().setUp()
+        self.sesion("Revisamos el consumidor de Kafka: faltaba el group id.", ("kafka",), dias=8)
+        self.sesion("Desplegamos en Kubernetes el servicio de pagos.", ("kubernetes",), dias=2)
+
+    def test_whisper_escribe_cazca_y_se_encuentra_kafka(self):
+        self.assertEqual(ms.recordar("cazca"), [])
+        r = ms.buscar_recuerdos("¿te acuerdas de lo de cazca?")
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0]["parecido"], "kafka")
+        texto = ms.texto_resultados(r, "cazca")
+        self.assertTrue(texto.startswith("No tengo nada guardado exactamente sobre cazca, pero esto se parece a "
+                                         "«kafka» (resultado aproximado): El 9 de octubre: Revisamos"), texto)
+
+    def test_cubernetes(self):
+        r = ms.buscar_recuerdos("cubernetes")
+        self.assertEqual([x["parecido"] for x in r], ["kubernetes"])
+
+    def test_lo_exacto_no_se_marca_como_aproximado(self):
+        r = ms.buscar_recuerdos("kafka")
+        self.assertEqual(len(r), 1)
+        self.assertNotIn("parecido", r[0])
+        self.assertNotIn("aproximado", ms.texto_resultados(r, "kafka"))
+
+    def test_lo_que_no_se_parece_no_sale(self):
+        for consulta in ("recetas de lentejas", "casa", "la semana pasada", "eso"):
+            with self.subTest(consulta):
+                self.assertEqual(ms.recordar_aproximado(consulta), [])
+
+    def test_sin_base_no_falla(self):
+        os.remove(self.ruta)
+        self.assertEqual(ms.buscar_recuerdos("cazca"), [])
+
+    def test_clave_fonetica(self):
+        self.assertEqual(ms._clave_fonetica("Cazca"), "kaska")
+        self.assertEqual(ms._clave_fonetica("Kafka"), "kafka")
+        self.assertEqual(ms._clave_fonetica("quiero"), "kiero")
+
+    def test_por_voz_sin_modelo(self):
+        respuesta = self.pensar("¿te acuerdas de lo que hablamos de cazca?")
+        self.assertIn("esto se parece a «kafka»", respuesta)
+        self.assertIn("Revisamos el consumidor de Kafka", respuesta)
+
+
 class TestOrdenes(Base):
     def test_reconoce_solo_la_frase_entera(self):
         casos = {

@@ -1447,7 +1447,7 @@ def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
         if nombre == "recordar":
             consulta = parametros.get("consulta", "")
             try:
-                encontrados = memoria_sesiones.recordar(consulta)
+                encontrados = memoria_sesiones.buscar_recuerdos(consulta)
             except Exception as e:
                 metrics.registrar_memoria([])
                 return _err(f"No puedo leer la memoria ({type(e).__name__}).", "memoria_fallo")

@@ -26,6 +26,42 @@ WHISPER_PROMPT = ("Jarvis, hola, buenos días, buenas tardes, bien gracias, cóm
                   "confirmo borrado, confirmo envío, confirmo captura, cállate, no hables, silencio, para, basta, apágate, apaga Jarvis, hasta luego, adiós, descargas, "
                   "archivos, emails, música, volumen, subir, bajar, buscar, borrar, mover")
 
+# Vocabulario propio (tecnologías, herramientas, proyectos) en un archivo fuera del código.
+# Va DELANTE de WHISPER_PROMPT: Whisper solo usa el final de un contexto largo y las órdenes
+# (confirmaciones, parada) no pueden quedar fuera. No cambia ningún umbral de confianza.
+RUTA_VOCABULARIO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vocabulario_whisper.txt")
+MAX_TERMINOS     = 40
+MAX_TERMINO      = 40
+_vocabulario     = None
+
+
+def vocabulario(ruta=None):
+    """Términos del archivo (JARVIS_VOCABULARIO o vocabulario_whisper.txt), sin comentarios,
+    repetidos ni términos larguísimos. [] si no existe o no se puede leer."""
+    ruta = ruta or os.environ.get("JARVIS_VOCABULARIO") or RUTA_VOCABULARIO
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            lineas = f.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    terminos = []
+    for linea in lineas:
+        t = " ".join(linea.split()).strip(" ,.;")
+        # Un término con "confirm" sesgaría a Whisper hacia oír una confirmación que no se dijo
+        if (t and not t.startswith("#") and len(t) <= MAX_TERMINO and "confirm" not in t.lower()
+                and t.lower() not in {x.lower() for x in terminos}):
+            terminos.append(t)
+    return terminos[:MAX_TERMINOS]
+
+
+def prompt_whisper():
+    """Contexto inicial de la escucha normal: vocabulario propio + WHISPER_PROMPT (cacheado)."""
+    global _vocabulario
+    if _vocabulario is None:
+        _vocabulario = vocabulario()
+    return (", ".join(_vocabulario) + ". " + WHISPER_PROMPT) if _vocabulario else WHISPER_PROMPT
+
+
 # Frases que Whisper inventa ante silencio o ruido (subtítulos de YouTube)
 FRASES_ALUCINACION = [
     "suscríbete", "suscribete", "gracias por ver",
@@ -573,7 +609,7 @@ def escuchar(whisper_model):
     metrics.iniciar_turno()  # el turno (y su total_ms) empieza con Whisper
     t0        = time.time()
     with _lock_whisper:
-        resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=WHISPER_PROMPT)
+        resultado = whisper_model.transcribe(tmp, language='es', initial_prompt=prompt_whisper())
     t_whisper = time.time() - t0
     metrics.marcar("whisper", t_whisper * 1000)
     print(f"⏱️  Whisper: {t_whisper:.2f}s")

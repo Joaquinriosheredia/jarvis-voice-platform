@@ -16,6 +16,7 @@
   defecto) borran las filas, compactan el índice y vacían el archivo (secure_delete + VACUUM).
 """
 import datetime
+import difflib
 import os
 import re
 import sqlite3
@@ -165,6 +166,58 @@ def recordar(consulta, ruta=None, hoy=None):
     return [{"fecha": f, "resumen": r} for f, r in filas]
 
 
+# Búsqueda aproximada: solo si la exacta no encuentra nada. Compara cada palabra de la consulta
+# con las palabras de los temas y resúmenes por cómo suenan ("cazca" ≈ "kafka"), no por letras.
+PARECIDO_MIN   = 0.75
+MIN_LETRAS_APROX = 4
+_FONETICA = [(r"qu(?=[ei])", "k"), (r"c(?=[ei])", "s"), (r"[cq]", "k"), (r"z", "s"), (r"v", "b"),
+             (r"w", "u"), (r"ll", "y"), (r"h", ""), (r"x", "ks"), (r"ph", "f"), (r"(.)\1", r"\1")]
+
+
+def _clave_fonetica(palabra):
+    p = normalizar(palabra)
+    for patron, cambio in _FONETICA:
+        p = re.sub(patron, cambio, p)
+    return p
+
+
+def _palabras_utiles(texto):
+    return [p for p in normalizar(texto).split()
+            if p not in VACIAS and len(p) >= MIN_LETRAS_APROX and not p.isdigit()]
+
+
+def recordar_aproximado(consulta, ruta=None):
+    """[{"fecha", "resumen", "parecido": palabra guardada}] de las sesiones cuyos temas o resumen
+    tienen una palabra que suena como una de la consulta; lo más parecido primero."""
+    buscadas = {_clave_fonetica(p): p for p in _palabras_utiles(consulta)}
+    if not buscadas or not _existe(ruta):
+        return []
+    with _lock:
+        con = _conectar(ruta)
+        try:
+            filas = con.execute("SELECT fecha, resumen, temas FROM sesiones ORDER BY fecha DESC").fetchall()
+        finally:
+            con.close()
+    candidatos = []
+    for fecha, resumen, temas in filas:
+        mejor = (0.0, None)
+        for palabra in set(_palabras_utiles(f"{temas} {resumen}")):
+            clave = _clave_fonetica(palabra)
+            for buscada in buscadas:
+                parecido = difflib.SequenceMatcher(None, buscada, clave).ratio()
+                if parecido >= PARECIDO_MIN and parecido > mejor[0]:
+                    mejor = (parecido, palabra)
+        if mejor[1]:
+            candidatos.append((mejor[0], fecha, resumen, mejor[1]))
+    candidatos.sort(key=lambda c: (c[0], c[1]), reverse=True)   # más parecido y, a igualdad, más reciente
+    return [{"fecha": f, "resumen": r, "parecido": w} for _, f, r, w in candidatos[:MAX_RESULTADOS]]
+
+
+def buscar_recuerdos(consulta, ruta=None, hoy=None):
+    """Búsqueda exacta (recordar) y, si no encuentra nada, la aproximada."""
+    return recordar(consulta, ruta, hoy) or recordar_aproximado(consulta, ruta)
+
+
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
          "septiembre", "octubre", "noviembre", "diciembre")
 
@@ -183,6 +236,11 @@ def texto_resultados(resultados, consulta=""):
     if not resultados:
         return f"No tengo nada guardado sobre {consulta}." if consulta else "No tengo nada guardado sobre eso."
     partes = [f"El {_fecha_hablada(r['fecha'])}: {r['resumen']}" for r in resultados]
+    parecidos = [r["parecido"] for r in resultados if r.get("parecido")]
+    if parecidos:   # aproximado: se dice que no es exacto y a qué se parece
+        sobre = f" sobre {consulta}" if consulta else ""
+        partes.insert(0, f"No tengo nada guardado exactamente{sobre}, pero esto se parece a "
+                         f"«{', '.join(dict.fromkeys(parecidos))}» (resultado aproximado):")
     return " ".join(partes)
 
 

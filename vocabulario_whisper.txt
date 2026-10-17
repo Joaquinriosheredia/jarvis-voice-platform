@@ -1,0 +1,34 @@
+# Vocabulario propio para Whisper: un término por línea; las líneas con # se ignoran.
+# Se pasa a Whisper como contexto inicial (initial_prompt) para que escriba bien estos nombres.
+# Pon aquí tecnologías, herramientas y proyectos que nombras a menudo. Otra ruta:
+# JARVIS_VOCABULARIO=C:\ruta\mi_vocabulario.txt. Máximo 40 términos (Whisper solo usa
+# el final de un contexto largo, y las órdenes de JARVIS van detrás y no pueden perderse).
+Kafka
+Kubernetes
+FastAPI
+Spring Boot
+Ollama
+Whisper
+Piper
+JARVIS
+Docker
+PostgreSQL
+Redis
+GitHub
+Python
+Java
+Maven
+Gradle
+JUnit
+Hibernate
+Claude
+Anthropic
+ElevenLabs
+Electron
+Node
+CUDA
+WSL
+pytest
+microservicios
+AuthorityEngine
+vibe-guard
