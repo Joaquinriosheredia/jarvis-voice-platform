@@ -34,6 +34,17 @@ with patch.dict(sys.modules, _JV), contextlib.redirect_stdout(io.StringIO()):
     import jarvis  # noqa: E402
 atexit.unregister(jarvis.cleanup)
 
+NUEVAS_SILENCIO = ("calla", "callate", "calla ya", "cállate ya", "déjame hablar", "espera", "detente",
+                   "detén", "para ya", "ya basta", "chitón", "déjalo", "deja de hablar", "no sigas")
+SIN_TILDE = {"cállate ya": "callate ya", "déjame hablar": "dejame hablar", "detén": "deten",
+             "chitón": "chiton", "déjalo": "dejalo"}
+FRASES_LARGAS_CON_ESPERA = (
+    "espera, no me envíes eso hasta mañana", "espera que lo pienso un momento",
+    "dile que espera en la puerta", "Jarvis, espera un segundo que vuelvo",
+    "déjame hablar con mi madre primero", "no sigas buscando que ya lo tengo",
+    "para ya la música", "detén la descarga", "déjalo en el escritorio",
+)
+
 SEGMENTO = np.full(4800, 3000, dtype=np.int16)
 FRASES_LARGAS_CON_APAGATE = (
     "creo que ya deberías apagarte", "apágate cuando termines de leer el correo",
@@ -70,7 +81,8 @@ class Base(unittest.TestCase):
 # ── Las dos listas ────────────────────────────────────────────────
 class TestListas(unittest.TestCase):
     def test_listas_pedidas_y_disjuntas(self):
-        self.assertEqual(parada.SILENCIO, ("cállate", "no hables", "escucha", "silencio", "para", "basta"))
+        self.assertEqual(parada.SILENCIO, ("cállate", "no hables", "escucha", "silencio", "para", "basta")
+                         + NUEVAS_SILENCIO)
         self.assertEqual(parada.APAGADO, ("apágate", "apaga JARVIS", "apaga JARVIS del todo", "adiós",
                                           "hasta luego", "desconéctate", "cierra JARVIS"))
         normal = lambda frases: {parada.normalizar(f) for f in frases}  # noqa: E731
@@ -79,6 +91,8 @@ class TestListas(unittest.TestCase):
     def test_cada_orden_de_silencio(self):
         for orden in parada.SILENCIO:
             for texto in (orden, orden.upper() + ".", f"Jarvis, {orden}", f"{orden}, por favor", f"{orden} ya"):
+                if len(parada.normalizar(texto).replace("jarvis", "").split()) > parada.MAX_PALABRAS:
+                    continue  # "deja de hablar, por favor": 5 palabras, no es una orden (TestNuevasSilencio)
                 self.assertEqual(parada.clasificar(texto), "silencio", texto)
 
     def test_cada_orden_de_apagado(self):
@@ -103,7 +117,7 @@ class TestListas(unittest.TestCase):
     def test_no_son_ordenes(self):
         for texto in ("apaga", "cierra", "apaga el ordenador", "cierra el navegador", "para la música",
                       "escucha esta canción", "hasta luego Lucas", "adiós mundo cruel", "sí", "vale", "jarvis",
-                      "stop", "calla", "", None):
+                      "stop", "", None):
             self.assertIsNone(parada.clasificar(texto), texto)
 
 
@@ -162,7 +176,7 @@ class TestAyuda(Base):
             self.assertEqual(brain.ultima_traza()["router"], "atajo")
             self.assertFalse(brain.debe_cerrar())
             if tipo in ("silencio", "ambas"):
-                for orden in parada.SILENCIO:
+                for orden in parada.frases_ayuda(parada.SILENCIO):
                     self.assertIn(f"«{orden}»", respuesta)
             if tipo in ("apagado", "ambas"):
                 for orden in parada.APAGADO:
@@ -334,3 +348,88 @@ class TestConfirmacion(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── Ampliación de SILENCIO ────────────────────────────────────────
+class TestNuevasSilencio(Base):
+    def variantes(self, orden):
+        formas = {orden, SIN_TILDE.get(orden, orden)}
+        return [v for f in formas for v in (f, f.capitalize() + ".", f"Jarvis, {f}", f"{f}, Jarvis",
+                                            f"Jarvis {f} Jarvis", f.upper() + "!")]
+
+    def test_cada_variante_nueva_silencia(self):
+        for orden in NUEVAS_SILENCIO:
+            for texto in self.variantes(orden):
+                self.assertEqual(parada.clasificar(texto), "silencio", texto)
+                self.assertFalse(parada.es_orden_apagado(texto), texto)
+
+    def test_ninguna_esta_en_apagado(self):
+        apagado = {parada.normalizar(f) for f in parada.APAGADO}
+        for orden in NUEVAS_SILENCIO:
+            self.assertNotIn(parada.normalizar(orden), apagado, orden)
+            self.assertNotIn(parada.normalizar(orden), {parada.normalizar(f) for f in parada.SILENCIO
+                                                        if f != orden and f not in NUEVAS_SILENCIO
+                                                        and parada.normalizar(f) != parada.normalizar(orden)})
+
+    def test_frase_larga_que_contiene_la_orden_no_silencia(self):
+        for texto in FRASES_LARGAS_CON_ESPERA:
+            self.assertIsNone(parada.clasificar(texto), texto)
+
+    def test_frase_larga_con_espera_va_al_modelo(self):
+        respuesta = MagicMock(stop_reason="end_turn", usage=None, content=[MagicMock(text="Vale.")])
+        for texto in FRASES_LARGAS_CON_ESPERA:
+            with patch.object(brain.cliente.messages, "create", return_value=respuesta) as create, \
+                 patch.dict(os.environ, {"JARVIS_STREAMING": "0"}), contextlib.redirect_stdout(self.salida):
+                brain.pensar(texto, skills={})
+            create.assert_called_once()
+            self.assertNotEqual(brain.ultima_traza().get("router"), "parada", texto)
+
+    def test_limite_de_cuatro_palabras_igual(self):
+        self.assertEqual(parada.MAX_PALABRAS, 4)
+        self.assertEqual(parada.clasificar("Jarvis, déjame hablar, por favor"), "silencio")   # 4 + nombre
+        self.assertEqual(parada.clasificar("deja de hablar ya"), "silencio")                   # 4
+        self.assertIsNone(parada.clasificar("deja de hablar, por favor"))                      # 5
+        self.assertIsNone(parada.clasificar("vale vale espera espera ya"))                     # 5
+
+    def test_solo_la_frase_entera(self):
+        for texto in ("espera un momento", "espera aquí", "detén eso", "déjalo así", "no sigas por ahí",
+                      "calla la boca", "chitón chitón chitón no"):
+            self.assertIsNone(parada.clasificar(texto), texto)
+
+    def test_ninguna_cuenta_como_confirmacion(self):
+        with contextlib.redirect_stdout(self.salida):
+            brain._gate("apagar_pc", {"accion": "apagar"}, "apaga el ordenador")
+        firma = brain._pendiente["firma"]
+        with patch("brain.subprocess.run") as run:
+            for orden in NUEVAS_SILENCIO:
+                for texto in self.variantes(orden):
+                    self.assertIsNone(brain._frase_confirmacion(texto), texto)
+                    self.assertIsNone(self.pensar(texto), texto)
+                    self.assertEqual(brain.ultima_traza()["router"], "parada", texto)
+        run.assert_not_called()
+        self.assertEqual(brain._pendiente["firma"], firma)
+
+    def test_espera_y_dejame_hablar_no_chocan_con_otras_ordenes(self):
+        atajos = {f for frases, _ in brain.ATAJOS for f in frases}
+        for orden in NUEVAS_SILENCIO:
+            for texto in self.variantes(orden):
+                self.assertNotIn(parada.normalizar(texto), atajos, texto)
+                self.assertIsNone(parada.pregunta_de_ayuda(texto), texto)
+        confirmaciones = {v for f in brain.CONFIRM_PHRASES.values() for v in brain._variantes_confirmacion(f)}
+        for orden in ("espera", "déjame hablar"):
+            self.assertNotIn(parada.normalizar(orden).replace(" ", ""), confirmaciones)
+
+    def test_el_eco_de_jarvis_no_cuenta_como_orden_del_usuario(self):
+        self.assertTrue(parada.eco_probable("espera", "Espera, lo busco."))
+        self.assertFalse(parada.eco_probable("espera", "Te leo el correo de Ana."))
+
+    def test_ayuda_y_readme_salen_de_la_lista(self):
+        ayuda = parada.texto_ayuda("silencio")
+        for orden in parada.frases_ayuda(parada.SILENCIO):
+            self.assertIn(f"«{orden}»", ayuda)
+        self.assertNotIn("«callate»", ayuda)   # misma frase que «cállate», sin repetirla
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(raiz, "README.md"), encoding="utf-8") as f:
+            readme = f.read()
+        self.assertIn(f"| Silenciar | {parada.tabla_readme(parada.SILENCIO)} |", readme)
+        self.assertIn(f"| Apagar | {parada.tabla_readme(parada.APAGADO)} |", readme)

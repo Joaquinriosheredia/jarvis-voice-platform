@@ -95,7 +95,7 @@ class TestOrdenes(unittest.TestCase):
             self.assertTrue(parada.es_orden_parada(texto), texto)
 
     def test_no_son_ordenes_de_parada(self):
-        for texto in ("para la música", "¿para qué sirve esto?", "apaga el ordenador", "stop", "calla",
+        for texto in ("para la música", "¿para qué sirve esto?", "apaga el ordenador", "stop", "espera que lo pienso",
                       "confirmo envío", "confirmo apagado del pc", "jarvis", "", None, "basta de tonterías ya",
                       "silencio en la sala por favor", "para que me digas la hora", "escucha esta canción"):
             self.assertFalse(parada.es_orden_parada(texto), texto)

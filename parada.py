@@ -16,7 +16,9 @@ from collections import deque
 
 import numpy as np
 
-SILENCIO = ("cállate", "no hables", "escucha", "silencio", "para", "basta")
+SILENCIO = ("cállate", "no hables", "escucha", "silencio", "para", "basta",
+            "calla", "callate", "calla ya", "cállate ya", "déjame hablar", "espera", "detente",
+            "detén", "para ya", "ya basta", "chitón", "déjalo", "deja de hablar", "no sigas")
 APAGADO  = ("apágate", "apaga JARVIS", "apaga JARVIS del todo", "adiós", "hasta luego",
             "desconéctate", "cierra JARVIS")
 # Lo único que puede acompañar a la orden ("para ya", "cállate, por favor", "vale, adiós")
@@ -31,9 +33,14 @@ def normalizar(texto):
     return " ".join(re.sub(r"[^\w\s]", " ", t).split())
 
 
-_FRASES = {tipo: [normalizar(f).split() for f in frases]
+def _sin_relleno(frase):
+    # "calla ya" o "ya basta" se comparan sin el relleno, igual que lo transcrito
+    return [p for p in normalizar(frase).split() if p not in RELLENO]
+
+
+_FRASES = {tipo: [_sin_relleno(f) for f in frases]
            for tipo, frases in (("silencio", SILENCIO), ("apagado", APAGADO))}
-_coinciden = [(a, b) for a in SILENCIO for b in APAGADO if normalizar(a) == normalizar(b)]
+_coinciden = [(a, b) for a in SILENCIO for b in APAGADO if _sin_relleno(a) == _sin_relleno(b)]
 assert not _coinciden, f"una frase no puede silenciar y apagar a la vez: {_coinciden}"
 
 
@@ -100,9 +107,24 @@ def pregunta_de_ayuda(texto):
     return "silencio" if silencio else ("apagado" if apagado else None)
 
 
+def frases_ayuda(frases):
+    """Las frases tal cual, sin las que solo cambian en tildes ("callate" ya es "cállate")."""
+    vistas, unicas = set(), []
+    for f in frases:
+        if normalizar(f) not in vistas:
+            vistas.add(normalizar(f))
+            unicas.append(f)
+    return unicas
+
+
 def _lista(frases):
-    citadas = [f"«{f}»" for f in frases]
+    citadas = [f"«{f}»" for f in frases_ayuda(frases)]
     return ", ".join(citadas[:-1]) + " o " + citadas[-1]
+
+
+def tabla_readme(frases):
+    """Celda "Frases" de la tabla de órdenes del README (un test comprueba que coincide)."""
+    return ", ".join(f"«{f}»" for f in frases_ayuda(frases))
 
 
 def texto_ayuda(tipo="ambas"):

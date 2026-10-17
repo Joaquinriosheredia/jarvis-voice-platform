@@ -77,11 +77,11 @@ Antes del nivel de riesgo, cada tool pasa por sus validaciones propias: allowlis
 
 ## Órdenes de voz
 
-Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "¿cómo te callo?" o "¿cómo te cierro?" y la línea del prompt de sistema se generan desde ellas, sin pasar por el modelo.
+Las dos listas están en `parada.py` (`SILENCIO` y `APAGADO`). La respuesta a "¿cómo te callo?" o "¿cómo te cierro?" y la línea del prompt de sistema se generan desde ellas, sin pasar por el modelo. La columna «Frases» de esta tabla sale de `parada.tabla_readme()` y un test comprueba que coincide. Las tildes dan igual: «callate» vale como «cállate».
 
 | Orden | Frases | Efecto |
 |---|---|---|
-| Silenciar | «cállate», «no hables», «escucha», «silencio», «para», «basta» | Corta el audio, vacía las frases pendientes y cancela la generación en curso. JARVIS sigue abierto y escuchando. |
+| Silenciar | «cállate», «no hables», «escucha», «silencio», «para», «basta», «calla», «calla ya», «cállate ya», «déjame hablar», «espera», «detente», «detén», «para ya», «ya basta», «chitón», «déjalo», «deja de hablar», «no sigas» | Corta el audio, vacía las frases pendientes y cancela la generación en curso. JARVIS sigue abierto y escuchando. |
 | Apagar | «apágate», «apaga JARVIS», «apaga JARVIS del todo», «adiós», «hasta luego», «desconéctate», «cierra JARVIS» | Corta el audio y la generación, se despide y cierra JARVIS. |
 
 - Solo valen si la frase transcrita es entera la orden (puede llevar "Jarvis", "ya", "por favor"...) y tiene como mucho 4 palabras sin contar "Jarvis". "Apágate cuando termines de leer el correo" no apaga nada.
