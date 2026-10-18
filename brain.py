@@ -1268,6 +1268,61 @@ def _envolver(texto):
     return _ok(texto)
 
 
+# ── AVISOS LITERALES: SERVICIO SIN CONFIGURAR ─────────────────────
+# Las frases que dicen cómo configurar o reautorizar un servicio, con el comando exacto, las dice
+# el sistema tal cual (como los anuncios de confirmación): el modelo no las parafrasea.
+INSTRUCCION_AVISO = ("Esta función no está disponible porque no está configurada: no tienes ningún dato suyo, "
+                     "así que no digas nada sobre lo que contendría. El sistema ya ha dicho al usuario, "
+                     "literalmente, qué falta y qué comando ejecutar: no lo repitas ni lo resumas. Si en esta "
+                     "petición has usado otras herramientas, di sus resultados (también si están vacíos, "
+                     "p. ej. «No tienes tareas pendientes»). Si no hay nada más que decir, responde solo: OK")
+# Una frase del modelo que repite el aviso (se quita de su respuesta en un turno mixto)
+_RE_REPITE_AVISO = re.compile(r"reautoriz|configur|GITHUB_TOKEN|JARVIS_GITHUB_REPOS|credentials|"
+                              r"autoriza|no tengo acceso|sin acceso|no puedo acceder", re.I)
+
+
+def frases_aviso():
+    """Todas las frases de «no configurado» o «reautoriza», de los módulos que las generan."""
+    from skills import gmail, google_auth, sistema
+    frases = {google_auth.frase_no_disponible(s, e) for s in ("gmail", "calendar", "contacts")
+              for e in (google_auth.SIN_CREDENCIALES, google_auth.SIN_TOKEN, google_auth.INVALIDO)}
+    frases |= {github.MENSAJES[c] for c in github.NO_CONFIGURADO}
+    frases |= {sistema.TIEMPO_NO_CONFIGURADO, gmail.FALLOS["autenticacion"],
+               gmail.MENSAJES_CAUSA["autenticacion"], gmail.MENSAJES_CAUSA["no_configurado"]}
+    return frases
+
+
+def aviso_literal(mensaje):
+    """La frase de aviso que contiene el resultado de una tool (con la inicial en mayúscula), o None."""
+    if not isinstance(mensaje, str):
+        return None
+    for frase in sorted(frases_aviso(), key=len, reverse=True):
+        if frase in mensaje:
+            return frase[0].upper() + frase[1:]
+    return None
+
+
+# Lo que el modelo diga del servicio sin configurar es inventado (no tiene sus datos): se quita
+_TEMAS_AVISO = {"Gmail": r"correo|email|mensaje|bandeja", "Calendar": r"agenda|calendario|evento|reuni",
+                "Contactos": r"contacto", "GitHub": r"github|\bCI\b|\bPRs?\b|review",
+                "tiempo": r"tiempo|grados|temperatura|llov|lluvia|fr[íi]o|calor"}
+
+
+def _con_avisos(final, traza):
+    """Respuesta del turno: los avisos literales y, después, lo que el modelo diga de lo demás:
+    sin las frases que repitan el aviso o hablen del servicio sin configurar, ni su «OK»."""
+    avisos = traza.get("avisos_literales") or []
+    if not avisos:
+        return final
+    import frases as _frases
+    temas = [t for nombre, t in _TEMAS_AVISO.items() if any(nombre in a for a in avisos)]
+    re_tema = re.compile("|".join(temas), re.I) if temas else None
+    resto = [f for f in _frases.trocear(final or "", minimo=1)
+             if not _RE_REPITE_AVISO.search(f) and not (re_tema and re_tema.search(f))
+             and f.strip(" .!").lower() not in ("", "ok", "entendido")]
+    return " ".join(avisos + resto).strip()
+
+
 # ── EJECUTOR ──────────────────────────────────────────────────────
 # Su resultado (emails, agenda) nunca se sintetiza con un TTS externo: el turno va con Piper
 TOOLS_PRIVADAS = {"leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "borrar_email",
@@ -2434,12 +2489,12 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
                         tema = (memoria_sesiones.pregunta_recuerdo(texto)
                                 or memoria_sesiones.tema_libre(texto) or "eso")
                         return _responder_recuerdo(tema, skills, traza, texto)
-                    return final
-            return "Entendido."
+                    return _con_avisos(final, traza)
+            return _con_avisos("Entendido.", traza)
 
         if respuesta.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": respuesta.content})
-            resultados = []
+            resultados, todos_avisos = [], True
             for bloque in respuesta.content:
                 if bloque.type == "tool_use":
                     if _cancelada.is_set():
@@ -2455,6 +2510,13 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
                     _reg_tool(traza, i, bloque, respuesta.stop_reason, resultado,
                               int((time.monotonic() - t_tool) * 1000))
                     _print_seguro(f"   → {resultado}")
+                    aviso = aviso_literal(resultado)
+                    todos_avisos = todos_avisos and aviso is not None
+                    if aviso:   # lo dice el sistema tal cual; el modelo solo sabe que ya está dicho
+                        avisos = traza.setdefault("avisos_literales", [])
+                        if aviso not in avisos:
+                            avisos.append(aviso)
+                        res = _err(INSTRUCCION_AVISO, "aviso_dicho_por_el_sistema")
                     contenido = _serializar(res)
                     if res.get("imagen"):  # ver_pantalla: imagen + el contrato {ok, message, error}
                         contenido = [{"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
@@ -2468,6 +2530,11 @@ def _pensar_impl(texto, contexto, skills, traza, conversacion_reciente=False):
                     if not res.get("ok", True):
                         bloque_resultado["is_error"] = True
                     resultados.append(bloque_resultado)
+            if todos_avisos and resultados:
+                # Todo lo pedido es un servicio sin configurar: el sistema responde, sin otra llamada
+                traza["stop_final"] = "aviso_literal"
+                _print_seguro("[AVISO] servicio sin configurar: el sistema lo dice tal cual")
+                return _con_avisos("", traza)
             messages.append({"role": "user", "content": resultados})
         else:
             traza["stop_final"] = respuesta.stop_reason
