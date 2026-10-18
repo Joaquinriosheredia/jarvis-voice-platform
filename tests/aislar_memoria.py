@@ -16,6 +16,11 @@ import tempfile
 CARPETA_SECRETOS = tempfile.mkdtemp(prefix="jarvis-tests-secretos-")
 atexit.register(shutil.rmtree, CARPETA_SECRETOS, True)
 os.environ["JARVIS_SECRETOS"] = CARPETA_SECRETOS
+# Perfil de prueba con proyectos del operador en WSL (los tests de operador y del esquema de las
+# tools los usan como fixture). Sin saludo ni ciudad: el saludo y el tiempo salen neutros
+with open(os.path.join(CARPETA_SECRETOS, "rutas.json"), "w", encoding="utf-8") as _f:
+    _f.write('{"perfil": {"proyectos": {"authority": "wsl:AuthorityEngine", "java-labs": "wsl:Java-Production-Labs", '
+             '"dam": "wsl:DAM-Java-Mastery", "vibe-guard": "wsl:vibe-guard"}}}')
 os.environ.update({"JARVIS_DESCARGAS": r"D:\Descargas", "JARVIS_HOME": r"C:\Users\prueba",
                    "JARVIS_WSL_HOME": "/home/prueba", "JARVIS_GITHUB_DUENIO": "dueno-prueba"})
 for _v in ("JARVIS_ESCRITORIO", "JARVIS_WSL_DISTRO", "JARVIS_NOMBRE", "JARVIS_NOMBRE_COMPLETO",

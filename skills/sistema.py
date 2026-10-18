@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 import requests as req
 
+import rutas
+
 # ── DISCO ─────────────────────────────────────────────────────────
 def espacio_disco():
     total, usado, libre = shutil.disk_usage("C:\\")
@@ -83,13 +85,28 @@ def _direccion_viento(grados):
             return puntos[i][1]
     return "norte"
 
-# ── TIEMPO METEOROLÓGICO — LOS CORRALES ──────────────────────────
-# Open-Meteo (sin clave). Un fallo se dice con su causa y los transitorios (sin red,
+# ── TIEMPO METEOROLÓGICO — LA CIUDAD DEL PERFIL ──────────────────
+# Open-Meteo (sin clave). Ciudad y coordenadas salen del perfil (rutas.py); sin coordenadas
+# el tiempo está desactivado. Un fallo se dice con su causa y los transitorios (sin red,
 # sin respuesta, servicio saturado o caído) se reintentan una vez tras PAUSA_TIEMPO.
-URL_TIEMPO = ("https://api.open-meteo.com/v1/forecast"
-              "?latitude=37.1099&longitude=-5.0147"
-              "&current_weather=true"
-              "&forecast_days=1")
+HOST_TIEMPO = "api.open-meteo.com"
+TIEMPO_NO_CONFIGURADO = "El tiempo no está configurado: falta tu ciudad. Ejecuta configurar.py para indicarla."
+
+
+def url_tiempo():
+    """URL de Open-Meteo con las coordenadas del perfil, o None si no hay."""
+    coords = rutas.coordenadas()
+    if not coords:
+        return None
+    return (f"https://{HOST_TIEMPO}/v1/forecast"
+            f"?latitude={coords[0]!r}&longitude={coords[1]!r}"
+            "&current_weather=true"
+            "&forecast_days=1")
+
+
+def tiempo_configurado():
+    return url_tiempo() is not None
+
 TIMEOUT_TIEMPO = 5
 PAUSA_TIEMPO   = 1.0
 
@@ -135,7 +152,7 @@ def _descripcion_tiempo(code):
 def _pedir_tiempo():
     """(texto, None) o (None, causa) de una sola petición."""
     try:
-        r = req.get(URL_TIEMPO, timeout=TIMEOUT_TIEMPO)
+        r = req.get(url_tiempo(), timeout=TIMEOUT_TIEMPO)
     except req.exceptions.Timeout:
         return None, SIN_RESPUESTA
     except req.exceptions.RequestException:   # DNS, conexión rechazada, sin red...
@@ -160,11 +177,15 @@ def _pedir_tiempo():
         viento_str = f"viento de {_direccion_viento(direccion)} a {viento} kilómetros por hora"
     else:
         viento_str = f"viento de {viento} kilómetros por hora"
-    return f"En Los Corrales hay {temp} grados, {desc} y {viento_str}", None
+    ciudad = rutas.perfil("ciudad")
+    return f"{'En ' + ciudad + ' hay' if ciudad else 'Hay'} {temp} grados, {desc} y {viento_str}", None
 
 
 def consultar_tiempo():
-    """(ok, texto para la voz, causa o None). Reintenta una vez los fallos transitorios."""
+    """(ok, texto para la voz, causa o None). Reintenta una vez los fallos transitorios.
+    Sin coordenadas en el perfil: (False, TIEMPO_NO_CONFIGURADO, "no_configurado"), sin red."""
+    if not tiempo_configurado():
+        return False, TIEMPO_NO_CONFIGURADO, "no_configurado"
     texto, causa = _pedir_tiempo()
     if causa in _TRANSITORIOS:
         time.sleep(PAUSA_TIEMPO)
@@ -174,9 +195,9 @@ def consultar_tiempo():
     return True, texto, None
 
 
-def tiempo_sevilla():
-    """Tiempo real de Los Corrales (Sevilla) — coordenadas 37.1099, -5.0147. Si falla,
-    la causa concreta ("No hay conexión para el tiempo", "...está saturado...")."""
+def tiempo_local():
+    """Tiempo real en la ciudad del perfil. Si falla, la causa concreta ("No hay conexión para
+    el tiempo", "...está saturado...") o TIEMPO_NO_CONFIGURADO si no hay ciudad."""
     try:
         return consultar_tiempo()[1]
     except Exception:

@@ -7,8 +7,10 @@ Cada valor sale, por este orden:
   3. del valor de respaldo, genérico: la carpeta personal de Windows (~), su Descargas y
      /home/<usuario de Windows> en WSL. Ningún usuario concreto escrito en el código.
 
-Lo mismo para el perfil (perfil()): nombre, descripción, usuario de GitHub, webs propias…
-Entorno > "perfil" de rutas.json > vacío. Son datos del usuario, no del código.
+Lo mismo para el perfil (perfil()): nombre, saludo, ciudad y coordenadas del tiempo, descripción,
+usuario de GitHub, webs propias y proyectos del operador. Entorno > "perfil" de rutas.json >
+vacío (saludo sin nombre, sin ciudad ni tiempo, y como proyecto solo este repo). Son datos del
+usuario, no del código.
 
 La carpeta de secretos solo se configura por entorno (JARVIS_SECRETOS): rutas.json vive dentro.
 La carpeta del código es siempre la de este archivo.
@@ -34,6 +36,12 @@ CLAVES = {
 # Perfil: clave -> variable de entorno
 PERFIL = {
     "nombre":           "JARVIS_NOMBRE",            # cómo te llama JARVIS («Hasta luego, …»)
+    "saludo":           "JARVIS_SALUDO",            # cómo te llama en el saludo («Buenos días, …»)
+    "ciudad":           "JARVIS_CIUDAD",            # el tiempo y el prompt («En … hay 20 grados»)
+    "provincia":        "JARVIS_PROVINCIA",
+    "pais":             "JARVIS_PAIS",
+    "latitud":          "JARVIS_LATITUD",           # coordenadas del tiempo (Open-Meteo)
+    "longitud":         "JARVIS_LONGITUD",
     "nombre_completo":  "JARVIS_NOMBRE_COMPLETO",   # para el system prompt
     "descripcion":      "JARVIS_DESCRIPCION",       # una línea sobre ti para el system prompt
     "github_usuario":   "JARVIS_GITHUB_DUENIO",     # dueño de los repos escritos sin «dueño/»
@@ -108,7 +116,26 @@ def perfil(clave):
         return del_entorno
     datos = _archivo().get("perfil")
     v = datos.get(clave) if isinstance(datos, dict) else None
+    if clave in ("latitud", "longitud") and isinstance(v, (int, float)) and not isinstance(v, bool):
+        return repr(v)
     return v.strip() if isinstance(v, str) else ""
+
+
+def ubicacion(con_pais=True):
+    """«Ciudad, provincia, país» del perfil (sin las partes vacías), o "" sin ciudad."""
+    if not perfil("ciudad"):
+        return ""
+    partes = ("ciudad", "provincia", "pais") if con_pais else ("ciudad", "provincia")
+    return ", ".join(p for p in (perfil(c) for c in partes) if p)
+
+
+def coordenadas():
+    """(latitud, longitud) del perfil, o None si faltan o no son válidas: sin ellas no hay tiempo."""
+    try:
+        lat, lon = float(perfil("latitud")), float(perfil("longitud"))
+    except ValueError:
+        return None
+    return (lat, lon) if -90 <= lat <= 90 and -180 <= lon <= 180 else None
 
 
 def descargas():
@@ -143,14 +170,20 @@ def wsl_ruta(*partes):
 
 
 def proyectos():
-    """Alias del operador -> carpeta. "proyectos" en rutas.json sustituye a estos por completo."""
-    propios = _archivo().get("proyectos")
-    if isinstance(propios, dict) and propios and all(isinstance(v, str) for v in propios.values()):
-        return dict(propios)
-    return {
-        "jarvis":     RAIZ,
-        "authority":  wsl_unc("AuthorityEngine"),
-        "java-labs":  wsl_unc("Java-Production-Labs"),
-        "dam":        wsl_unc("DAM-Java-Mastery"),
-        "vibe-guard": wsl_unc("vibe-guard"),
-    }
+    """Alias del operador -> carpeta: "jarvis" (este repo) y los de "proyectos" del perfil de
+    rutas.json, donde "wsl:<carpeta>" es una carpeta del home de WSL. Sin perfil, solo "jarvis".
+    Un "proyectos" fuera del perfil (formato anterior) sigue valiendo y sustituye a la lista entera."""
+    def valido(d):
+        return isinstance(d, dict) and d and all(isinstance(k, str) and isinstance(v, str) and v.strip()
+                                                 for k, v in d.items())
+    antiguos = _archivo().get("proyectos")
+    if valido(antiguos):
+        return dict(antiguos)
+    lista = {"jarvis": RAIZ}
+    datos = _archivo().get("perfil")
+    propios = datos.get("proyectos") if isinstance(datos, dict) else None
+    if valido(propios):
+        for alias, ruta in propios.items():
+            ruta = ruta.strip()
+            lista[alias] = wsl_unc(ruta[4:]) if ruta.lower().startswith("wsl:") else ruta
+    return lista

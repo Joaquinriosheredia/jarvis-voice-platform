@@ -446,25 +446,34 @@ Ningún archivo del código escribe rutas de este equipo: todas salen de `rutas.
 | Escritorio (zona de archivos permitida) | `JARVIS_ESCRITORIO` | `escritorio` | `<perfil>\Desktop` |
 | VLC | `JARVIS_VLC` | `vlc` | `C:\Program Files\VideoLAN\VLC\vlc.exe` |
 | Distribución y home de WSL (proyectos del operador, AuthorityEngine) | `JARVIS_WSL_DISTRO`, `JARVIS_WSL_HOME` | `wsl_distro`, `wsl_home` | `Ubuntu`, `/home/<usuario de Windows>` |
-| Proyectos del operador | — | `proyectos`: `{"alias": "ruta"}` sustituye la lista entera | `jarvis` = carpeta del código; el resto, en WSL |
+| Proyectos del operador | — | `proyectos` dentro de `"perfil"` (ver abajo) | solo `jarvis` = carpeta del código |
 
 **Rutas que no dependen de la configuración:**
 - La carpeta del código, la voz de Piper, `memoria.json` y `logs/` salen siempre de donde esté clonado el repo.
 - `app/start.vbs` también deduce la carpeta del repo de su propia ubicación.
 
-**Perfil.** Los datos del usuario tampoco están en el código. Salen de una variable de entorno o del bloque `"perfil"` de `rutas.json`; si no hay ninguno, quedan vacíos y JARVIS no usa nombre:
+**Perfil.** Los datos del usuario tampoco están en el código. Salen de una variable de entorno o del bloque `"perfil"` de `rutas.json`; si no hay ninguno, los valores son neutros: saludo sin nombre («Buenos días.»), sin ciudad (el tiempo queda desactivado y el briefing lo omite; si lo pides, JARVIS dice que ejecutes `configurar.py`) y como único proyecto del operador este repo (`jarvis`). `configurar.py` pregunta, de forma opcional, cómo quieres que te llame y tu ciudad, y busca sus coordenadas en el geocodificador gratuito de Open-Meteo (sin clave); te deja elegir entre las ciudades que encuentre y, si no encuentra ninguna o no hay red, guarda la ciudad sin coordenadas y el tiempo sigue desactivado. Nunca sustituye lo que ya haya en el perfil.
 
 | Dato | Variable | En `"perfil"` |
 |---|---|---|
-| Cómo te llama («Hasta luego, Ana») | `JARVIS_NOMBRE` | `nombre` |
+| Cómo te llama en el saludo («Buenos días, Ana») | `JARVIS_SALUDO` | `saludo` |
+| Cómo te llama al despedirse («Hasta luego, Ana») | `JARVIS_NOMBRE` | `nombre` |
+| Ciudad del tiempo y del prompt («En Málaga hay 20 grados»), con provincia y país opcionales | `JARVIS_CIUDAD`, `JARVIS_PROVINCIA`, `JARVIS_PAIS` | `ciudad`, `provincia`, `pais` |
+| Coordenadas del tiempo (sin ellas, el tiempo está desactivado) | `JARVIS_LATITUD`, `JARVIS_LONGITUD` | `latitud`, `longitud` (números) |
+| Proyectos del operador, además de `jarvis`. `"wsl:<carpeta>"` es una carpeta de tu home de WSL | — | `proyectos`: `{"alias": "ruta"}` |
 | Nombre completo y una línea sobre ti (prompt de sistema) | `JARVIS_NOMBRE_COMPLETO`, `JARVIS_DESCRIPCION` | `nombre_completo`, `descripcion` |
 | Dueño de GitHub de los repos sin `dueño/` | `JARVIS_GITHUB_DUENIO` | `github_usuario` |
 | Webs propias («abre github», «abre el portfolio») | `JARVIS_WEB_GITHUB`, `JARVIS_WEB_PORTFOLIO` | `web_github`, `web_portfolio` |
 | Bucket S3 de AuthorityEngine | `JARVIS_AUTHORITY_BUCKET` | `bucket_authority` |
 
 ```json
-{"descargas": "D:\\Descargas", "perfil": {"nombre": "Ana", "github_usuario": "ana-dev"}}
+{"descargas": "D:\\Descargas",
+ "perfil": {"saludo": "Ana", "nombre": "Ana", "github_usuario": "ana-dev",
+            "ciudad": "Málaga", "provincia": "Málaga", "pais": "España", "latitud": 36.7202, "longitud": -4.4203,
+            "proyectos": {"web": "C:\\code\\web", "api": "wsl:proyectos/api"}}}
 ```
+
+Un `"proyectos"` fuera de `"perfil"` (el formato anterior) sigue valiendo y sustituye a la lista entera, `jarvis` incluido.
 
 `doctor.py` muestra cada carpeta, de dónde sale (entorno, `rutas.json` o respaldo) y si existe. Las rutas se leen al arrancar, así que un cambio necesita reiniciar JARVIS.
 
@@ -666,7 +675,7 @@ tests/               tests unitarios y evals (test_evals.py)
 - Lo que dices, lo que leen las tools (emails, archivos) y las capturas confirmadas se envían a la API de Anthropic cuando el router elige Claude. La privacidad del TTS y del log no cambia eso.
 - Con streaming, la voz empieza cuando Claude termina la respuesta, no durante la generación: es el precio de no decir nunca texto de una iteración que acabe usando tools.
 - El coste del log es una estimación con precios fijos en `metrics.py` y no se concilia con la factura real.
-- Un solo usuario por instalación. Las rutas, el perfil y los proyectos se configuran (ver [Rutas](#rutas)), pero tres cosas siguen fijas en el código para su autor: el saludo del briefing («señor Ríos»), la ubicación del tiempo y del prompt de sistema (Los Corrales, Sevilla), y los proyectos del operador por defecto, que son los suyos en WSL mientras no definas `"proyectos"` en `rutas.json`.
+- Un solo usuario por instalación (un perfil en `rutas.json`).
 
 ## Licencia
 

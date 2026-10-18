@@ -91,12 +91,15 @@ class TestOrden(Base):
         self.assertEqual(rutas.descargas(), r"C:\x")
 
     def test_proyectos(self):
-        self.assertEqual(rutas.proyectos()["jarvis"], rutas.RAIZ)
-        self.assertEqual(rutas.proyectos()["dam"], "\\\\wsl.localhost\\Ubuntu\\home\\prueba\\DAM-Java-Mastery")
+        self.assertEqual(rutas.proyectos(), {"jarvis": rutas.RAIZ})   # sin perfil: solo este repo
+        self.archivo({"perfil": {"proyectos": {"dam": "wsl:DAM-Java-Mastery", "web": r"C:\code\web"}}})
+        self.assertEqual(rutas.proyectos(), {"jarvis": rutas.RAIZ,
+                                             "dam": "\\\\wsl.localhost\\Ubuntu\\home\\prueba\\DAM-Java-Mastery",
+                                             "web": r"C:\code\web"})
         os.environ["JARVIS_WSL_HOME"] = "/home/ana/"
         os.environ["JARVIS_WSL_DISTRO"] = "Debian"
-        self.assertEqual(rutas.proyectos()["authority"], "\\\\wsl.localhost\\Debian\\home\\ana\\AuthorityEngine")
-        self.archivo({"proyectos": {"web": r"C:\code\web"}})
+        self.assertEqual(rutas.proyectos()["dam"], "\\\\wsl.localhost\\Debian\\home\\ana\\DAM-Java-Mastery")
+        self.archivo({"proyectos": {"web": r"C:\code\web"}})   # formato anterior: sustituye la lista
         self.assertEqual(rutas.proyectos(), {"web": r"C:\code\web"})
 
 

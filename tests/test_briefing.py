@@ -180,20 +180,20 @@ class TestComposicion(Base):
         def rota():
             raise RuntimeError("x")
         texto = briefing.generar({"agenda": rota, "tiempo": lambda: "Sevilla, 20 grados."}, hora=9)
-        self.assertEqual(texto, "Buenos días, señor Ríos. Sevilla, 20 grados. ¿Qué puedo hacer por usted hoy?")
+        self.assertEqual(texto, "Buenos días. Sevilla, 20 grados. ¿Qué puedo hacer por usted hoy?")
 
     def test_orden_de_prioridad_de_las_fuentes(self):
         self.assertEqual(briefing.PRIORIDAD, ("agenda", "github", "emails", "tareas", "tiempo"))
         fuentes = {k: (lambda k=k: f"{k}.") for k in reversed(briefing.PRIORIDAD)}
         self.assertEqual(briefing.generar(fuentes, hora=9),
-                         "Buenos días, señor Ríos. agenda. github. emails. tareas. ¿Qué puedo hacer por usted hoy?")
+                         "Buenos días. agenda. github. emails. tareas. ¿Qué puedo hacer por usted hoy?")
 
 
 # ── Fuentes reales con mocks ──────────────────────────────────────
 class TestFuentes(Base):
     def fuentes(self, resultados=None, eventos=(True, [{"hora": "09:30", "titulo": "Daily"}])):
         sistema = MagicMock()
-        sistema.tiempo_sevilla.return_value = "Sevilla, 20 grados"
+        sistema.tiempo_local.return_value = "Sevilla, 20 grados"
         self.emails = MagicMock(return_value="Tienes un email.")
         self.cal = patch.object(calendario, "eventos_hoy", return_value=eventos)
         self.cal_mock = self.cal.start()
@@ -203,7 +203,7 @@ class TestFuentes(Base):
     def test_briefing_completo(self):
         with patch.object(requests, "get", side_effect=api({"/pulls": (200, []), "/actions/runs": (200, RUN_ROJO)})):
             texto = briefing.generar(self.fuentes(), hora=8)
-        self.assertEqual(texto, "Buenos días, señor Ríos. Hoy tiene Daily a las 09:30. En GitHub, el último CI ha "
+        self.assertEqual(texto, "Buenos días. Hoy tiene Daily a las 09:30. En GitHub, el último CI ha "
                                 "fallado en jarvis-voice-platform. Tienes un email. Tiene 2 tareas pendientes. "
                                 "¿Qué puedo hacer por usted hoy?")
 
@@ -284,7 +284,7 @@ class TestBrain(Base):
 
     def test_desde_skills_usa_la_memoria_de_tareas_y_no_la_de_sesiones(self):
         sistema = MagicMock()
-        sistema.tiempo_sevilla.return_value = "Sevilla, 20 grados"
+        sistema.tiempo_local.return_value = "Sevilla, 20 grados"
         with patch.object(calendario, "eventos_hoy", return_value=(True, [])), \
              patch.object(github, "estado", return_value={"repos": [], "causa": None}), \
              patch("memoria_sesiones.recordar", side_effect=AssertionError("memoria entre sesiones")), \
@@ -302,7 +302,7 @@ class TestConfiguracion(Base):
         with patch.dict(os.environ, {"JARVIS_BRIEFING": "0"}):
             self.assertFalse(briefing.activado())
             self.assertEqual(briefing.generar({}, "Aviso.", hora=21),
-                             "Buenas noches, señor Ríos. Aviso. ¿Qué puedo hacer por usted hoy?")
+                             "Buenas noches. Aviso. ¿Qué puedo hacer por usted hoy?")
 
     def test_disponible(self):
         self.assertTrue(briefing.disponible("gmail", None))

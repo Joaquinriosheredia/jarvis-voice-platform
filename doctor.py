@@ -615,13 +615,17 @@ def check_live_token_contactos():
 
 def check_tiempo():
     from skills import sistema
-    host = sistema.URL_TIEMPO.split("/")[2]
-    return resultado(OK, f"{host} (no verificado; doctor.py --live lo consulta)")
+    if not sistema.tiempo_configurado():
+        return resultado(OK, "Tiempo desactivado: no hay ciudad ni coordenadas en el perfil "
+                             "(opcional; configurar.py las pide)")
+    return resultado(OK, f"{sistema.HOST_TIEMPO} (no verificado; doctor.py --live lo consulta)")
 
 
 def check_live_tiempo():
     """Consulta real del tiempo, con el mismo reintento y las mismas causas que el briefing."""
     from skills import sistema
+    if not sistema.tiempo_configurado():
+        return resultado(OK, "Tiempo desactivado (sin ciudad en el perfil): no hay nada que consultar")
     ok, texto, causa = sistema.consultar_tiempo()
     if ok:
         return resultado(OK, "Servicio del tiempo: respuesta correcta")

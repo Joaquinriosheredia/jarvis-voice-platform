@@ -9,10 +9,14 @@
   conserva el resto; si no, parte de la plantilla env.example. Escritura atómica.
 - Deja el .env solo para el usuario actual (DACL protegida con una sola entrada: su SID).
 - Idempotente: si ya hay una clave, pregunta antes de sustituirla (por defecto, no).
+- Opcional: cómo quieres que te llame y tu ciudad (sus coordenadas, con el geocodificador
+  gratuito de Open-Meteo, sin clave), en el "perfil" de rutas.json. Nunca sustituye lo que ya
+  haya; si no encuentra la ciudad, la guarda sin coordenadas y el tiempo queda desactivado.
 
 Nunca imprime ni registra la clave, ni un trozo: como mucho, su longitud.
 """
 import getpass
+import json
 import os
 import re
 import subprocess
@@ -191,7 +195,115 @@ def _pedir_clave(pedir, preguntar, validar_):
     return None
 
 
-def main(pedir=getpass.getpass, preguntar=input, validar_=validar):
+URL_GEOCODIFICAR = "https://geocoding-api.open-meteo.com/v1/search"
+MAX_CIUDADES     = 5
+
+
+def geocodificar(ciudad):
+    """[{"ciudad", "provincia", "pais", "latitud", "longitud"}] de Open-Meteo (sin clave), o None
+    si no se puede consultar (sin red, error del servicio)."""
+    import requests
+    try:
+        r = requests.get(URL_GEOCODIFICAR, params={"name": ciudad, "count": MAX_CIUDADES, "language": "es",
+                                                   "format": "json"}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            return None
+        resultados = r.json().get("results") or []
+    except Exception:
+        return None
+    lugares = []
+    for x in resultados[:MAX_CIUDADES]:
+        try:
+            provincia = re.sub(r"^(Provincia de|Province of)\s+", "", str(x.get("admin2") or x.get("admin1") or ""))
+            lugares.append({"ciudad": str(x["name"]), "provincia": provincia,
+                            "pais": str(x.get("country") or ""), "latitud": round(float(x["latitude"]), 4),
+                            "longitud": round(float(x["longitude"]), 4)})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return lugares
+
+
+def leer_rutas(ruta):
+    try:
+        with open(ruta, encoding="utf-8-sig") as f:
+            datos = json.load(f)
+        return datos if isinstance(datos, dict) else None
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError):
+        return None   # dañado: no se toca
+
+
+def escribir_rutas(ruta, datos):
+    carpeta = os.path.dirname(ruta)
+    os.makedirs(carpeta, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".rutas-", suffix=".tmp", dir=carpeta)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(datos, ensure_ascii=False, indent=2) + "\n")
+        os.replace(tmp, ruta)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _nombre_lugar(lugar):
+    return ", ".join(p for p in (lugar["ciudad"], lugar["provincia"], lugar["pais"]) if p)
+
+
+def configurar_perfil(preguntar=input, geocodificar_=geocodificar, ruta=None):
+    """Pregunta (opcional) cómo llamarte y tu ciudad y lo añade al perfil de rutas.json sin
+    sustituir nada. Devuelve las claves añadidas."""
+    ruta = ruta or rutas.en_secretos(rutas.ARCHIVO)
+    datos = leer_rutas(ruta)
+    if datos is None:
+        print(f"Aviso: {ruta} no es un JSON válido; no se toca. Corrígelo y vuelve a ejecutar configurar.py.")
+        return []
+    perfil = datos.get("perfil") if isinstance(datos.get("perfil"), dict) else {}
+    nuevo = {}
+    print("\nPerfil (opcional; Intro para omitir cada pregunta):")
+    if perfil.get("saludo"):
+        print("  El saludo ya está configurado: no se cambia.")
+    else:
+        nombre = " ".join((preguntar("  ¿Cómo quieres que te llame? (p. ej. Ana): ") or "").split())[:60]
+        if nombre:
+            nuevo["saludo"] = nombre
+            if not perfil.get("nombre"):
+                nuevo["nombre"] = nombre
+    if perfil.get("ciudad"):
+        print("  La ciudad ya está configurada: no se cambia.")
+    else:
+        ciudad = " ".join((preguntar("  ¿En qué ciudad estás? Sirve para el tiempo: ") or "").split())[:80]
+        if ciudad:
+            lugares = geocodificar_(ciudad)
+            elegido = None
+            if lugares:
+                for i, lugar in enumerate(lugares, 1):
+                    print(f"    {i}. {_nombre_lugar(lugar)}")
+                eleccion = (preguntar("  ¿Cuál es? (número, Intro = 1, 0 = ninguna): ") or "1").strip()
+                if eleccion.isdigit() and 1 <= int(eleccion) <= len(lugares):
+                    elegido = lugares[int(eleccion) - 1]
+            if elegido:
+                nuevo.update(elegido)
+                print(f"  Tiempo de {_nombre_lugar(elegido)}.")
+            else:
+                nuevo["ciudad"] = ciudad
+                motivo = ("no hay conexión con el servicio de coordenadas" if lugares is None
+                          else "no he encontrado sus coordenadas")
+                print(f"  Guardo la ciudad, pero {motivo}: el tiempo queda desactivado. Puedes añadir "
+                      "latitud y longitud al perfil de rutas.json o volver a ejecutar configurar.py.")
+    if not nuevo:
+        return []
+    datos["perfil"] = {**perfil, **{k: v for k, v in nuevo.items() if k not in perfil}}
+    escribir_rutas(ruta, datos)
+    print(f"  Perfil guardado en {ruta}.")
+    return sorted(k for k in nuevo if k not in perfil)
+
+
+def main(pedir=getpass.getpass, preguntar=input, validar_=validar, geocodificar_=geocodificar):
     ruta = ruta_env()
     print(f"Configuración de JARVIS. Archivo de claves: {ruta}")
     lineas = leer_lineas(ruta)
@@ -225,6 +337,7 @@ def main(pedir=getpass.getpass, preguntar=input, validar_=validar):
     if guardada and del_entorno and del_entorno != guardada:
         print(f"Aviso: la variable de entorno {CLAVE} de Windows tiene otro valor y manda sobre el .env. "
               "Bórrala o actualízala en las variables de entorno de tu usuario.")
+    configurar_perfil(preguntar, geocodificar_)
     print(SERVICIOS)
     return 0 if guardada else 1
 

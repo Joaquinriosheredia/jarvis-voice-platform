@@ -8,6 +8,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Añadido**
 
+- Saludo, ciudad y coordenadas del tiempo, ubicación del prompt y proyectos del operador en el perfil de rutas.json, con valores neutros sin perfil; configurar.py los pregunta (opcional) con geocodificación sin clave y sin sobrescribir nada
 - `doctor.py --reporte`: informe para pegar en un issue (versiones, comprobaciones y firmas de los últimos errores), sin claves, direcciones, rutas personales ni texto de turnos
 - Asistente de configuración (configurar.py), que instalar.cmd ofrece al final: clave de Anthropic sin mostrarla, validada y en el .env con permisos solo para el usuario
 

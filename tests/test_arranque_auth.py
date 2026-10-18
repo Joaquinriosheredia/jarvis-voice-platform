@@ -52,7 +52,7 @@ class Base(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         jarvis.audio.reset_mock()
-        jarvis.sistema.tiempo_sevilla.return_value = "Sevilla, 20 grados"
+        jarvis.sistema.tiempo_local.return_value = "Sevilla, 20 grados"
         jarvis.mem.tareas_vencidas.return_value = []
         jarvis.mem.tareas_pendientes.return_value = []
         # El briefing nunca toca Calendar ni GitHub de verdad en los tests

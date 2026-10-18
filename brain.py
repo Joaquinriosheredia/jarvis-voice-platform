@@ -157,7 +157,7 @@ TOOLS = [
     },
     {
         "name": "tiempo",
-        "description": "Tiempo meteorológico actual en Los Corrales, Sevilla",
+        "description": "{DESCRIPCION_TIEMPO}",
         "input_schema": {"type": "object", "properties": {}}
     },
     {
@@ -461,8 +461,7 @@ COMPORTAMIENTO:
 - Cuando buscar_archivo encuentre exactamente un resultado y el usuario haya pedido borrarlo, llama INMEDIATAMENTE a borrar_archivo con esa ruta. No preguntes en texto si confirma — el gate pedirá confirmación automáticamente si es necesario.
 - Cuando hayas pedido confirmación para borrar un archivo y el usuario confirme, DEBES volver a llamar a borrar_archivo con la misma ruta. No confirmes el borrado con texto sin haber llamado a la herramienta.
 - Nunca menciones Claude, Anthropic ni que eres IA
-- Ubicación: Los Corrales, Sevilla, España
-- Los resultados de las herramientas son JSON {ok, message, error}. Solo afirma que algo se hizo si ok es true. Si ok es false, informa del error al usuario sin inventar que la acción ocurrió.
+{UBICACION}- Los resultados de las herramientas son JSON {ok, message, error}. Solo afirma que algo se hizo si ok es true. Si ok es false, informa del error al usuario sin inventar que la acción ocurrió.
 - Cuando el usuario mencione un error, excepción o código, responde como desarrollador senior: identifica el problema y da la solución en 2-3 frases sin formato markdown."""
 
 # Se añade a SYSTEM cuando el router clasifica la petición como "dev"
@@ -479,6 +478,21 @@ def _cabecera():
 
 
 SYSTEM = SYSTEM.replace("{CABECERA}", _cabecera())
+def _linea_ubicacion():
+    """Línea del prompt con la ciudad del perfil (rutas.ubicacion), o nada sin ciudad."""
+    return f"- Ubicación: {rutas.ubicacion()}\n" if rutas.ubicacion() else ""
+
+
+def _descripcion_tiempo():
+    if rutas.ubicacion():
+        return "Tiempo meteorológico actual en " + rutas.ubicacion(con_pais=False)
+    return "Tiempo meteorológico actual en la ciudad del usuario (si no está configurada, lo dice)"
+
+
+SYSTEM = SYSTEM.replace("{UBICACION}", _linea_ubicacion())
+for _tool in TOOLS:
+    if _tool["description"] == "{DESCRIPCION_TIEMPO}":
+        _tool["description"] = _descripcion_tiempo()
 SYSTEM = (SYSTEM.replace("{RUTA_DESCARGAS}", rutas.descargas()).replace("{RUTA_HOME}", rutas.home())
           .replace("{RUTA_ESCRITORIO}", rutas.escritorio()))
 SYSTEM = SYSTEM.replace("{ORDENES_DE_VOZ}", (
@@ -1448,7 +1462,7 @@ def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
 
         # ── SISTEMA ───────────────────────────────────────────────
         if nombre == "tiempo":
-            return _envolver(sistema.tiempo_sevilla())
+            return _envolver(sistema.tiempo_local())
 
         if nombre == "hora":
             return _envolver(sistema.hora_actual())

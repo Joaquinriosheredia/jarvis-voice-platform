@@ -554,7 +554,7 @@ def _skills(reg, contenido):
                set_volumen=lambda v: reg.efecto("volumen", valor=v))
     authority = NS(siguiente_racha=lambda: (reg.efecto("siguiente_racha"), "Lanzando racha sobre x")[1],
                    estado_global=lambda: "ok")
-    sistema = NS(tiempo_sevilla=lambda: "Soleado", hora_actual=lambda: "10:00", fecha_actual=lambda: "hoy",
+    sistema = NS(tiempo_local=lambda: "Soleado", hora_actual=lambda: "10:00", fecha_actual=lambda: "hoy",
                  estado_completo=lambda: "ok")
     return {"gmail": gmail, "webs": webs, "tareas": tareas, "musica": musica, "audio": audio,
             "authority": authority, "sistema": sistema, "memoria": {}}

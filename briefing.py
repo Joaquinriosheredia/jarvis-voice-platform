@@ -14,6 +14,7 @@ import os
 import re
 from datetime import datetime
 
+import rutas
 from skills import calendario, github
 
 MAX_FRASES  = 6
@@ -27,6 +28,7 @@ PRIORIDAD   = ("agenda", "github", "emails", "tareas", "tiempo")
 autorizacion = None
 
 _github_avisado = False   # el fallo de GitHub se dice una vez por sesión
+_tiempo_avisado = False   # el tiempo sin configurar se registra una vez por sesión
 
 
 def activado():
@@ -43,7 +45,8 @@ def disponible(servicio, resultados=None):
 def saludo(hora=None):
     hora = datetime.now().hour if hora is None else hora
     momento = "Buenos días" if hora < 12 else ("Buenas tardes" if hora < 20 else "Buenas noches")
-    return f"{momento}, señor Ríos."
+    nombre = rutas.perfil("saludo")   # cómo te llama en el saludo; sin perfil, sin nombre
+    return f"{momento}, {nombre}." if nombre else f"{momento}."
 
 
 def contar_frases(texto):
@@ -108,6 +111,18 @@ def frase_github():
     return github.frase(datos)
 
 
+def frase_tiempo(sistema):
+    """El tiempo de la ciudad del perfil. Sin ciudad se omite en silencio y queda en el registro."""
+    global _tiempo_avisado
+    configurado = getattr(sistema, "tiempo_configurado", None)
+    if callable(configurado) and not configurado():
+        if not _tiempo_avisado:
+            _tiempo_avisado = True
+            print("[BRIEFING] tiempo no configurado (sin ciudad en el perfil): se omite")
+        return ""
+    return sistema.tiempo_local() + "."
+
+
 def _enumerar(items):
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " y " + items[-1]
 
@@ -149,7 +164,7 @@ def fuentes(sistema, emails, tareas_vencidas, tareas_pendientes, resultados=None
     f = {
         "github": frase_github,
         "tareas": lambda: frase_tareas(tareas_vencidas(), tareas_pendientes()),
-        "tiempo": lambda: sistema.tiempo_sevilla() + ".",
+        "tiempo": lambda: frase_tiempo(sistema),
     }
     if disponible("calendar", resultados):
         f["agenda"] = agenda

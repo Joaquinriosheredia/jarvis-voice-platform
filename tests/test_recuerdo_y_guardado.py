@@ -445,6 +445,10 @@ class TestTiempo(unittest.TestCase):
         p = patch.object(sistema.time, "sleep")
         self.sleep = p.start()
         self.addCleanup(p.stop)
+        p = patch.dict(os.environ, {"JARVIS_CIUDAD": "Villaprueba", "JARVIS_LATITUD": "37.5",
+                                    "JARVIS_LONGITUD": "-5.25"})
+        p.start()
+        self.addCleanup(p.stop)
 
     def consultar(self, *respuestas):
         with patch.object(sistema.req, "get", side_effect=list(respuestas)) as get:
@@ -483,11 +487,11 @@ class TestTiempo(unittest.TestCase):
             (ok, _, c), n = self.consultar(respuesta)
             self.assertEqual((ok, c, n), (False, causa, 1), causa)
 
-    def test_tiempo_sevilla_nunca_lanza_ni_da_el_mensaje_generico(self):
+    def test_tiempo_local_nunca_lanza_ni_da_el_mensaje_generico(self):
         with patch.object(sistema.req, "get", side_effect=sistema.req.exceptions.ConnectionError("x")):
-            self.assertEqual(sistema.tiempo_sevilla(), "No hay conexión para el tiempo")
+            self.assertEqual(sistema.tiempo_local(), "No hay conexión para el tiempo")
         with patch.object(sistema, "consultar_tiempo", side_effect=RuntimeError):
-            self.assertNotIn("No puedo obtener el tiempo ahora mismo", sistema.tiempo_sevilla())
+            self.assertNotIn("No puedo obtener el tiempo ahora mismo", sistema.tiempo_local())
 
     def test_el_briefing_dice_la_causa(self):
         with patch.object(sistema.req, "get", side_effect=sistema.req.exceptions.ConnectionError("x")):
