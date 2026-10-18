@@ -181,11 +181,22 @@ class TestPermisos(unittest.TestCase):
     def test_solo_el_usuario_actual(self):
         with tempfile.TemporaryDirectory() as d:
             ruta = os.path.join(d, ".env")
+            # Con entradas explícitas de otros (como las de SYSTEM y Administradores que trae un
+            # archivo creado desde una consola elevada): también se quitan
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write("x")
+            subprocess.run(["icacls", ruta, "/grant", "*S-1-5-32-545:R", "*S-1-1-0:R"], capture_output=True)
+            antes = subprocess.run(["icacls", ruta], capture_output=True, text=True).stdout
+            self.assertGreater(len([l for l in antes.splitlines() if ":(" in l]), 2, antes)
+            self.assertTrue(configurar.restringir(ruta))
+            acl = subprocess.run(["icacls", ruta], capture_output=True, text=True).stdout
+            self.assertEqual(len([l for l in acl.splitlines() if ":(" in l]), 1, acl)
             configurar.escribir(ruta, [f"ANTHROPIC_API_KEY={clave_falsa()}"])
             acl = subprocess.run(["icacls", ruta], capture_output=True, text=True).stdout
             entradas = [l for l in acl.splitlines() if ":(" in l]
             self.assertEqual(len(entradas), 1, acl)
             self.assertIn(os.environ["USERNAME"].lower(), entradas[0].lower())
+            self.assertNotIn("(I)", acl)   # sin herencia
             self.assertIn("(F)", entradas[0])
             self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])   # sin restos
 

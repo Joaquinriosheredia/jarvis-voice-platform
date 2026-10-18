@@ -7,7 +7,7 @@
 - La valida con una llamada mínima y sin coste (la lista de modelos) antes de guardarla.
 - La escribe en <carpeta de secretos>\\.env: si el archivo existe, cambia solo esa línea y
   conserva el resto; si no, parte de la plantilla env.example. Escritura atómica.
-- Deja el .env solo para el usuario actual (icacls: sin herencia, control total al usuario).
+- Deja el .env solo para el usuario actual (DACL protegida con una sola entrada: su SID).
 - Idempotente: si ya hay una clave, pregunta antes de sustituirla (por defecto, no).
 
 Nunca imprime ni registra la clave, ni un trozo: como mucho, su longitud.
@@ -81,19 +81,50 @@ def con_clave(lineas, valor):
     return nuevas
 
 
+def _sid_usuario():
+    """SID del usuario actual (S-1-5-...), sin depender del idioma de Windows."""
+    r = subprocess.run(["whoami", "/user", "/fo", "csv", "/nh"], capture_output=True, text=True, timeout=30)
+    m = re.search(r'"(S-1-[0-9-]+)"', r.stdout)
+    return m.group(1) if m else None
+
+
 def restringir(ruta):
-    """Solo el usuario actual puede leer y escribir el archivo. True si se ha podido."""
+    """Solo el usuario actual puede leer y escribir el archivo: DACL protegida (sin herencia) con
+    una sola entrada. Sustituye también las entradas explícitas que traiga el archivo (p. ej. las
+    de SYSTEM y Administradores con una consola elevada). True si se ha podido."""
     if os.name != "nt":
         os.chmod(ruta, 0o600)
         return True
-    usuario = os.environ.get("USERNAME", "")
-    dominio = os.environ.get("USERDOMAIN", "")
-    if not usuario:
+    import ctypes
+    from ctypes import wintypes
+    sid = _sid_usuario()
+    if not sid:
         return False
-    cuenta = f"{dominio}\\{usuario}" if dominio else usuario
-    r = subprocess.run(["icacls", ruta, "/inheritance:r", "/grant:r", f"{cuenta}:F"],
-                       capture_output=True, text=True, timeout=30)
-    return r.returncode == 0
+    advapi, kernel = ctypes.windll.advapi32, ctypes.windll.kernel32
+    advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
+    advapi.GetSecurityDescriptorDacl.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(wintypes.BOOL), ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.BOOL)]
+    advapi.SetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_void_p, ctypes.c_void_p]
+    advapi.SetNamedSecurityInfoW.restype = wintypes.DWORD
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    sd = ctypes.c_void_p()
+    if not advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW(f"D:P(A;;FA;;;{sid})", 1,
+                                                                        ctypes.byref(sd), None):
+        return False
+    try:
+        presente, por_defecto, dacl = wintypes.BOOL(), wintypes.BOOL(), ctypes.c_void_p()
+        if not advapi.GetSecurityDescriptorDacl(sd, ctypes.byref(presente), ctypes.byref(dacl),
+                                                ctypes.byref(por_defecto)):
+            return False
+        SE_FILE_OBJECT, DACL, PROTEGIDA = 1, 0x4, 0x80000000
+        return advapi.SetNamedSecurityInfoW(ruta, SE_FILE_OBJECT, DACL | PROTEGIDA,
+                                            None, None, dacl, None) == 0
+    finally:
+        kernel.LocalFree(sd)
 
 
 def escribir(ruta, lineas):
