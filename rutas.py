@@ -211,11 +211,15 @@ def _del_perfil(clave):
 
 def authority():
     """AuthorityEngine del perfil: {"motor": carpeta con racha.py, generar_inventario.py y su venv,
-    "roadmap": repo de documentos con ROADMAP_TEMAS.md}, las dos relativas al home de WSL. None si
-    falta alguna o no es válida: entonces JARVIS no ofrece sus tools ni ejecuta nada."""
+    "roadmap": repo de documentos con ROADMAP_TEMAS.md, "historico": score_historico.json (por
+    defecto, el del motor, que es donde lo escribe AuthorityEngine)}, relativos al home de WSL.
+    None si falta motor o roadmap, o si algo no es válido: entonces sus tools no ejecutan nada."""
     datos = _del_perfil("authority")
     motor, roadmap = _relativa(datos.get("motor")), _relativa(datos.get("roadmap"))
-    return {"motor": motor, "roadmap": roadmap} if motor and roadmap else None
+    historico = _relativa(datos["historico"]) if "historico" in datos else f"{motor}/score_historico.json"
+    if not (motor and roadmap and historico):
+        return None
+    return {"motor": motor, "roadmap": roadmap, "historico": historico}
 
 
 def tests():

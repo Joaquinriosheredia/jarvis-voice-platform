@@ -1,8 +1,9 @@
 """AuthorityEngine (proyecto del autor, en WSL): rachas, inventario, documentos y scores.
 
-Las carpetas salen del perfil de rutas.json ("authority": "motor" y "roadmap", relativas al home
-de WSL). Sin ellas, ninguna función ejecuta nada (ni WSL, ni git, ni push, ni búsquedas): todas
-devuelven NO_CONFIGURADO, y brain no ofrece sus tools.
+Las carpetas salen del perfil de rutas.json ("authority": "motor", "roadmap" y, opcional,
+"historico"; relativas al home de WSL). El histórico lo escribe AuthorityEngine en WSL y se lee
+desde Windows por \\wsl.localhost. Sin perfil, ninguna función ejecuta nada (ni WSL, ni git, ni
+push, ni búsquedas): todas devuelven NO_CONFIGURADO, que el sistema dice tal cual.
 """
 import functools
 import re
@@ -31,7 +32,8 @@ def roadmap_wsl():
 
 
 def ruta_historico():
-    return Path.home() / config()["motor"] / "score_historico.json"
+    """score_historico.json en el home de WSL (lo escribe AuthorityEngine), visto desde Windows."""
+    return Path(rutas.wsl_unc(config()["historico"]))
 
 
 def repo_publico():
@@ -152,7 +154,7 @@ def resumen_scores():
                 f"Score medio {promedio}. "
                 f"Último: {ultimo.get('tema','?')} con {ultimo.get('score',0)} puntos.")
     except Exception as e:
-        return f"Error leyendo historial: {e}"
+        return f"Error leyendo historial: {type(e).__name__}"   # sin la ruta (lleva el usuario)
 
 @_configurado
 def progreso_semanal():
@@ -171,7 +173,7 @@ def progreso_semanal():
         return (f"Esta semana has generado {len(semana)} documentos "
                 f"con score medio de {promedio}.")
     except Exception as e:
-        return f"Error calculando progreso: {e}"
+        return f"Error calculando progreso: {type(e).__name__}"
 
 # ── GIT ───────────────────────────────────────────────────────────
 @_configurado

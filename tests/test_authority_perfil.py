@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace as NS
 from unittest.mock import MagicMock, patch
 
@@ -136,18 +137,38 @@ class TestConPerfil(Base):
         self.assertIn("/home/prueba/docs/repo-prueba/ROADMAP_TEMAS.md", bash[1])
         self.assertEqual(bash[2], "cd ~/MotorPrueba && source venv/bin/activate && python3 racha.py 'Tema uno'")
         self.assertIn("mv /tmp/roadmap_tmp.md /home/prueba/docs/repo-prueba/ROADMAP_TEMAS.md", bash[3])
-        self.assertEqual(str(authority.ruta_historico()),
-                         os.path.join(os.path.expanduser("~"), "MotorPrueba", "score_historico.json"))
 
-    def test_scores_del_historico_del_motor(self):
-        carpeta = os.path.join(self.dir.name, "MotorPrueba")
-        os.makedirs(carpeta)
-        with open(os.path.join(carpeta, "score_historico.json"), "w", encoding="utf-8") as f:
-            json.dump([{"tema": "Outbox", "score": 8, "fecha": "2026-01-01 10:00"}], f)
-        with patch.object(authority.Path, "home", return_value=authority.Path(self.dir.name)):
+    def test_el_historico_esta_en_wsl(self):
+        """AuthorityEngine lo escribe en su carpeta del home de WSL: por defecto, la del motor."""
+        self.assertEqual(str(authority.ruta_historico()),
+                         r"\\wsl.localhost\Ubuntu\home\prueba\MotorPrueba\score_historico.json")
+        self.perfil(dict(self.PERFIL, authority=dict(self.PERFIL["authority"], historico="datos/scores.json")))
+        self.assertEqual(str(authority.ruta_historico()), r"\\wsl.localhost\Ubuntu\home\prueba\datos\scores.json")
+        for malo in ("../fuera.json", "a b.json", ""):
+            self.perfil(dict(self.PERFIL, authority=dict(self.PERFIL["authority"], historico=malo)))
+            self.assertIsNone(rutas.authority(), malo)   # no válido: como sin perfil, no se lee nada
+            self.assertEqual(authority.resumen_scores(), authority.NO_CONFIGURADO)
+
+    def test_scores_del_historico(self):
+        ruta = os.path.join(self.dir.name, "score_historico.json")
+        reciente = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump([{"tema": "Outbox", "score": 8, "fecha": "2026-01-01 10:00"},
+                       {"tema": "Sagas", "score": 9, "fecha": reciente}], f)
+        with patch.object(authority.rutas, "wsl_unc", return_value=ruta) as unc:
             self.assertEqual(authority.resumen_scores(),
-                             "Tienes 1 documentos generados. Score medio 8.0. Último: Outbox con 8 puntos.")
-            self.assertEqual(authority.progreso_semanal(), "No has generado documentos esta semana")
+                             "Tienes 2 documentos generados. Score medio 8.5. Último: Sagas con 9 puntos.")
+            self.assertEqual(authority.progreso_semanal(), "Esta semana has generado 1 documentos con score medio de 9.0.")
+        unc.assert_called_with("MotorPrueba/score_historico.json")
+        self.assertEqual(self.procesos, [])   # solo lectura
+
+    def test_errores_sin_la_ruta(self):
+        ruta = os.path.join(self.dir.name, "score_historico.json")
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write("{dañado")
+        with patch.object(authority.rutas, "wsl_unc", return_value=ruta):
+            self.assertEqual(authority.resumen_scores(), "Error leyendo historial: JSONDecodeError")
+            self.assertEqual(authority.progreso_semanal(), "Error calculando progreso: JSONDecodeError")
 
     def test_anuncio_con_el_repo_del_perfil(self):
         anuncio = brain._anuncio_estricto("siguiente_racha", {})

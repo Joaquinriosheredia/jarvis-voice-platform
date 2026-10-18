@@ -16,6 +16,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Corregido**
 
+- «Cómo va AuthorityEngine» decía siempre que no había historial: leía score_historico.json de la carpeta de Windows y AuthorityEngine lo escribe en el home de WSL. La ruta sale del perfil (`authority.historico`, por defecto la carpeta del motor) y se lee por \\wsl.localhost; los errores de lectura ya no incluyen la ruta
 - Archivos de configuración y secretos con BOM UTF-8 (.env, rutas.json, tokens y credentials.json de Google, elevenlabs.json, vocabulario, memoria.json): se leen igual; antes un .env con BOM perdía la variable de su primera línea. `doctor.py` dice de dónde sale ANTHROPIC_API_KEY (entorno, .env o ninguno), si entorno y .env son iguales o distintas y si el .env tiene BOM
 - Primer arranque solo con la clave de Anthropic: lo no configurado (Gmail, Calendar, Contactos, GitHub) se omite del arranque en silencio, queda en el registro y, al pedirlo, se dice con el comando que lo arregla; sin errores en crudo, sin abrir el navegador de OAuth desde una tool y sin «nada pendiente» en GitHub sin token ni repos
 

@@ -462,7 +462,7 @@ Ningún archivo del código escribe rutas de este equipo: todas salen de `rutas.
 | Coordenadas del tiempo (sin ellas, el tiempo está desactivado) | `JARVIS_LATITUD`, `JARVIS_LONGITUD` | `latitud`, `longitud` (números) |
 | Proyectos del operador, además de `jarvis`. `"wsl:<carpeta>"` es una carpeta de tu home de WSL | — | `proyectos`: `{"alias": "ruta"}` |
 | Comando de tests de cada proyecto, además de `jarvis`. Con `wsl`, se ejecuta en esa carpeta de tu home de WSL; sin él, en la del proyecto | — | `tests`: `{"alias": {"wsl": "carpeta", "comando": ["venv/bin/python", "-m", "pytest", "-q"]}}` |
-| AuthorityEngine: la carpeta del motor (`racha.py`, `generar_inventario.py` y su venv) y la del repo de documentos (`ROADMAP_TEMAS.md`), las dos de tu home de WSL | — | `authority`: `{"motor": "carpeta", "roadmap": "carpeta"}` |
+| AuthorityEngine: la carpeta del motor (`racha.py`, `generar_inventario.py` y su venv), la del repo de documentos (`ROADMAP_TEMAS.md`) y, opcional, el `score_historico.json` que leen «cómo va AuthorityEngine» y el progreso semanal (por defecto, el de la carpeta del motor, donde lo escribe AuthorityEngine). Todo en tu home de WSL; JARVIS lee el histórico desde Windows por `\\wsl.localhost` | — | `authority`: `{"motor": "carpeta", "roadmap": "carpeta", "historico": "carpeta/score_historico.json"}` |
 | Nombre completo y una línea sobre ti (prompt de sistema) | `JARVIS_NOMBRE_COMPLETO`, `JARVIS_DESCRIPCION` | `nombre_completo`, `descripcion` |
 | Dueño de GitHub de los repos sin `dueño/` | `JARVIS_GITHUB_DUENIO` | `github_usuario` |
 | Webs propias («abre github», «abre el portfolio») | `JARVIS_WEB_GITHUB`, `JARVIS_WEB_PORTFOLIO` | `web_github`, `web_portfolio` |
