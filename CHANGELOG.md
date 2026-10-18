@@ -4,6 +4,12 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 ## Sin publicar
 
+### 2026-10-18
+
+**Documentación**
+
+- Licencia Apache-2.0 (LICENSE) y sección Licencia en el README
+
 ### 2026-10-17
 
 **Añadido**

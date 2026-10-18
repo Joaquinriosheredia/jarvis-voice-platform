@@ -618,3 +618,7 @@ tests/               tests unitarios y evals (test_evals.py)
 - Con streaming, la voz empieza cuando Claude termina la respuesta, no durante la generación: es el precio de no decir nunca texto de una iteración que acabe usando tools.
 - El coste del log es una estimación con precios fijos en `metrics.py` y no se concilia con la factura real.
 - Un solo usuario y una sola máquina: rutas, proyectos y destinatarios están configurados en el código.
+
+## Licencia
+
+[Apache-2.0](LICENSE) © 2026 Joaquín Ríos Heredia.

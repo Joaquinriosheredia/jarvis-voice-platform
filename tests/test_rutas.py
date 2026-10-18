@@ -122,9 +122,10 @@ class TestDoctor(Base):
 RUTA_DE_USUARIO = re.compile(r"(?i)[a-z]:\\users\\[^\\]+|e:\\descargas|[a-z]:\\jarvis(-secrets)?\b")
 # Nombres de usuario de la instalación original: en ningún archivo del repo (van al perfil de
 # rutas.json). Escritos con (?:) para que este archivo no se encuentre a sí mismo. El README,
-# el CHANGELOG y SECURITY.md pueden enlazar el repo publicado.
+# el CHANGELOG y SECURITY.md pueden enlazar el repo publicado, y LICENSE y el README nombrar al titular.
 NOMBRE_FIJO = re.compile(r"(?i)usuariojoa(?:)quin|joaq(?:)u[ií]n|ry(?:)zen|users\\usuario\b|sinbarr(?:)eras")
 URL_DEL_REPO = re.compile(r"(?i)github\.com/joaq(?:)uinriosheredia/jarvis-voice-platform")
+TITULAR = re.compile(r"(?:Copyright|©) 2026 Joaq(?:)uín Ríos Heredia")
 
 
 def _cadenas_de_codigo(ruta):
@@ -167,7 +168,7 @@ class TestSinRutasFijas(unittest.TestCase):
                 continue
             try:
                 with open(os.path.join(rutas.RAIZ, a), encoding="utf-8") as f:
-                    texto = URL_DEL_REPO.sub("", f.read())
+                    texto = TITULAR.sub("", URL_DEL_REPO.sub("", f.read()))
             except (OSError, UnicodeDecodeError):
                 continue
             if NOMBRE_FIJO.search(texto):
