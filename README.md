@@ -375,10 +375,15 @@ Para llegar desde un clon del repo a una conversación por voz. Hace falta Windo
    - descarga la voz de Piper y el modelo `qwen2.5:3b` de Ollama;
    - crea `C:\Jarvis-secrets` con una plantilla `.env.example` sin valores;
    - escribe `rutas.json` con tus carpetas reales de Descargas, Escritorio y perfil, si no existe ya (ver [Rutas](#rutas));
+   - si no hay `.env`, ofrece el asistente `configurar.py` (paso 4); con `-SinConfigurar` no pregunta;
    - ejecuta `doctor.py` y termina con la lista de lo que falta.
 
-   Se puede repetir: no rehace lo que ya está y nunca toca `.env`, tokens ni credenciales. Con `-SinDescargas` no descarga la voz ni el modelo de Ollama. Si la caché de `pip` está dañada, reintenta sin ella. Si Ollama no está en el PATH (por ejemplo, porque corre en WSL), lo busca por su API en `127.0.0.1:11434`. `-Secretos <carpeta>` solo sirve para probar el instalador sin tocar la carpeta real: JARVIS siempre lee `C:\Jarvis-secrets`.
-4. **Pon tu clave.** Copia `C:\Jarvis-secrets\.env.example` a `C:\Jarvis-secrets\.env` y rellena `ANTHROPIC_API_KEY`. Lo demás es opcional.
+   Se puede repetir: no rehace lo que ya está, y el instalador nunca lee ni escribe `.env`, tokens ni credenciales (el `.env` solo lo escribe el asistente, y solo con tu clave). Con `-SinDescargas` no descarga la voz ni el modelo de Ollama. Si la caché de `pip` está dañada, reintenta sin ella. Si Ollama no está en el PATH (por ejemplo, porque corre en WSL), lo busca por su API en `127.0.0.1:11434`. `-Secretos <carpeta>` solo sirve para probar el instalador sin tocar la carpeta real: JARVIS siempre lee `C:\Jarvis-secrets`.
+4. **Pon tu clave** con el asistente (el instalador lo ofrece al final):
+   ```powershell
+   venv\Scripts\python.exe configurar.py
+   ```
+   Pide la clave de Anthropic sin mostrarla (no queda en pantalla ni en el historial de la consola), la valida con una llamada que no gasta tokens, la guarda en `C:\Jarvis-secrets\.env` con permisos solo para tu usuario y explica cómo activar cada servicio opcional. Se puede repetir: si ya hay una clave, pregunta antes de sustituirla y conserva el resto del `.env`. Lo demás es opcional.
 5. **Comprueba** con `.\instalar.cmd` o `venv\Scripts\python.exe doctor.py`. Los AVISO no impiden arrancar; los ERROR sí.
 6. **Arranca y habla:**
    ```powershell
@@ -584,6 +589,7 @@ replay.py            consulta del log de turnos
 prueba_eco.py        diagnóstico manual de eco y altavoz (solo métricas)
 calidad_resumen.py   evaluación del resumen de la memoria con sesiones sintéticas (docs/memoria-resumen.md)
 doctor.py            diagnóstico del entorno (--live: claves y tokens de Google)
+configurar.py        asistente: clave de Anthropic (sin mostrarla, validada, en el .env restringido) y servicios opcionales
 reautorizar.py       vuelve a autorizar Gmail, Calendar o Contactos (renombra el token, OAuth y comprobación)
 limpiar_logs.py      limpieza de un solo uso de logs antiguos (direcciones y turnos privados)
 instalar.cmd / .ps1   instalación idempotente en Windows (venv, dependencias, voz, modelo, plantilla de secretos, doctor)

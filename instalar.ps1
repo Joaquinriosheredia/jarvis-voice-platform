@@ -10,14 +10,18 @@
   5. Crea la carpeta de secretos con una plantilla .env.example SIN valores y rutas.json con las
      carpetas reales de este usuario (Descargas, Escritorio, perfil), si no existe. Nunca lee,
      crea ni modifica .env, tokens ni credenciales.
-  6. Ejecuta doctor.py y resume lo que falta.
+  6. Si no hay .env, ofrece el asistente configurar.py (clave de Anthropic, sin mostrarla) salvo
+     con -SinConfigurar.
+  7. Ejecuta doctor.py y resume lo que falta.
 
   Uso (desde la carpeta del repo):
     .\instalar.cmd
     .\instalar.cmd -SinDescargas            # sin voz de Piper ni modelo de Ollama
+    .\instalar.cmd -SinConfigurar           # sin preguntar por el asistente (instalación desatendida)
 #>
 param(
     [switch]$SinDescargas,
+    [switch]$SinConfigurar,
     [string]$Secretos = $(if ($env:JARVIS_SECRETOS) { $env:JARVIS_SECRETOS } else { "C:\Jarvis-secrets" })
 )
 
@@ -173,11 +177,24 @@ else {
     [System.IO.File]::WriteAllText($RutasJson, ($rutasUsuario | ConvertTo-Json), (New-Object System.Text.UTF8Encoding $false))
     Bien "rutas.json creado: Descargas = $descargas"
 }
-if (-not (Test-Path (Join-Path $Secretos ".env"))) {
-    Aviso "No hay .env" "Copia $Plantilla a $Secretos\.env y rellena al menos ANTHROPIC_API_KEY"
+# ── 6. Asistente de configuración ────────────────────────────────
+# configurar.py pide la clave sin mostrarla y escribe el .env; este script nunca lo toca
+$Configurar = "venv\Scripts\python.exe configurar.py"
+if (Test-Path (Join-Path $Secretos ".env")) {
+    Bien ".env ya existe. Para cambiar la clave o ver los servicios opcionales: $Configurar"
+} elseif ($SinConfigurar -or -not [Environment]::UserInteractive) {
+    Aviso "No hay .env (falta la clave de Anthropic)" $Configurar
+} else {
+    Paso "Configuración"
+    $respuesta = Read-Host "   ¿Abrir ahora el asistente de configuración (clave de Anthropic)? [S/n]"
+    if ($respuesta -match '^\s*(n|no)\s*$') { Aviso "No hay .env (falta la clave de Anthropic)" $Configurar }
+    else {
+        & $PythonVenv (Join-Path $Raiz "configurar.py")
+        if ($LASTEXITCODE -ne 0) { Aviso "El asistente no ha guardado la clave de Anthropic" $Configurar }
+    }
 }
 
-# ── 6. Diagnóstico ────────────────────────────────────────────────
+# ── 7. Diagnóstico ────────────────────────────────────────────────
 Paso "Diagnóstico (doctor.py)"
 $json = & $PythonVenv (Join-Path $Raiz "doctor.py") --json 2>$null
 try {
