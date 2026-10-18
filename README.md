@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Joaquinriosheredia/jarvis-voice-platform/actions/workflows/ci.yml)
 
-Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 46 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
+Asistente de voz personal en español para Windows: escucha por micrófono, decide qué capa debe responder y actúa con 51 tools (correo, calendario, archivos, música, git, tests y visión) detrás de un gate de permisos.
 
 **Stack:** Python · Electron · Claude Haiku 4.5 · Ollama (qwen2.5:3b) · Whisper · Piper (ElevenLabs opcional)
 
@@ -15,7 +15,7 @@ Pides por voz que te envíe un correo a tu propia dirección. JARVIS anuncia el 
 ## Qué hace
 
 - **Voz de extremo a extremo:** Whisper `small` en local, con umbral de confianza; Piper para hablar, opcionalmente ElevenLabs; órdenes de voz para silenciar o cerrar JARVIS, también mientras habla o genera la respuesta (ver [Órdenes de voz](#órdenes-de-voz)).
-- **Agente con 50 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
+- **Agente con 51 tools** sobre la API de Claude, con un gate de permisos de 4 niveles y confirmación por voz para las acciones irreversibles y para enviar capturas de pantalla.
 - **Respuesta en streaming:** el texto aparece en la UI mientras Claude lo genera, y la voz se reproduce por frases: la siguiente se sintetiza mientras suena la actual.
 - **Correo (Gmail):** leer, buscar, archivar, borrar uno o varios y enviar. Borrar y enviar piden confirmación. Se puede enviar a la propia dirección («mándamelo a mí», «a mi correo», «a mi propia dirección»), que JARVIS obtiene del perfil de la cuenta de Gmail sin preguntarla, o a una dirección dictada por voz, que JARVIS valida y deletrea antes de pedir la confirmación. Si no puede obtener la dirección propia, dice la causa: autorización caducada, red o permisos.
 - **Briefing hablado al arrancar y con «dame el briefing»:** agenda de hoy, CI y PRs de GitHub, correo, tareas y tiempo, en 6 frases como mucho (ver [Briefing](#briefing)).
@@ -348,9 +348,34 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 
 ## Instalación y ejecución (Windows)
 
+### Requisitos
+
+| Qué | ¿Hace falta? | Para qué | Cómo |
+|---|---|---|---|
+| Windows 11 de 64 bits | Sí | Todo: audio, rutas, voz de Windows y lanzador | Probado en Windows 11 (build 26200) y en el runner `windows-latest` del CI. Windows 10 de 64 bits debería funcionar, pero no está probado |
+| Micrófono y altavoz o auriculares | Sí | Hablar con JARVIS (no hay entrada por texto) | Con altavoces, `prueba_eco.py` mide el eco ([Prueba de eco](#prueba-de-eco-y-altavoz)) |
+| Python 3.11 a 3.14 (probado con 3.14) | Sí | JARVIS | `winget install Python.Python.3.14` |
+| Git | Sí (o descargar el ZIP) | Clonar el repo | `winget install Git.Git` |
+| ffmpeg | Sí | Whisper lo usa para leer el audio | `winget install Gyan.FFmpeg` |
+| Clave de la API de Anthropic | Sí | Las respuestas de Claude (de pago por uso) | [console.anthropic.com](https://console.anthropic.com), y después `configurar.py` |
+| Conexión a internet | Sí | Claude, la instalación y la primera descarga de Whisper | — |
+| GPU NVIDIA con driver | No | Whisper en CUDA, más rápido | Ver [Sin GPU](#sin-gpu) |
+| Node.js LTS | No | La UI de escritorio (Electron) | `winget install OpenJS.NodeJS.LTS` |
+| VLC | No | Música | `winget install VideoLAN.VLC` (yt-dlp ya va en `requirements.txt`) |
+| Ollama con `qwen2.5:3b` | No | Respuestas locales y resumen de la memoria; sin él, todo va a Claude | `winget install Ollama.Ollama`; el instalador baja el modelo |
+| WSL | No | Proyectos del operador que viven en WSL | `wsl --install` y tus proyectos en `rutas.json` ([Rutas](#rutas)) |
+| Cliente OAuth de Google | No | Gmail, Calendar y Contactos | [Autorización de Google](#autorización-de-google) |
+| Token de GitHub, ElevenLabs, Tavily | No | CI y PRs en el briefing, voz de ElevenLabs, mejor búsqueda web | `configurar.py` explica cada uno |
+
+**Tiempo y espacio.** Hay que descargar unos 6 GB: unos 3,5 GB de dependencias de Python (torch con CUDA es la mayor parte), 1,9 GB del modelo de Ollama si lo usas, 60 MB de la voz de Piper y unos 500 MB del modelo `small` de Whisper, que se descarga en el primer arranque. Con todo ya descargado, `instalar.cmd` tarda unos 5 minutos (medido en un clon nuevo con las cachés de pip llenas). Desde cero, súmale lo que tarde tu conexión en bajar esos 6 GB: con 100 Mb/s, unos 10 minutos más. En disco ocupa unos 5 GB el `venv`, unos 700 MB la caché de Whisper y 2 GB el modelo de Ollama.
+
+#### Sin GPU
+
+JARVIS funciona sin GPU NVIDIA: Whisper carga en CPU, lo dice en el saludo («Whisper funciona sin GPU: tardaré algo más en entenderte») y deja el aviso en la UI. Cada frase tarda más en transcribirse (no está medido: el equipo de pruebas tiene GPU). El instalador descarga igualmente el torch con CUDA (unos 2,5 GB), que también funciona en CPU. Todavía no hay una opción de instalación solo para CPU.
+
 ### Inicio rápido
 
-Para llegar desde un clon del repo a una conversación por voz. Hace falta Windows 10/11 con micrófono y altavoz, y una clave de la API de Anthropic.
+Para llegar desde un clon del repo a una conversación por voz. Mira antes los [requisitos](#requisitos): lo imprescindible es Windows de 64 bits, micrófono y altavoz, Python, ffmpeg y una clave de la API de Anthropic.
 
 1. **Programas base** (una vez, en PowerShell):
    ```powershell
@@ -372,13 +397,13 @@ Para llegar desde un clon del repo a una conversación por voz. Hace falta Windo
    - comprueba Python (3.11 a 3.14);
    - crea `venv` e instala `requirements.txt` (torch con CUDA desde el índice de PyTorch, unos 3 GB la primera vez);
    - comprueba ffmpeg, VLC, Node, Ollama y la GPU;
-   - descarga la voz de Piper y el modelo `qwen2.5:3b` de Ollama;
+   - descarga la voz de Piper y, si Ollama está instalado, su modelo `qwen2.5:3b`;
    - crea `C:\Jarvis-secrets` con una plantilla `.env.example` sin valores;
    - escribe `rutas.json` con tus carpetas reales de Descargas, Escritorio y perfil, si no existe ya (ver [Rutas](#rutas));
    - si no hay `.env`, ofrece el asistente `configurar.py` (paso 4); con `-SinConfigurar` no pregunta;
    - ejecuta `doctor.py` y termina con la lista de lo que falta.
 
-   Se puede repetir: no rehace lo que ya está, y el instalador nunca lee ni escribe `.env`, tokens ni credenciales (el `.env` solo lo escribe el asistente, y solo con tu clave). Con `-SinDescargas` no descarga la voz ni el modelo de Ollama. Si la caché de `pip` está dañada, reintenta sin ella. Si Ollama no está en el PATH (por ejemplo, porque corre en WSL), lo busca por su API en `127.0.0.1:11434`. `-Secretos <carpeta>` solo sirve para probar el instalador sin tocar la carpeta real: JARVIS siempre lee `C:\Jarvis-secrets`.
+   Se puede repetir: no rehace lo que ya está, y el instalador nunca lee ni escribe `.env`, tokens ni credenciales (el `.env` solo lo escribe el asistente, y solo con tu clave). Con `-SinDescargas` no descarga la voz ni el modelo de Ollama. Si la caché de `pip` está dañada, reintenta sin ella. Si Ollama no está en el PATH (por ejemplo, porque corre en WSL), lo busca por su API en `127.0.0.1:11434`. `-Secretos <carpeta>` usa otra carpeta de secretos; para que JARVIS la lea también, define la variable de entorno de Windows `JARVIS_SECRETOS` con esa carpeta (el instalador te lo recuerda). Sin ella, JARVIS usa `C:\Jarvis-secrets`.
 4. **Pon tu clave** con el asistente (el instalador lo ofrece al final):
    ```powershell
    venv\Scripts\python.exe configurar.py
@@ -389,9 +414,22 @@ Para llegar desde un clon del repo a una conversación por voz. Hace falta Windo
    ```powershell
    venv\Scripts\python.exe jarvis.py
    ```
-   Cuando salga «🎤 Escuchando...», di «hola, ¿qué tal?». Para la UI: `cd app; npm start`. Para cerrar: «adiós».
+   La primera vez descarga el modelo `small` de Whisper (unos 500 MB). Cuando salga «🎤 Escuchando...», di «hola, ¿qué tal?». Para la UI: `cd app; npm start`. Para cerrar: «adiós».
+
+   Con solo la clave de Anthropic ya funciona: lo que no esté configurado (Gmail, Calendar, Contactos, GitHub) se omite del saludo y, si lo pides, JARVIS te dice qué falta y qué comando ejecutar.
 
 Gmail, Calendar y Contactos son opcionales y necesitan un cliente OAuth propio (ver [Autorización de Google](#autorización-de-google)). Sin ellos, JARVIS conversa, busca en la web, da la hora y el tiempo, y usa las tools de archivos y de código.
+
+### Desinstalar
+
+JARVIS no instala servicios ni toca el registro de Windows. Todo lo suyo está en estas carpetas:
+
+1. **Revoca los accesos** antes de borrar las claves: el de Google en [myaccount.google.com/permissions](https://myaccount.google.com/permissions), y borra el token de GitHub y la clave de Anthropic (y la de ElevenLabs o Tavily, si las usabas) en sus consolas.
+2. **Borra la carpeta del repo** (por ejemplo `C:\Jarvis`). Incluye el `venv`, la voz de Piper, `memoria.json` y `logs/`.
+3. **Borra la carpeta de secretos** (`C:\Jarvis-secrets` o la de `JARVIS_SECRETOS`): `.env`, `credentials.json`, tokens, `rutas.json` y la memoria entre sesiones.
+4. **Borra la caché de Whisper**: `%USERPROFILE%\.cache\whisper`.
+5. **Si creaste el acceso directo** con `app\crear_acceso_directo.ps1`, borra `JARVIS.lnk` del Escritorio y de `%APPDATA%\Microsoft\Windows\Start Menu\Programs` (y desánclalo de la barra de tareas si lo anclaste).
+6. **Opcional:** `ollama rm qwen2.5:3b`, `pip cache purge` (la caché de pip es común a todos tus proyectos de Python), la variable de entorno `JARVIS_SECRETOS` si la definiste y los programas base con `winget uninstall` si no los usas para nada más.
 
 ### Rutas
 
@@ -446,7 +484,7 @@ JARVIS_LOG_TEXTO=1              # 0 = el log de turnos guarda solo metadatos
 WHISPER_MIN_LOGPROB=-1.0        # confianza mínima media de Whisper
 WHISPER_MAX_COMPRESSION=2.4     # compression_ratio máximo por segmento
 GITHUB_TOKEN=                   # fine-grained, solo lectura (ver Briefing)
-JARVIS_GITHUB_REPOS=jarvis-voice-platform
+JARVIS_GITHUB_REPOS=tu-usuario/tu-repo  # dueño/repo, separados por comas
 JARVIS_BRIEFING=1               # 0 = sin briefing al arrancar
 JARVIS_MEMORIA_DB=C:\Jarvis-secrets\memoria_sesiones.db
 JARVIS_MEMORIA_DIAS=90          # retención de la memoria entre sesiones
@@ -628,7 +666,7 @@ tests/               tests unitarios y evals (test_evals.py)
 - Lo que dices, lo que leen las tools (emails, archivos) y las capturas confirmadas se envían a la API de Anthropic cuando el router elige Claude. La privacidad del TTS y del log no cambia eso.
 - Con streaming, la voz empieza cuando Claude termina la respuesta, no durante la generación: es el precio de no decir nunca texto de una iteración que acabe usando tools.
 - El coste del log es una estimación con precios fijos en `metrics.py` y no se concilia con la factura real.
-- Un solo usuario y una sola máquina: rutas, proyectos y destinatarios están configurados en el código.
+- Un solo usuario por instalación. Las rutas, el perfil y los proyectos se configuran (ver [Rutas](#rutas)), pero tres cosas siguen fijas en el código para su autor: el saludo del briefing («señor Ríos»), la ubicación del tiempo y del prompt de sistema (Los Corrales, Sevilla), y los proyectos del operador por defecto, que son los suyos en WSL mientras no definas `"proyectos"` en `rutas.json`.
 
 ## Licencia
 

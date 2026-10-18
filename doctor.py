@@ -466,7 +466,8 @@ def check_proyectos():
         partes = ([f"sin WSL: {', '.join(sin_wsl)}"] if sin_wsl else []) + \
                  ([f"no existen: {', '.join(faltan)}"] if faltan else [])
         return resultado(AVISO, f"Proyectos del operador {'; '.join(partes)}",
-                         "Instala WSL (wsl --install) o corrige PROYECTOS en skills/operador.py")
+                         'Define "proyectos" en rutas.json con los tuyos ({"alias": "ruta"}, ver Rutas en el '
+                         'README) o instala WSL (wsl --install)')
     return resultado(OK, f"{len(operador.PROYECTOS)} proyectos del operador accesibles")
 
 

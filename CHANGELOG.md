@@ -17,6 +17,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Documentación**
 
+- README para quien llega de cero: requisitos reales (obligatorio y opcional), tiempo y espacio de la instalación, qué pasa sin GPU y cómo desinstalar; corregidas las contradicciones con instalar.cmd (JARVIS_SECRETOS, `-CrearEnlace` inexistente, número de tools, modelo de Ollama solo si está instalado) y la acción del doctor para los proyectos del operador
 - Licencia Apache-2.0 (LICENSE) y sección Licencia en el README
 - Dependencias con alertas abiertas en SECURITY.md (torch y setuptools, con el motivo)
 
