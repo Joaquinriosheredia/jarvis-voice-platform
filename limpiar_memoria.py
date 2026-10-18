@@ -59,7 +59,7 @@ def analizar(raiz=RAIZ):
         if not os.path.isfile(ruta):
             continue
         try:
-            with open(ruta, encoding="utf-8") as f:
+            with open(ruta, encoding="utf-8-sig") as f:
                 datos = json.load(f)
         except (OSError, ValueError) as e:
             plan.append((ruta, None, 0, 0, type(e).__name__))

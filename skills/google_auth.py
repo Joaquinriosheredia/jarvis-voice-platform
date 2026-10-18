@@ -110,7 +110,7 @@ def comprobar(servicio, token_file, scopes, credentials_file=CREDENTIALS_FILE, t
         if not os.path.isfile(token_file):
             return _resultado(servicio, SIN_TOKEN)
         try:
-            with open(token_file, encoding="utf-8") as f:
+            with open(token_file, encoding="utf-8-sig") as f:
                 datos = json.load(f)
         except (OSError, ValueError):
             return _resultado(servicio, INVALIDO)

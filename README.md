@@ -507,6 +507,8 @@ JARVIS_VOZ_EMERGENCIA=1         # 0 = sin la voz de Windows cuando falla Piper
 JARVIS_DESCARGAS=               # rutas: ver Rutas (por defecto, rutas.json o los valores de respaldo)
 ```
 
+Una variable de entorno de Windows manda sobre la misma del `.env`. `doctor.py` dice de dónde sale `ANTHROPIC_API_KEY` (entorno de Windows, `.env` o ninguno) sin mostrarla, y avisa si están en los dos sitios con valores distintos (solo dice «iguales» o «distintas»). El `.env`, `rutas.json`, los tokens y `credentials.json` de Google, `elevenlabs.json` y `vocabulario_whisper.txt` se leen igual con o sin BOM UTF-8 (el Bloc de notas y PowerShell 5 lo ponen), y JARVIS siempre los escribe sin él. El doctor avisa si el `.env` lo tiene, porque otras herramientas no lo toleran.
+
 Google (Gmail, Calendar y, opcionalmente, Contactos):
 
 1. Crea un cliente OAuth de tipo escritorio en Google Cloud y guarda el JSON como `C:\Jarvis-secrets\credentials.json`.

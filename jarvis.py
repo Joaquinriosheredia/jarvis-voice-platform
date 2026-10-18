@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 import rutas
-load_dotenv(rutas.en_secretos(".env"))
+load_dotenv(rutas.en_secretos(".env"), encoding="utf-8-sig")   # con o sin BOM
 
 import whisper
 import atexit

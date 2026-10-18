@@ -532,7 +532,7 @@ MAX_TERMINOS = 6
 def _vocabulario():
     ruta = os.environ.get("JARVIS_VOCABULARIO") or rutas.en_raiz("vocabulario_whisper.txt")
     try:
-        with open(ruta, encoding="utf-8") as f:
+        with open(ruta, encoding="utf-8-sig") as f:
             return [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
     except (OSError, UnicodeDecodeError):
         return []

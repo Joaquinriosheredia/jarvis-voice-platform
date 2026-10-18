@@ -18,6 +18,7 @@ Si el flujo falla o se cancela, el token anterior vuelve a su nombre. Nunca impr
 tokens ni direcciones. Código de salida: 0 si queda autorizado, 1 si no.
 """
 import argparse
+import json
 import os
 import sys
 from datetime import datetime
@@ -52,7 +53,8 @@ def nombre_caducado(token_file, ahora):
 def flujo_oauth(credentials_file, scopes):
     """Flujo de escritorio: abre el navegador y espera la redirección en un puerto libre."""
     from google_auth_oauthlib.flow import InstalledAppFlow
-    flow = InstalledAppFlow.from_client_secrets_file(credentials_file, scopes)
+    with open(credentials_file, encoding="utf-8-sig") as f:   # con o sin BOM
+        flow = InstalledAppFlow.from_client_config(json.load(f), scopes)
     return flow.run_local_server(port=0, open_browser=True, prompt="consent", timeout_seconds=ESPERA,
                                  authorization_prompt_message="     Si no se abre el navegador, visita: {url}",
                                  success_message="JARVIS ya está autorizado. Puedes cerrar esta pestaña.")

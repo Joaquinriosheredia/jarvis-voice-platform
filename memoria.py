@@ -25,12 +25,12 @@ def _memoria_vacia():
 def cargar():
     try:
         if os.path.exists(MEMORIA_FILE):
-            with open(MEMORIA_FILE, 'r', encoding='utf-8') as f:
+            with open(MEMORIA_FILE, 'r', encoding='utf-8-sig') as f:
                 return json.load(f)
     except Exception:
         pass
     try:
-        with open(MEMORIA_FILE + ".bak", 'r', encoding='utf-8') as f:
+        with open(MEMORIA_FILE + ".bak", 'r', encoding='utf-8-sig') as f:
             return json.load(f)
     except Exception:
         pass

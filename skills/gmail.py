@@ -1,6 +1,7 @@
 import os
 import time
 import base64
+import json
 
 import rutas
 from email.message import EmailMessage
@@ -33,14 +34,15 @@ def credenciales(scopes, token_file, servicio="gmail"):
     if not os.path.exists(token_file):
         raise google_auth.NoConfigurado(servicio, google_auth.SIN_TOKEN)
     try:
-        creds = Credentials.from_authorized_user_file(token_file, scopes)
+        with open(token_file, encoding="utf-8-sig") as f:   # con o sin BOM
+            creds = Credentials.from_authorized_user_info(json.load(f), scopes)
     except (ValueError, KeyError, TypeError, AttributeError):   # dañado o sin refresh_token
         raise google_auth.NoConfigurado(servicio, google_auth.INVALIDO) from None
     if not creds.valid:
         if not (creds.expired and creds.refresh_token):
             raise google_auth.NoConfigurado(servicio, google_auth.CADUCADO)
         creds.refresh(Request())
-        with open(token_file, 'w') as f:
+        with open(token_file, 'w', encoding='utf-8') as f:
             f.write(creds.to_json())
     return creds
 

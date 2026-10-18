@@ -145,6 +145,12 @@ class TestVocabulario(unittest.TestCase):
         self.assertEqual(len(terminos), audio.MAX_TERMINOS)
         self.assertFalse(any("confirm" in t.lower() for t in terminos))
 
+    def test_con_bom_utf8(self):
+        """El Bloc de notas lo guarda con BOM: el comentario de la primera línea no es un término."""
+        ruta = _archivo("\ufeff# comentario\nKafka\n")
+        self.addCleanup(os.remove, ruta)
+        self.assertEqual(audio.vocabulario(ruta), ["Kafka"])
+
     def test_sin_archivo_queda_el_prompt_de_siempre(self):
         with patch.dict(os.environ, {"JARVIS_VOCABULARIO": r"C:\no\existe.txt"}):
             self.assertEqual(audio.prompt_whisper(), audio.WHISPER_PROMPT)

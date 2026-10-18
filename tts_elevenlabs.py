@@ -65,7 +65,7 @@ def _config():
     voice_id = os.environ.get("ELEVENLABS_VOICE_ID")
     if not (api_key and voice_id):
         try:
-            with open(ELEVENLABS_JSON, encoding="utf-8") as f:
+            with open(ELEVENLABS_JSON, encoding="utf-8-sig") as f:
                 datos = json.load(f)
             api_key  = api_key or datos.get("api_key")
             voice_id = voice_id or datos.get("voice_id")

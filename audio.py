@@ -42,7 +42,7 @@ def vocabulario(ruta=None):
     repetidos ni términos larguísimos. [] si no existe o no se puede leer."""
     ruta = ruta or os.environ.get("JARVIS_VOCABULARIO") or RUTA_VOCABULARIO
     try:
-        with open(ruta, encoding="utf-8") as f:
+        with open(ruta, encoding="utf-8-sig") as f:
             lineas = f.read().splitlines()
     except (OSError, UnicodeDecodeError):
         return []

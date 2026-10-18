@@ -38,6 +38,7 @@ PUERTO_UI = 8765
 VERSION_JSON = 1
 OK, AVISO, ERROR = "OK", "AVISO", "ERROR"
 LOG_GRANDE = 50 * 1024 * 1024
+BOM = b"\xef\xbb\xbf"
 # Archivos que nunca deben estar en git (nombre, sin ruta)
 PATRONES_SECRETOS = (r"\.env(\..*)?", r".*\.pem", r".*\.key", r"id_rsa.*", r"credentials.*\.json",
                      r"token.*\.json", r"elevenlabs\.json")
@@ -84,7 +85,7 @@ def valores_env():
         return {}
     try:
         from dotenv import dotenv_values
-        return {k: v for k, v in dotenv_values(ENV_FILE).items() if v is not None}
+        return {k: v for k, v in dotenv_values(ENV_FILE, encoding="utf-8-sig").items() if v is not None}
     except ImportError:
         return {}
 
@@ -284,11 +285,38 @@ def check_env():
                      f"Crea {ENV_FILE} con ANTHROPIC_API_KEY=...")
 
 
+def env_con_bom(ruta=None):
+    """True si el .env empieza con el BOM de UTF-8 (JARVIS lo tolera; otras herramientas no)."""
+    try:
+        with open(ruta or ENV_FILE, "rb") as f:
+            return f.read(3) == BOM
+    except OSError:
+        return False
+
+
 def check_anthropic_key():
-    clave = variable("ANTHROPIC_API_KEY")
-    if not clave:
-        return resultado(ERROR, "ANTHROPIC_API_KEY no definida", f"Añádela a {ENV_FILE}")
-    return resultado(OK, f"ANTHROPIC_API_KEY definida ({len(clave)} caracteres)")
+    """De dónde la carga JARVIS (el entorno manda sobre el .env), sin mostrarla. Avisa si el .env
+    tiene BOM y si las dos existen y son distintas (solo «iguales» o «distintas»)."""
+    del_entorno = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    del_env = valores_env().get("ANTHROPIC_API_KEY", "").strip()
+    avisos, acciones = [], []
+    if env_con_bom():
+        avisos.append(".env con BOM UTF-8")
+        acciones.append("Guarda el .env como UTF-8 sin BOM (en el Bloc de notas: Guardar como → UTF-8)")
+    if not (del_entorno or del_env):
+        return resultado(ERROR, "; ".join(["ANTHROPIC_API_KEY no definida (origen: ninguno)"] + avisos),
+                         " · ".join([f"Ejecuta configurar.py o añádela a {ENV_FILE}"] + acciones))
+    clave = del_entorno or del_env
+    detalle = f"ANTHROPIC_API_KEY definida ({len(clave)} caracteres); origen: " + \
+              ("entorno de Windows" if del_entorno else ".env")
+    if del_entorno and del_env:
+        detalle += "; entorno y .env: " + ("iguales" if del_entorno == del_env else "distintas")
+        if del_entorno != del_env:
+            avisos.append("manda la del entorno")
+            acciones.append("Deja una sola: quita la variable de entorno de Windows o guarda la misma en el .env")
+    if avisos:
+        return resultado(AVISO, "; ".join([detalle] + avisos), " · ".join(acciones))
+    return resultado(OK, detalle)
 
 
 def check_tavily_key():
@@ -330,7 +358,7 @@ def _check_token(ruta, servicio, comando):
     if not os.path.isfile(ruta):
         return resultado(AVISO, f"No hay {nombre}: {servicio} no está autorizado", comando)
     try:
-        with open(ruta, encoding="utf-8") as f:
+        with open(ruta, encoding="utf-8-sig") as f:
             datos = json.load(f)
     except (OSError, ValueError):
         datos = None
@@ -365,7 +393,7 @@ def _elevenlabs():
     clave, voz = variable("ELEVENLABS_API_KEY"), variable("ELEVENLABS_VOICE_ID")
     ruta = constante("tts_elevenlabs.py", "ELEVENLABS_JSON")
     if (not clave or not voz) and os.path.isfile(ruta):
-        with open(ruta, encoding="utf-8") as f:
+        with open(ruta, encoding="utf-8-sig") as f:
             datos = json.load(f)
         clave, voz = clave or datos.get("api_key", ""), voz or datos.get("voice_id", "")
     return clave, voz
