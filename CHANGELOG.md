@@ -9,6 +9,15 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 **Documentación**
 
 - Licencia Apache-2.0 (LICENSE) y sección Licencia en el README
+- Dependencias con alertas abiertas en SECURITY.md (torch y setuptools, con el motivo)
+
+**Mantenimiento**
+
+- fsspec 2026.6.0
+- cryptography 50.0.0
+- oauthlib 4.0.0, httplib2 0.32.0 y pyasn1 0.6.4
+- urllib3 2.8.0, idna 3.15 y anyio 4.14.2
+- Fuera PyAutoGUI y sus dependencias, sin uso en el código
 
 ### 2026-10-17
 

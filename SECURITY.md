@@ -66,6 +66,15 @@ Estos límites son conocidos y ya estaban documentados en el README:
 - **Acceso a la máquina.** Quien tenga acceso a tu sesión de Windows puede leer la carpeta de secretos, la memoria y los logs, o ejecutar código. Nada de esto está cifrado en reposo.
 - **Dependencias y servicios externos.** No se auditan las dependencias de Python y Node ni los servicios de Anthropic, Google, ElevenLabs, GitHub y los buscadores.
 
+## Dependencias con alertas abiertas
+
+Revisión de las alertas de Dependabot del 2026-10-18. Las demás están corregidas en `requirements.txt`.
+
+| Paquete | Alerta | Por qué sigue abierta | Por qué no afecta al uso real |
+|---|---|---|---|
+| `torch` 2.11.0+cu128 | GHSA-rrmf-rvhw-rf47 (baja, corregida en 2.13.0) | Cambiar torch obliga a cambiar CUDA y a validar Whisper en la GPU; se hará a propósito, no con un bump | JARVIS no llama a `torch.jit`: Whisper solo hace inferencia con su modelo local |
+| `setuptools` 81.0.0 | GHSA-h35f-9h28-mq5c (media, corregida en 83.0.0) | torch 2.11 exige `setuptools<82` | Solo afecta a generar sdists con `MANIFEST.in`; JARVIS no empaqueta nada |
+
 ## Qué datos se guardan y dónde
 
 **En la carpeta de secretos** (`JARVIS_SECRETOS`, por defecto `C:\Jarvis-secrets`, fuera del repo):
