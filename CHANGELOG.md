@@ -6,6 +6,10 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 ### 2026-10-18
 
+**Corregido**
+
+- Primer arranque solo con la clave de Anthropic: lo no configurado (Gmail, Calendar, Contactos, GitHub) se omite del arranque en silencio, queda en el registro y, al pedirlo, se dice con el comando que lo arregla; sin errores en crudo, sin abrir el navegador de OAuth desde una tool y sin «nada pendiente» en GitHub sin token ni repos
+
 **Documentación**
 
 - Licencia Apache-2.0 (LICENSE) y sección Licencia en el README

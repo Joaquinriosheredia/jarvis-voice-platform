@@ -190,6 +190,7 @@ Si falla una pieza, JARVIS lo dice por voz con una frase útil. No se queda call
 | Ollama caído | Pausa Ollama 5 min (`JARVIS_OLLAMA_PAUSA_S`): las preguntas locales y el resumen de memoria van directos a Claude, sin pagar el timeout en cada turno. |
 | Piper falla | Dice el texto con la voz de Windows (System.Speech, local), con un aviso la primera vez. Si tampoco hay esa voz, lo avisa en pantalla. Se puede desactivar con `JARVIS_VOZ_EMERGENCIA=0`. |
 | Gmail con el token revocado | Cada tool de correo dice que hay que volver a autorizar con `reautorizar.py gmail`, sin el error en crudo. Hace un solo intento por petición. |
+| Gmail, Calendar, Contactos o GitHub sin configurar | El arranque los omite en silencio y lo deja en el registro (`[BRIEFING] gmail no configurado: se omite`). Al pedir la función, una frase con lo que falta y el comando: «Gmail no está configurado; ejecuta reautorizar.py gmail». Nunca abre el navegador de OAuth en mitad de una conversación ni dice «no hay nada pendiente» si GitHub no tiene token o repos. `tests/test_primer_arranque.py`. |
 | GitHub sin red | «No he podido consultar GitHub: no hay conexión», tras un solo intento. Los avisos de CI lo registran una vez y siguen intentándolo a su intervalo normal. |
 | Whisper sin GPU | Si CUDA falla al cargar, Whisper carga en CPU. En el saludo dice «Whisper funciona sin GPU: tardaré algo más en entenderte», y el aviso queda también en la UI. |
 | Error repetido en el bucle (p. ej. micrófono desconectado) | Dice una vez «He tenido un fallo interno con esa petición» y espera 1, 2, 4… hasta 30 s entre intentos. Tras un turno sano, vuelve a avisar. |
@@ -475,9 +476,10 @@ Al arrancar, JARVIS comprueba de verdad `token.json` y `token_calendar.json`: re
 | renovado | El access token había caducado y se ha renovado | Nada |
 | caducado o revocado (`invalid_grant`) | Google ya no acepta el refresh_token: app en modo Testing (7 días), acceso retirado, cambio de contraseña o 6 meses sin uso | Avisa |
 | caducado sin refresh_token | El token no se puede renovar | Avisa |
-| no autorizado / dañado | Falta el archivo del token, o está incompleto o con otros permisos | Avisa |
+| dañado | El token está incompleto o con otros permisos | Avisa |
+| no autorizado | Falta el archivo del token: nunca se ha configurado | Solo lo registra |
 | sin red | No se pudo hablar con Google: no verificado | Solo lo registra |
-| sin credenciales | Falta `credentials.json` | Avisa |
+| sin credenciales | Falta `credentials.json`: Google nunca se ha configurado | Solo lo registra |
 
 Google devuelve `invalid_grant` tanto si el refresh_token ha caducado como si se ha revocado, así que esos dos casos salen como un solo estado. Si hay que hacer algo, JARVIS lo dice una sola vez en el resumen de arranque, con la causa, y deja en la UI un aviso fijo con el comando exacto. Con el token de Gmail mal no intenta leer el correo del resumen ni abre el navegador. Para arreglarlo:
 

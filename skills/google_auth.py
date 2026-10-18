@@ -39,15 +39,23 @@ ERROR            = "error"             # Google rechazó la renovación por otra
 
 VALIDOS     = {VALIDO, RENOVADO}
 REAUTORIZAR = {CADUCADO, REVOCADO, SIN_TOKEN, INVALIDO, ERROR}  # se arreglan con reautorizar.py
-AVISAR      = REAUTORIZAR | {SIN_CREDENCIALES}                  # se avisan al arrancar
+NO_CONFIGURADO = {SIN_TOKEN, SIN_CREDENCIALES}                 # nunca se ha configurado
+# Se avisan al arrancar: lo que estaba configurado y se ha roto. Lo no configurado se omite
+# en silencio (queda en el registro) y se explica cuando se pide la función
+AVISAR      = (REAUTORIZAR | {SIN_CREDENCIALES}) - NO_CONFIGURADO
 
 # Únicos códigos OAuth que se muestran (RFC 6749 §5.2 y los de Google)
 CODIGOS_OAUTH = ("invalid_grant", "invalid_scope", "invalid_client", "unauthorized_client",
                  "invalid_request", "deleted_client", "disabled_client", "org_internal")
 
 
-# Servicios opcionales: si nunca se autorizaron (SIN_TOKEN) no se avisa al arrancar
-OPCIONALES = {"contacts"}
+class NoConfigurado(Exception):
+    """El servicio necesita autorizarse (o reautorizarse) a mano: nunca se abre el navegador
+    de OAuth en mitad de una conversación. frase: qué pasa y qué ejecutar, lista para la voz."""
+    def __init__(self, servicio, estado):
+        super().__init__(estado)
+        self.servicio, self.estado = servicio, estado
+        self.frase = frase_no_disponible(servicio, estado)
 
 
 def servicios():
@@ -214,11 +222,27 @@ def accion(r):
     return ""
 
 
+def frase_no_disponible(servicio, estado):
+    """Frase para la voz cuando se pide un servicio que no se puede usar sin intervenir a mano."""
+    nombre, cmd = _NOMBRES.get(servicio, servicio), f"reautorizar.py {servicio}"
+    if estado == SIN_CREDENCIALES:
+        return (f"{nombre} no está configurado: falta el archivo credentials de Google. Sigue el apartado "
+                f"Autorización de Google del README y después ejecuta {cmd}.")
+    if estado == SIN_TOKEN:
+        return f"{nombre} no está configurado; ejecuta {cmd}."
+    return f"La autorización de {nombre} ha caducado o no es válida; ejecuta {cmd}."
+
+
+def no_configurados(resultados):
+    """Servicios que nunca se han configurado, en el orden de resultados."""
+    return [s for s, r in (resultados or {}).items() if r and r["estado"] in NO_CONFIGURADO]
+
+
 def aviso_arranque(resultados):
-    """(texto para la voz, texto para la pantalla) si algún servicio necesita que el
-    usuario haga algo, o None. Sin red no se avisa: no hay nada que arreglar."""
-    malos = [r for r in resultados.values() if r and r["estado"] in AVISAR
-             and not (r["servicio"] in OPCIONALES and r["estado"] in (SIN_TOKEN, SIN_CREDENCIALES))]
+    """(texto para la voz, texto para la pantalla) si algún servicio configurado necesita que
+    el usuario haga algo, o None. Sin red no se avisa: no hay nada que arreglar. Lo que nunca
+    se ha configurado tampoco: el arranque lo omite y lo deja en el registro."""
+    malos = [r for r in resultados.values() if r and r["estado"] in AVISAR]
     if not malos:
         return None
     voz, pantalla = [], []

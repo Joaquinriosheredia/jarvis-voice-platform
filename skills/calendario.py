@@ -2,9 +2,9 @@
 
 Usa el mismo cliente OAuth que Gmail (credentials.json) pero un token propio,
 token_calendar.json: añadir el scope al token de Gmail rompería su refresco.
-La primera vez se abre el navegador para dar permiso; mejor hacerlo a mano
-antes que en mitad de una conversación:
-    venv\\Scripts\\python.exe -c "from skills import calendario; print(calendario.ver_agenda())"
+Se autoriza a mano, nunca en mitad de una conversación:
+    venv\\Scripts\\python.exe reautorizar.py calendar
+Sin autorizar, cada función devuelve (False, frase con el comando).
 """
 import datetime
 import re
@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 
 import rutas
 
-from skills import gmail
+from skills import gmail, google_auth
 
 # calendar.events basta para leer y crear eventos (no da acceso a borrar calendarios ni compartir)
 SCOPES_CAL   = ["https://www.googleapis.com/auth/calendar.events"]
@@ -32,8 +32,17 @@ RE_HORA  = re.compile(r"\d{2}:\d{2}")
 
 
 def _servicio():
-    return build("calendar", "v3", credentials=gmail.credenciales(SCOPES_CAL, TOKEN_CAL),
+    return build("calendar", "v3", credentials=gmail.credenciales(SCOPES_CAL, TOKEN_CAL, "calendar"),
                  cache_discovery=False)
+
+
+def _fallo(accion, e):
+    """Frase de un fallo: qué hacer si no está configurado; si no, solo el tipo de la excepción
+    (su texto puede llevar rutas de la carpeta de secretos o la petición)."""
+    if isinstance(e, google_auth.NoConfigurado):
+        print(f"[CALENDAR] {accion.lower()}: no configurado ({e.estado})")
+        return e.frase
+    return f"{accion}: {type(e).__name__}"
 
 
 def _entero(valor, nombre, defecto):
@@ -74,7 +83,7 @@ def ver_agenda(dias=1):
             timeZone=ZONA,
         ).execute()
     except Exception as e:  # HttpError, red, OAuth caducado...
-        return False, f"No se pudo leer el calendario: {e}"
+        return False, _fallo("No se pudo leer el calendario", e)
 
     periodo = "el próximo día" if dias == 1 else f"los próximos {dias} días"
     eventos = res.get("items", [])
@@ -95,7 +104,7 @@ def eventos_hoy(ahora=None):
             maxResults=MAX_EVENTOS, singleEvents=True, orderBy="startTime", timeZone=ZONA,
         ).execute()
     except Exception as e:
-        return False, f"No se pudo leer el calendario: {type(e).__name__}"
+        return False, _fallo("No se pudo leer el calendario", e)
     eventos = []
     for e in res.get("items", []):
         inicio = e.get("start", {})
@@ -137,6 +146,6 @@ def crear_evento(titulo, fecha, hora_inicio, duracion_min=60, descripcion=""):
     try:
         _servicio().events().insert(calendarId="primary", body=evento).execute()
     except Exception as e:
-        return False, f"No se pudo crear el evento: {e}"
+        return False, _fallo("No se pudo crear el evento", e)
     return True, (f"Evento creado: '{titulo}' el {DIAS_SEMANA[inicio.weekday()]} "
                   f"{inicio:%d/%m} a las {inicio:%H:%M} ({duracion} min).")

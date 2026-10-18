@@ -27,6 +27,8 @@ RE_REPO     = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 # Causas de fallo (nunca contienen el token)
 SIN_TOKEN, TOKEN_INVALIDO, SIN_PERMISO, NO_EXISTE, SIN_RED, ERROR = (
     "sin_token", "token_invalido", "sin_permiso", "no_existe", "sin_red", "error")
+SIN_REPOS = "sin_repos"   # ningún repo válido: "repo" sin dueño configurado
+NO_CONFIGURADO = (SIN_TOKEN, SIN_REPOS)
 
 
 class ErrorGitHub(Exception):
@@ -103,9 +105,15 @@ def ultimo_ci(repo):
 
 def estado(lista=None):
     """{"repos": [{"repo", "prs", "ci"}], "causa": None} o {"repos": [], "causa": causa}.
-    Un fallo de token o de red corta todo; un repo concreto inaccesible se marca y sigue."""
+    Un fallo de token o de red corta todo; un repo concreto inaccesible se marca y sigue.
+    Sin token o sin repos válidos no se consulta nada: nunca "no hay nada pendiente"."""
+    lista = lista or repos()
+    if not _token():
+        return {"repos": [], "causa": SIN_TOKEN}
+    if not lista:
+        return {"repos": [], "causa": SIN_REPOS}
     resultado = []
-    for repo in lista or repos():
+    for repo in lista:
         try:
             resultado.append({"repo": repo, "prs": prs_pendientes(repo), "ci": ultimo_ci(repo), "causa": None})
         except ErrorGitHub as e:
@@ -116,7 +124,10 @@ def estado(lista=None):
 
 
 MENSAJES = {
-    SIN_TOKEN:      "GitHub no está configurado: falta GITHUB_TOKEN en Jarvis-secrets.",
+    SIN_TOKEN:      "GitHub no está configurado; añade GITHUB_TOKEN al archivo .env de la carpeta de "
+                    "secretos (apartado Configuración del README).",
+    SIN_REPOS:      "GitHub no tiene repos configurados; define JARVIS_GITHUB_REPOS con dueño/repo "
+                    "en el archivo .env de la carpeta de secretos.",
     TOKEN_INVALIDO: "No he podido consultar GitHub: el token no es válido o ha caducado.",
     SIN_RED:        "No he podido consultar GitHub: no hay conexión.",
 }

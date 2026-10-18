@@ -6,7 +6,6 @@ import rutas
 from email.message import EmailMessage
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 SCOPES           = ['https://www.googleapis.com/auth/gmail.modify']
@@ -21,19 +20,26 @@ MAX_ADJUNTO      = 20 * 1024 * 1024  # bytes
 _mi_email        = None  # caché de getProfile
 
 # ── AUTENTICACIÓN ─────────────────────────────────────────────────
-def credenciales(scopes, token_file):
+def credenciales(scopes, token_file, servicio="gmail"):
     """OAuth con el credentials.json de JARVIS. Cada token_file guarda solo
     sus scopes: añadir uno a un token existente haría fallar su refresco
-    (invalid_scope), por eso Calendar usa su propio token."""
-    creds = None
-    if os.path.exists(token_file):
+    (invalid_scope), por eso Calendar usa su propio token.
+    Si hace falta autorizar en el navegador (nunca configurado, o sin refresh_token),
+    lanza google_auth.NoConfigurado: eso se hace con reautorizar.py, no en mitad de
+    una conversación."""
+    from skills import google_auth
+    if not os.path.isfile(CREDENTIALS_FILE):
+        raise google_auth.NoConfigurado(servicio, google_auth.SIN_CREDENCIALES)
+    if not os.path.exists(token_file):
+        raise google_auth.NoConfigurado(servicio, google_auth.SIN_TOKEN)
+    try:
         creds = Credentials.from_authorized_user_file(token_file, scopes)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow  = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, scopes)
-            creds = flow.run_local_server(port=8080, open_browser=True)
+    except (ValueError, KeyError, TypeError, AttributeError):   # dañado o sin refresh_token
+        raise google_auth.NoConfigurado(servicio, google_auth.INVALIDO) from None
+    if not creds.valid:
+        if not (creds.expired and creds.refresh_token):
+            raise google_auth.NoConfigurado(servicio, google_auth.CADUCADO)
+        creds.refresh(Request())
         with open(token_file, 'w') as f:
             f.write(creds.to_json())
     return creds
@@ -322,12 +328,18 @@ MENSAJES_CAUSA = {
     "servicio":      "No puedo obtener tu dirección: Gmail ha devuelto un error del servicio. "
                      "Inténtalo de nuevo en unos minutos.",
     "desconocida":   "No puedo obtener tu dirección por un fallo inesperado de Gmail.",
+    "no_configurado": "No puedo obtener tu dirección: Gmail no está configurado; ejecuta "
+                      "reautorizar.py gmail.",
 }
 
 def causa_error(e):
-    """autenticacion | red | permisos | servicio | desconocida, solo por el tipo de la excepción."""
+    """no_configurado | autenticacion | red | permisos | servicio | desconocida, solo por el
+    tipo de la excepción."""
     from google.auth import exceptions as gexc
     from googleapiclient.errors import HttpError
+    from skills import google_auth
+    if isinstance(e, google_auth.NoConfigurado):
+        return "no_configurado"
     if isinstance(e, gexc.RefreshError):  # invalid_grant: refresh_token caducado o revocado
         return "autenticacion"
     if isinstance(e, HttpError):
@@ -353,6 +365,8 @@ FALLOS = {
 def fallo(accion, e):
     causa = causa_error(e)
     print(f"[GMAIL] {accion.lower()}: {type(e).__name__} ({causa})")
+    if causa == "no_configurado":
+        return e.frase
     return f"{accion}: " + FALLOS.get(causa, f"fallo inesperado de Gmail ({type(e).__name__}).")
 
 def resolver_mi_email():

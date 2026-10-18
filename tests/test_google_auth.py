@@ -227,10 +227,16 @@ class TestAvisoArranque(unittest.TestCase):
         self.assertNotIn("Calendar", pantalla)
 
     def test_los_dos_servicios(self):
-        voz, pantalla = ga.aviso_arranque(self.todos(ga.CADUCADO, ga.SIN_TOKEN))
+        voz, pantalla = ga.aviso_arranque(self.todos(ga.CADUCADO, ga.REVOCADO))
         self.assertIn("reautorizar.py gmail", pantalla)
         self.assertIn("reautorizar.py calendar", pantalla)
-        self.assertIn("Calendar no está autorizado", voz)
+        self.assertIn("La autorización de Calendar ha caducado o se ha revocado", voz)
+
+    def test_lo_no_configurado_no_avisa_al_arrancar(self):
+        for estado in ga.NO_CONFIGURADO:
+            self.assertIsNone(ga.aviso_arranque(self.todos(estado, estado)), estado)
+        voz, pantalla = ga.aviso_arranque(self.todos(ga.REVOCADO, ga.SIN_TOKEN))
+        self.assertNotIn("Calendar", voz + pantalla)
 
     def test_cada_estado_que_requiere_accion_avisa(self):
         for estado in ga.AVISAR:

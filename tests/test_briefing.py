@@ -215,13 +215,16 @@ class TestFuentes(Base):
         self.emails.assert_not_called()
         self.assertNotIn("Daily", texto)
 
-    def test_sin_token_de_github_lo_dice_una_vez_y_no_bloquea(self):
-        with patch.dict(os.environ, {"GITHUB_TOKEN": ""}), patch.object(requests, "get") as get:
+    def test_sin_token_de_github_se_omite_en_silencio_y_queda_en_el_registro(self):
+        with patch.dict(os.environ, {"GITHUB_TOKEN": ""}), patch.object(requests, "get") as get, \
+             patch("builtins.print") as imprimir:
             primero = briefing.generar(self.fuentes(), hora=8)
             segundo = briefing.generar(self.fuentes(), hora=8)
         get.assert_not_called()
-        self.assertIn("falta GITHUB_TOKEN", primero)
-        self.assertNotIn("GitHub", segundo)
+        self.assertNotIn("GitHub", primero + segundo)
+        registro = [str(c.args[0]) for c in imprimir.call_args_list]
+        self.assertEqual(sum("[BRIEFING] GitHub no configurado" in r for r in registro), 1)  # una vez
+        self.assertIn("Daily", primero)
         self.assertIn("Daily", segundo)
         self.assertNotIn(TOKEN, primero + segundo)
 

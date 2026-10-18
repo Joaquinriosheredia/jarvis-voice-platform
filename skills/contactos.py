@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 
 import rutas
 
-from skills import direccion, gmail
+from skills import direccion, gmail, google_auth
 
 SCOPES_CONTACTOS = ["https://www.googleapis.com/auth/contacts.readonly"]
 TOKEN_CONTACTOS  = rutas.en_secretos("token_contacts.json")
@@ -25,7 +25,7 @@ _lock = threading.Lock()
 
 
 def _servicio():
-    return build("people", "v1", credentials=gmail.credenciales(SCOPES_CONTACTOS, TOKEN_CONTACTOS),
+    return build("people", "v1", credentials=gmail.credenciales(SCOPES_CONTACTOS, TOKEN_CONTACTOS, "contacts"),
                  cache_discovery=False)
 
 
@@ -49,6 +49,8 @@ def buscar(nombre):
         _calentar(servicio)
         res = servicio.people().searchContacts(query=nombre, readMask="names,emailAddresses",
                                                pageSize=MAX_RESULTADOS).execute()
+    except google_auth.NoConfigurado as e:
+        return False, e.frase
     except Exception as e:
         return False, f"No se pudo consultar Google Contactos ({type(e).__name__})."
     encontrados = []

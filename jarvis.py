@@ -187,6 +187,15 @@ def _comprobar_autorizacion():
         print(f"[AUTH] no se pudo comprobar la autorización de Google: {type(e).__name__}")
         return None, None
 
+def _registrar_no_configurados(autorizacion):
+    """Lo que nunca se ha configurado no se dice al arrancar: se omite del briefing y queda aquí."""
+    try:
+        for servicio in google_auth.no_configurados(autorizacion):
+            brain._print_seguro(f"[BRIEFING] {servicio} no configurado: se omite "
+                                f"(reautorizar.py {servicio})")
+    except Exception:
+        pass
+
 def _gmail_disponible(autorizacion):
     """Sin comprobación (None) se intenta como siempre; si se comprobó, solo con token válido.
     Así un token caducado o ausente no abre el navegador ni falla en el resumen."""
@@ -339,6 +348,7 @@ def main():
     brain.al_texto_parcial = lambda texto: ui_bridge.emit("assistant_delta", text=texto)
     # Una sola vez por arranque: por voz (dentro del resumen) y en la UI (persistente)
     autorizacion, aviso = _comprobar_autorizacion()
+    _registrar_no_configurados(autorizacion)
     briefing.autorizacion = autorizacion   # "dame el briefing" respeta el mismo estado
     if aviso:
         ui_bridge.avisar(aviso[1])

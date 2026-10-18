@@ -101,6 +101,18 @@ class TestAvisoAlArrancar(Base):
             self.cargar.assert_not_called()       # sin getProfile
             self.assertNotIn("Tienes un email", resumen)
 
+    def test_nada_configurado_arranca_en_silencio_y_lo_registra(self):
+        for estado in (ga.SIN_CREDENCIALES, ga.SIN_TOKEN):
+            jarvis.audio.reset_mock()
+            resumen = self.arrancar(todos(estado, estado))
+            self.avisar.assert_not_called()
+            self.emails.assert_not_called()
+            self.assertNotIn("Aviso", resumen)
+            self.assertNotIn("credentials", resumen)
+            self.assertTrue(resumen.endswith("¿Qué puedo hacer por usted hoy?"))
+            self.assertIn("[BRIEFING] gmail no configurado: se omite (reautorizar.py gmail)", self.consola)
+            self.assertIn("[BRIEFING] calendar no configurado: se omite (reautorizar.py calendar)", self.consola)
+
     def test_todo_valido_sin_aviso(self):
         resumen = self.arrancar(todos(ga.VALIDO, ga.RENOVADO))
         self.avisar.assert_not_called()

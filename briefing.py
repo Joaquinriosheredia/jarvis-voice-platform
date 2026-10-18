@@ -92,9 +92,15 @@ def frase_tareas(vencidas, pendientes):
 
 
 def frase_github():
-    """Estado de GitHub; si falla, lo dice solo la primera vez en la sesión."""
+    """Estado de GitHub; si falla, lo dice solo la primera vez en la sesión. Sin configurar
+    (sin token o sin repos) se omite en silencio y queda en el registro."""
     global _github_avisado
     datos = github.estado()
+    if datos.get("causa") in github.NO_CONFIGURADO:
+        if not _github_avisado:
+            _github_avisado = True
+            print(f"[BRIEFING] GitHub no configurado ({datos['causa']}): se omite")
+        return ""
     if datos.get("causa"):
         if _github_avisado:
             return ""

@@ -56,7 +56,7 @@ class TestVerAgenda(unittest.TestCase):
         with patch("skills.calendario._servicio", side_effect=RuntimeError("token caducado")):
             ok, msg = calendario.ver_agenda(1)
         self.assertFalse(ok)
-        self.assertIn("token caducado", msg)
+        self.assertEqual(msg, "No se pudo leer el calendario: RuntimeError")   # sin el texto en crudo
 
 
 class TestCrearEvento(unittest.TestCase):
