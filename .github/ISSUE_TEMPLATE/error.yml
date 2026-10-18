@@ -40,9 +40,9 @@ body:
   - type: textarea
     id: doctor
     attributes:
-      label: Salida de doctor.py
-      description: "`venv\\Scripts\\python.exe doctor.py`. No imprime claves, pero revisa que no haya rutas o nombres que no quieras publicar."
-      render: text
+      label: Informe de diagnóstico
+      description: "Pega la salida de `venv\\Scripts\\python.exe doctor.py --reporte | clip` (commit, versiones, comprobaciones y los últimos errores, sin claves, direcciones, rutas personales ni texto de turnos). Revísalo antes de enviarlo."
+      render: markdown
   - type: textarea
     id: log
     attributes:

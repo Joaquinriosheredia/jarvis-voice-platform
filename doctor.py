@@ -1,6 +1,7 @@
 """Diagnóstico del entorno de JARVIS sin probar por voz.
 
     venv\\Scripts\\python.exe doctor.py [--json] [--live]
+    venv\\Scripts\\python.exe doctor.py --reporte | clip     (informe para pegar en un issue)
 
 Cada comprobación devuelve OK / AVISO / ERROR, un texto corto y, si falla, la acción
 para arreglarlo. Código de salida: 0 sin ERROR, 1 con algún ERROR (los AVISO no cuentan).
@@ -16,6 +17,7 @@ fuera de la carpeta del código, la de secretos y las configuradas en rutas.py.
 """
 import argparse
 import ast
+import platform
 import importlib.metadata
 import importlib.util
 import json
@@ -774,11 +776,163 @@ def _imprimir(texto):
     print(texto.encode(enc, "replace").decode(enc))
 
 
+# ── --reporte: informe para pegar en un issue ─────────────────────
+LOG_CONSOLA   = os.path.join(RAIZ, "jarvis.log")
+LOG_MAX_BYTES = 2 * 1024 * 1024     # solo el final del log
+MAX_ERRORES   = 15
+USUARIO, EQUIPO = "<usuario>", "<equipo>"
+# Del log solo salen firmas: la etiqueta [X], nombres de excepción, códigos HTTP y los marcos de
+# las trazas (archivo, línea, función). El resto de cada línea, que puede llevar texto de un
+# turno, nunca sale.
+_RE_ETIQUETA  = re.compile(r"^\s*(?:[^\w\s\[]+\s*)?\[([A-Z][A-Z0-9_+ -]{1,20})\]")
+_RE_EXCEPCION = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:Error|Exception|Interrupt|Exit|Warning)|NoConfigurado)\b")
+_RE_HTTP      = re.compile(r"\bHTTP (\d{3})\b")
+_RE_ES_ERROR  = re.compile(r"❌|error|falló|fallo|fallback|no se pudo|no disponible|exception|traceback", re.I)
+_RE_MARCO     = re.compile(r'^\s*File "([^"]+)", line (\d+), in (\S+)')
+_IGNORAR      = ("[TRAZA", "[ARNES]", "👂", "🔊", "🎤")   # trazas de tools y turnos: nunca
+
+
+def _ruta_relativa(ruta):
+    """Ruta del marco de una traza sin carpetas del usuario: relativa al repo o al paquete."""
+    normal = ruta.replace("/", os.sep)
+    raiz = RAIZ.rstrip(os.sep) + os.sep
+    if normal.lower().startswith(raiz.lower()):
+        return normal[len(raiz):].replace(os.sep, "/")
+    for marca in ("site-packages", "lib" + os.sep + "python", "Lib"):
+        i = normal.find(os.sep + marca + os.sep)
+        if i >= 0:
+            return "<python>/" + normal[i + len(marca) + 2:].replace(os.sep, "/")
+    return "<fuera del repo>/" + os.path.basename(normal)
+
+
+def errores_del_log(ruta=LOG_CONSOLA, maximo=MAX_ERRORES):
+    """[(firma, veces)] de los últimos errores de la consola (jarvis.log), del más antiguo al más
+    reciente por su última aparición. Firmas, nunca el texto de las líneas."""
+    try:
+        with open(ruta, "rb") as f:
+            f.seek(max(0, os.path.getsize(ruta) - LOG_MAX_BYTES))
+            lineas = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    cuenta, orden, marcos = {}, [], []
+
+    def anotar(firma):
+        cuenta[firma] = cuenta.get(firma, 0) + 1
+        if firma in orden:
+            orden.remove(firma)
+        orden.append(firma)
+
+    for linea in lineas:
+        if any(i in linea for i in _IGNORAR):
+            continue
+        marco = _RE_MARCO.match(linea)
+        if marco:
+            marcos.append(f"{_ruta_relativa(marco.group(1))}:{marco.group(2)} en {marco.group(3)}")
+            continue
+        if marcos and not linea.startswith((" ", "\t")):     # fin de la traza: su excepción
+            tipo = _RE_EXCEPCION.search(linea)
+            anotar(f"Traza {tipo.group(1) if tipo else '(excepción sin tipo)'} ← {' ← '.join(reversed(marcos[-3:]))}")
+            marcos = []
+            continue
+        if "Traceback (most recent call last)" in linea or not _RE_ES_ERROR.search(linea):
+            continue
+        etiqueta = _RE_ETIQUETA.match(linea)
+        partes = ([f"[{etiqueta.group(1)}]"] if etiqueta else ["❌"] if "❌" in linea else []) + \
+                 list(dict.fromkeys(_RE_EXCEPCION.findall(linea))) + \
+                 [f"HTTP {c}" for c in dict.fromkeys(_RE_HTTP.findall(linea))]
+        if len(partes) > (1 if etiqueta or "❌" in linea else 0):
+            anotar(" ".join(partes))
+    return [(f, cuenta[f]) for f in orden[-maximo:]]
+
+
+def anonimizar(texto):
+    """Secretos y direcciones (direccion.redactar: redactar_secretos + <email>), y además las
+    carpetas configuradas en rutas.py, rutas con el nombre del usuario, el nombre del equipo y
+    el del perfil."""
+    try:
+        from skills import direccion
+        texto = direccion.redactar(texto)
+    except Exception:
+        texto = _sanear(texto)
+    carpetas = []
+    for clave in ("descargas", "escritorio", "home", "wsl_home"):
+        try:
+            carpetas.append((rutas.valor(clave), f"<{clave}>"))
+        except Exception:
+            pass
+    for valor, marca in sorted(carpetas, key=lambda c: len(c[0] or ""), reverse=True):
+        if valor and len(valor) >= 4:
+            texto = re.sub(rf"(?i){re.escape(valor)}(?=$|[\\/\s|;,)])", lambda m: marca, texto)
+    texto = re.sub(r"(?i)\b([a-z]:\\users\\)[^\\/\s\"'<>|]+", lambda m: m.group(1) + USUARIO, texto)
+    texto = re.sub(r"(?i)(\\\\wsl(?:\.localhost|\$)\\[^\\\s]+\\home\\)[^\\/\s\"'<>|]+",
+                   lambda m: m.group(1) + USUARIO, texto)
+    texto = re.sub(r"(/home/|/Users/|/mnt/[a-z]/Users/)[^/\s\"'<>|]+", lambda m: m.group(1) + USUARIO, texto)
+    sustituir = [(os.environ.get(v, ""), USUARIO) for v in ("USERNAME", "USER")] + \
+                [(os.environ.get("COMPUTERNAME", ""), EQUIPO)] + \
+                [(rutas.perfil(c), USUARIO) for c in ("nombre_completo", "nombre")]
+    for valor, marca in sustituir:
+        valor = (valor or "").strip()
+        if len(valor) >= 3:   # tal cual (un nombre como «Usuario» no puede comerse texto normal)
+            texto = re.sub(rf"(?<![\w<]){re.escape(valor)}(?![\w>])", marca, texto)
+    return texto
+
+
+def _versiones():
+    """[(nombre, valor)]: repo, Python, Windows, torch y CUDA. Nunca rutas ni nombres."""
+    commit = git("rev-parse", "--short", "HEAD")
+    commit = commit.stdout.strip() if commit.returncode == 0 else "desconocido (no es un repo git)"
+    rama = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "?"
+    cambios = git("status", "--porcelain")
+    sucio = cambios.returncode == 0 and any(l.strip() for l in cambios.stdout.splitlines())
+    sistema = f"{platform.system()} {platform.release()} ({platform.version()})"
+    datos = [("Commit", f"{commit} en {rama}" + (" con cambios locales" if sucio else "")),
+             ("Python", f"{platform.python_version()} ({platform.architecture()[0]})"),
+             ("Sistema", sistema)]
+    try:
+        import torch
+        cuda = torch.version.cuda or "sin CUDA (build de CPU)"
+        if torch.cuda.is_available():
+            gpu = f"disponible, {torch.cuda.get_device_name(0)}"
+        else:
+            gpu = "no disponible"
+        datos += [("torch", torch.__version__), ("CUDA", f"{cuda}; GPU {gpu}")]
+    except Exception as e:
+        datos += [("torch", f"no se puede importar ({type(e).__name__})"), ("CUDA", "desconocido")]
+    return datos
+
+
+def reporte(live=False, ruta_log=LOG_CONSOLA):
+    """Informe en Markdown para un issue: versiones, cada comprobación y los últimos errores."""
+    resultados = ejecutar(live=live)
+    cuenta, global_ = resumen(resultados)
+    lineas = ["### Informe de diagnóstico (doctor.py --reporte" + (" --live" if live else "") + ")", ""]
+    lineas += [f"- **{n}:** {v}" for n, v in _versiones()]
+    lineas += ["", f"**Doctor: {global_}** ({cuenta[OK]} OK, {cuenta[AVISO]} AVISO, {cuenta[ERROR]} ERROR)", "",
+               "| Estado | Comprobación | Detalle |", "|---|---|---|"]
+    for r in resultados:
+        detalle = r["detalle"] + (f" → {r['accion']}" if r["accion"] else "")
+        lineas.append(f"| {r['estado']} | {r['nombre']} | {detalle.replace('|', '/')} |")
+    errores = errores_del_log(ruta_log)
+    lineas += ["", f"**Últimos errores de jarvis.log** (solo su firma, sin texto de turnos; "
+                   f"{'ninguno' if not errores else len(errores)}):"]
+    if errores:
+        lineas += ["", "```"] + [f"{veces}× {firma}" for firma, veces in errores] + ["```"]
+    lineas += ["", "_Generado sin claves, direcciones, rutas personales ni texto de turnos. "
+                   "Revísalo antes de publicarlo._"]
+    return anonimizar("\n".join(lineas))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Diagnóstico del entorno de JARVIS")
     parser.add_argument("--json", action="store_true", help="salida JSON estable")
     parser.add_argument("--live", action="store_true", help="valida las claves con llamadas mínimas (coste despreciable)")
+    parser.add_argument("--reporte", action="store_true",
+                        help="informe en Markdown para pegar en un issue (sin claves, direcciones, rutas "
+                             "con tu usuario ni texto de turnos)")
     args = parser.parse_args(argv)
+    if args.reporte:
+        _imprimir(reporte(live=args.live))
+        return 0
     resultados = ejecutar(live=args.live)
     _imprimir(a_json(resultados) if args.json else a_tabla(resultados))
     return 1 if any(r["estado"] == ERROR for r in resultados) else 0

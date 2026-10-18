@@ -8,6 +8,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Añadido**
 
+- `doctor.py --reporte`: informe para pegar en un issue (versiones, comprobaciones y firmas de los últimos errores), sin claves, direcciones, rutas personales ni texto de turnos
 - Asistente de configuración (configurar.py), que instalar.cmd ofrece al final: clave de Anthropic sin mostrarla, validada y en el .env con permisos solo para el usuario
 
 **Corregido**

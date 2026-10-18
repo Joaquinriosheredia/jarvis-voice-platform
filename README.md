@@ -531,7 +531,10 @@ venv\Scripts\python.exe replay.py --latencia  # p50/p95 por etapa y cuello de bo
 venv\Scripts\python.exe doctor.py            # tabla legible
 venv\Scripts\python.exe doctor.py --json     # JSON estable (version, estado, resumen, comprobaciones)
 venv\Scripts\python.exe doctor.py --live     # además valida la clave de Anthropic (max_tokens=1), la voz de ElevenLabs, los tokens de Google y GitHub, y consulta el tiempo
+venv\Scripts\python.exe doctor.py --reporte | clip   # informe para pegar en un issue de error
 ```
+
+**Para reportar un fallo**, `doctor.py --reporte` genera un texto en Markdown listo para pegar en la [plantilla de error](.github/ISSUE_TEMPLATE/error.yml): commit, versiones de Python, Windows, torch y CUDA, el resultado de cada comprobación y los últimos errores de `jarvis.log` resumidos. De cada error solo sale su firma (la etiqueta `[X]`, el tipo de excepción, el código HTTP o los marcos de la traza), nunca el texto de la línea, así que no lleva texto de turnos. Todo pasa por los enmascaradores de secretos y direcciones, y las carpetas configuradas, las rutas con tu usuario, el nombre del equipo y el de tu perfil salen como `<descargas>`, `<usuario>`, `<equipo>`… Revísalo antes de publicarlo. Con `--live` incluye también las comprobaciones con red.
 
 Comprueba Python y el venv, las dependencias de `requirements.txt`, ffmpeg, VLC, yt-dlp, Node y Electron, Ollama y su modelo, audio, Piper, Whisper y CUDA, credenciales y tokens de Google, `.gitignore` y secretos en git, el puerto 8765, la zona horaria, los proyectos del operador, `logs/`, la memoria entre sesiones, el servicio del tiempo y git. Es de solo lectura: no escribe archivos, no graba audio ni carga modelos, y nunca imprime claves (solo "definida" y su longitud). Sin `--live` no hay red, así que los tokens de Google y el servicio del tiempo salen como "no verificado". Con `--live`, los tokens se renuevan en memoria con la misma comprobación que el arranque de JARVIS, y el tiempo se consulta de verdad con el mismo reintento que el briefing. Si falla, sale como AVISO con su causa (sin red, sin respuesta, saturado…).
 
