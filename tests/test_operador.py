@@ -488,14 +488,15 @@ class TestEjecutarTests(Base):
         with patch("skills.operador.subprocess.run") as run:
             ok, msg = operador.ejecutar_tests("windows")
         self.assertFalse(ok)
-        self.assertIn("Proyecto desconocido", msg)
+        self.assertEqual(msg, operador.TESTS_NO_CONFIGURADOS.format(proyecto="windows"))
         run.assert_not_called()
 
     def test_proyecto_sin_suite_configurada(self):
         with patch("skills.operador.subprocess.run") as run:
             ok, msg = operador.ejecutar_tests("dam")
         self.assertFalse(ok)
-        self.assertIn("no tiene suite de tests configurada", msg)
+        self.assertEqual(msg, operador.TESTS_NO_CONFIGURADOS.format(proyecto="dam"))
+        self.assertIn('"tests" del perfil de rutas.json', msg)
         run.assert_not_called()
 
     def test_filtro_con_inyeccion_rechazado(self):

@@ -420,6 +420,11 @@ def _bloque_fecha():
 def _tools_con_cache():
     return TOOLS[:-1] + [{**TOOLS[-1], "cache_control": CACHE_EFIMERA}]
 
+
+# Tools de AuthorityEngine: sin "authority" en el perfil (rutas.json) se ofrecen igual, como las de
+# Gmail sin token, pero no ejecutan nada y el sistema dice tal cual cómo configurarlo
+TOOLS_AUTHORITY = ("siguiente_racha", "estado_authority")
+
 # ── SYSTEM PROMPT ─────────────────────────────────────────────────
 SYSTEM = """{CABECERA}
 
@@ -1202,8 +1207,10 @@ def _anuncio_estricto(tool, p):
     elif tool == "organizar_directorio":
         que = f"Voy a organizar la carpeta {texto('ruta', 120) or DESCARGAS}."
     else:
+        from skills import authority
+        repo = authority.repo_publico() if authority.config() else "el del roadmap"
         que = ("Voy a lanzar la siguiente racha de AuthorityEngine: generará un borrador con el siguiente "
-               "tema del roadmap y publicará un push en un repo público de GitHub, DAM-Java-Mastery.")
+               f"tema del roadmap y publicará un push en un repo público de GitHub, {repo}.")
     return f"{que} ¿Confirmas con '{CONFIRM_PHRASES_ESTRICTO[tool]}'?"
 
 
@@ -1283,13 +1290,19 @@ _RE_REPITE_AVISO = re.compile(r"reautoriz|configur|GITHUB_TOKEN|JARVIS_GITHUB_RE
 
 def frases_aviso():
     """Todas las frases de «no configurado» o «reautoriza», de los módulos que las generan."""
-    from skills import gmail, google_auth, sistema
+    from skills import authority, gmail, google_auth, sistema
     frases = {google_auth.frase_no_disponible(s, e) for s in ("gmail", "calendar", "contacts")
               for e in (google_auth.SIN_CREDENCIALES, google_auth.SIN_TOKEN, google_auth.INVALIDO)}
     frases |= {github.MENSAJES[c] for c in github.NO_CONFIGURADO}
     frases |= {sistema.TIEMPO_NO_CONFIGURADO, gmail.FALLOS["autenticacion"],
-               gmail.MENSAJES_CAUSA["autenticacion"], gmail.MENSAJES_CAUSA["no_configurado"]}
+               gmail.MENSAJES_CAUSA["autenticacion"], gmail.MENSAJES_CAUSA["no_configurado"],
+               authority.NO_CONFIGURADO}
     return frases
+
+
+# Avisos con una parte variable (el alias del proyecto): la frase entera es la del sistema
+_ALIAS_AVISO = r"(?:[\w.-]{1,40}|ese proyecto)"
+_PATRONES_AVISO = [re.compile(re.escape(operador.TESTS_NO_CONFIGURADOS).replace(re.escape("{proyecto}"), _ALIAS_AVISO))]
 
 
 def aviso_literal(mensaje):
@@ -1299,13 +1312,18 @@ def aviso_literal(mensaje):
     for frase in sorted(frases_aviso(), key=len, reverse=True):
         if frase in mensaje:
             return frase[0].upper() + frase[1:]
+    for patron in _PATRONES_AVISO:
+        m = patron.search(mensaje)
+        if m:
+            return m.group(0)
     return None
 
 
 # Lo que el modelo diga del servicio sin configurar es inventado (no tiene sus datos): se quita
 _TEMAS_AVISO = {"Gmail": r"correo|email|mensaje|bandeja", "Calendar": r"agenda|calendario|evento|reuni",
                 "Contactos": r"contacto", "GitHub": r"github|\bCI\b|\bPRs?\b|review",
-                "tiempo": r"tiempo|grados|temperatura|llov|lluvia|fr[íi]o|calor"}
+                "tiempo": r"tiempo|grados|temperatura|llov|lluvia|fr[íi]o|calor",
+                "AuthorityEngine": r"racha|authority|roadmap|score"}
 
 
 def _con_avisos(final, traza):
@@ -1397,6 +1415,17 @@ def _ejecutar(nombre, parametros, skills, texto_usuario=""):
     return res
 
 
+def _no_configurado(nombre, parametros):
+    """Aviso si la tool depende de algo que no está en el perfil (rutas.json). Va antes del gate:
+    sin nada que ejecutar no hay nada que anunciar ni confirmar."""
+    if nombre in TOOLS_AUTHORITY and rutas.authority() is None:
+        from skills import authority
+        return authority.NO_CONFIGURADO
+    if nombre == "ejecutar_tests" and parametros.get("proyecto") not in operador.COMANDOS_TEST:
+        return operador.ejecutar_tests(parametros.get("proyecto"))[1]   # no ejecuta nada: solo el aviso
+    return None
+
+
 def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
     if nombre in TOOLS_PRIVADAS:  # antes del gate: un bloqueo también puede citar el email
         tts_elevenlabs.marcar_privado()
@@ -1423,6 +1452,9 @@ def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
                 cargar_destinatarios_permitidos(skills)
             else:
                 cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
+        aviso = _no_configurado(nombre, parametros)
+        if aviso:
+            return _err(aviso, "no_configurado")
         bloqueo = _gate(nombre, parametros, texto_usuario, _email_en_cache(nombre, parametros, skills))
         if bloqueo:
             return _envolver(bloqueo)

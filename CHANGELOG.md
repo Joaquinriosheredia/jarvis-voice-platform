@@ -8,6 +8,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Añadido**
 
+- AuthorityEngine y los comandos de tests del operador en el perfil de rutas.json (`authority`, `tests`): sin ellos no se ejecuta nada ni se pide confirmación, y el sistema dice tal cual qué falta
 - Avisos de servicio sin configurar o por reautorizar dichos tal cual por el sistema (con el comando exacto), sin paráfrasis del modelo
 - Saludo, ciudad y coordenadas del tiempo, ubicación del prompt y proyectos del operador en el perfil de rutas.json, con valores neutros sin perfil; configurar.py los pregunta (opcional) con geocodificación sin clave y sin sobrescribir nada
 - `doctor.py --reporte`: informe para pegar en un issue (versiones, comprobaciones y firmas de los últimos errores), sin claves, direcciones, rutas personales ni texto de turnos

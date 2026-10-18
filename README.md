@@ -326,7 +326,7 @@ JARVIS anuncia la acción con un texto que genera el sistema, no el modelo (por 
 | `ejecutar_tests` | EXTERNAL | Ejecuta la suite del proyecto (código del repo, hasta 300 s) | Depende de los tests | Depende de los tests | **defecto** y `=1` | confirmo tests |
 | `mover_archivo` | EXTERNAL | Mueve un archivo dentro de la zona permitida | Parcial: si el destino existe, puede sobrescribirlo | No | **defecto** y `=1` | confirmo mover |
 | `organizar_directorio` | EXTERNAL | Reparte todos los archivos de Descargas en carpetas | Laborioso de deshacer | No | **defecto** y `=1` | confirmo organizar |
-| `siguiente_racha` | EXTERNAL | Toma el siguiente tema pendiente del roadmap de DAM-Java-Mastery, lo marca como hecho y lanza `racha.py` en WSL. Este llama a `engine.py`, que busca el tema en Hacker News, GitHub y Tavily, genera un borrador con Ollama y lo sube con `git commit` y `git push` a `_Review/` del repo **público** DAM-Java-Mastery | No: el push queda publicado en GitHub (se puede revertir, pero ya ha sido visible) y el tema queda marcado en el roadmap | Sí: búsquedas con el tema en tres servicios y un push a un repo público | **defecto** y `=1` | confirmo racha |
+| `siguiente_racha` | EXTERNAL | Solo con AuthorityEngine en el perfil (ver Perfil). Toma el siguiente tema pendiente del roadmap del repo de documentos, lo marca como hecho y lanza `racha.py` en WSL. Este llama a `engine.py`, que busca el tema en Hacker News, GitHub y Tavily, genera un borrador con Ollama y lo sube con `git commit` y `git push` a `_Review/` de ese repo, que es **público** | No: el push queda publicado en GitHub (se puede revertir, pero ya ha sido visible) y el tema queda marcado en el roadmap | Sí: búsquedas con el tema en tres servicios y un push a un repo público | **defecto** y `=1` | confirmo racha |
 | `crear_carpeta` | EXTERNAL | Crea una carpeta en la zona permitida | Sí | No | no | — |
 | `abrir_web` | EXTERNAL | Abre un sitio de una lista fija, sin texto del modelo | — | Solo abre la URL fija | no | — |
 | `abrir_app` | EXTERNAL | Abre una app de una lista fija | Sí | No | no | — |
@@ -461,6 +461,8 @@ Ningún archivo del código escribe rutas de este equipo: todas salen de `rutas.
 | Ciudad del tiempo y del prompt («En Málaga hay 20 grados»), con provincia y país opcionales | `JARVIS_CIUDAD`, `JARVIS_PROVINCIA`, `JARVIS_PAIS` | `ciudad`, `provincia`, `pais` |
 | Coordenadas del tiempo (sin ellas, el tiempo está desactivado) | `JARVIS_LATITUD`, `JARVIS_LONGITUD` | `latitud`, `longitud` (números) |
 | Proyectos del operador, además de `jarvis`. `"wsl:<carpeta>"` es una carpeta de tu home de WSL | — | `proyectos`: `{"alias": "ruta"}` |
+| Comando de tests de cada proyecto, además de `jarvis`. Con `wsl`, se ejecuta en esa carpeta de tu home de WSL; sin él, en la del proyecto | — | `tests`: `{"alias": {"wsl": "carpeta", "comando": ["venv/bin/python", "-m", "pytest", "-q"]}}` |
+| AuthorityEngine: la carpeta del motor (`racha.py`, `generar_inventario.py` y su venv) y la del repo de documentos (`ROADMAP_TEMAS.md`), las dos de tu home de WSL | — | `authority`: `{"motor": "carpeta", "roadmap": "carpeta"}` |
 | Nombre completo y una línea sobre ti (prompt de sistema) | `JARVIS_NOMBRE_COMPLETO`, `JARVIS_DESCRIPCION` | `nombre_completo`, `descripcion` |
 | Dueño de GitHub de los repos sin `dueño/` | `JARVIS_GITHUB_DUENIO` | `github_usuario` |
 | Webs propias («abre github», «abre el portfolio») | `JARVIS_WEB_GITHUB`, `JARVIS_WEB_PORTFOLIO` | `web_github`, `web_portfolio` |
@@ -474,6 +476,8 @@ Ningún archivo del código escribe rutas de este equipo: todas salen de `rutas.
 ```
 
 Un `"proyectos"` fuera de `"perfil"` (el formato anterior) sigue valiendo y sustituye a la lista entera, `jarvis` incluido.
+
+**Sin `tests` ni `authority` no se ejecuta nada.** Pedir los tests de un proyecto sin comando no lanza ningún proceso: JARVIS dice tal cual «Los tests de <proyecto> no están configurados. Para ejecutarlos, añade su comando en "tests" del perfil de rutas.json.». Sin `authority`, `siguiente_racha` y `estado_authority` siguen disponibles, como las de Gmail sin token, pero no anuncian ni ejecutan nada (ni WSL, ni git, ni push, ni búsquedas): JARVIS dice tal cual «AuthorityEngine no está configurado. Para usarlo, añade "authority" con "motor" y "roadmap" (carpetas del home de WSL) al perfil de rutas.json.». En los dos casos el aviso sale antes del gate: no se pide confirmar algo que no puede hacerse. Las carpetas y los argumentos de estos comandos solo admiten letras, números y `. / \ _ - = : +`, sin `..`.
 
 `doctor.py` muestra cada carpeta, de dónde sale (entorno, `rutas.json` o respaldo) y si existe. Las rutas se leen al arrancar, así que un cambio necesita reiniciar JARVIS.
 

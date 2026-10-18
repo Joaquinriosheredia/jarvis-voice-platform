@@ -136,7 +136,7 @@ class TestSinAvisos(Base):
 
     def test_todas_las_frases_llevan_un_comando_o_variable(self):
         for frase in brain.frases_aviso():
-            self.assertRegex(frase, r"reautorizar\.py \w+|configurar\.py|GITHUB_TOKEN|JARVIS_GITHUB_REPOS", frase)
+            self.assertRegex(frase, r"reautorizar\.py \w+|configurar\.py|GITHUB_TOKEN|JARVIS_GITHUB_REPOS|rutas\.json", frase)
 
 
 if __name__ == "__main__":

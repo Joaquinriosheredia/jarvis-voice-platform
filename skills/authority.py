@@ -1,3 +1,10 @@
+"""AuthorityEngine (proyecto del autor, en WSL): rachas, inventario, documentos y scores.
+
+Las carpetas salen del perfil de rutas.json ("authority": "motor" y "roadmap", relativas al home
+de WSL). Sin ellas, ninguna función ejecuta nada (ni WSL, ni git, ni push, ni búsquedas): todas
+devuelven NO_CONFIGURADO, y brain no ofrece sus tools.
+"""
+import functools
 import re
 import subprocess
 import json
@@ -6,9 +13,39 @@ from datetime import datetime
 
 import rutas
 
-REPO_WSL    = rutas.wsl_ruta(".openclaw/workspace/DAM-Java-Mastery")
-ROADMAP_WSL = REPO_WSL + "/ROADMAP_TEMAS.md"
-HISTORICO   = Path.home() / "AuthorityEngine/score_historico.json"
+NO_CONFIGURADO = ('AuthorityEngine no está configurado. Para usarlo, añade "authority" con "motor" y '
+                  '"roadmap" (carpetas del home de WSL) al perfil de rutas.json.')
+
+
+def config():
+    """{"motor", "roadmap"} del perfil, o None."""
+    return rutas.authority()
+
+
+def repo_wsl():
+    return rutas.wsl_ruta(config()["roadmap"])
+
+
+def roadmap_wsl():
+    return repo_wsl() + "/ROADMAP_TEMAS.md"
+
+
+def ruta_historico():
+    return Path.home() / config()["motor"] / "score_historico.json"
+
+
+def repo_publico():
+    """Nombre del repo de documentos (el anuncio de la racha dice dónde publicará)."""
+    return config()["roadmap"].rsplit("/", 1)[-1]
+
+
+def _configurado(funcion):
+    @functools.wraps(funcion)
+    def envoltura(*args, **kwargs):
+        if config() is None:
+            return NO_CONFIGURADO
+        return funcion(*args, **kwargs)
+    return envoltura
 
 # ── WSL HELPER ROBUSTO ────────────────────────────────────────────
 def wsl(cmd):
@@ -25,15 +62,18 @@ def wsl(cmd):
 
 # ── RACHA ACTIVA ──────────────────────────────────────────────────
 def racha_activa():
+    if config() is None:
+        return False
     result = wsl("ps aux | grep racha.py | grep -v grep")
     return bool(result)
 
 # ── SIGUIENTE RACHA ───────────────────────────────────────────────
+@_configurado
 def siguiente_racha():
     if racha_activa():
         return "Ya hay una racha en ejecución, espera a que termine"
 
-    tema = wsl(f"grep -m1 -- '- \\[ \\]' {ROADMAP_WSL} | sed 's/- \\[ \\] //'")
+    tema = wsl(f"grep -m1 -- '- \\[ \\]' {roadmap_wsl()} | sed 's/- \\[ \\] //'")
     if not tema:
         return "No hay temas pendientes en el roadmap"
 
@@ -41,15 +81,16 @@ def siguiente_racha():
 
     subprocess.Popen([
         "wsl", "bash", "-c",
-        f"cd ~/AuthorityEngine && source venv/bin/activate && python3 racha.py '{tema_safe}'"
+        f"cd ~/{config()['motor']} && source venv/bin/activate && python3 racha.py '{tema_safe}'"
     ])
 
     # Marcar solo primera coincidencia con awk
     wsl(f"awk 'BEGIN{{done=0}} /- \\[ \\] {tema_safe}/{{if(!done){{sub(/- \\[ \\]/,\"- [x]\"); done=1}}}} {{print}}' "
-        f"{ROADMAP_WSL} > /tmp/roadmap_tmp.md && mv /tmp/roadmap_tmp.md {ROADMAP_WSL}")
+        f"{roadmap_wsl()} > /tmp/roadmap_tmp.md && mv /tmp/roadmap_tmp.md {roadmap_wsl()}")
 
     return f"Lanzando racha sobre: {tema}"
 
+@_configurado
 def lanzar_racha(tema):
     if racha_activa():
         return "Ya hay una racha en ejecución"
@@ -57,30 +98,34 @@ def lanzar_racha(tema):
     tema_safe = tema.replace("'", "").replace('"', '')
     subprocess.Popen([
         "wsl", "bash", "-c",
-        f"cd ~/AuthorityEngine && source venv/bin/activate && python3 racha.py '{tema_safe}'"
+        f"cd ~/{config()['motor']} && source venv/bin/activate && python3 racha.py '{tema_safe}'"
     ])
     return f"Lanzando racha sobre {tema}"
 
 # ── INVENTARIO ────────────────────────────────────────────────────
+@_configurado
 def actualizar_inventario():
     subprocess.Popen([
         "wsl", "bash", "-c",
-        "cd ~/AuthorityEngine && source venv/bin/activate && python3 generar_inventario.py"
+        f"cd ~/{config()['motor']} && source venv/bin/activate && python3 generar_inventario.py"
     ])
     return "Actualizando inventario y subiendo a GitHub y S3"
 
 # ── DOCUMENTOS ───────────────────────────────────────────────────
+@_configurado
 def contar_documentos():
-    n = wsl("find ~/.openclaw/workspace/DAM-Java-Mastery -name '*_STAFF.md' | wc -l")
+    n = wsl(f"find ~/{config()['roadmap']} -name '*_STAFF.md' | wc -l")
     return f"Tienes {n or 0} documentos Staff publicados"
 
+@_configurado
 def documentos_en_review():
-    n = wsl(f"ls {REPO_WSL}/_Review/ 2>/dev/null | wc -l")
+    n = wsl(f"ls {repo_wsl()}/_Review/ 2>/dev/null | wc -l")
     if not n or n == "0":
         return "No hay documentos en review pendientes"
     return f"Hay {n} documentos en review esperando refinamiento"
 
 # ── S3 ────────────────────────────────────────────────────────────
+@_configurado
 def documentos_s3():
     bucket = rutas.perfil("bucket_authority")
     if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{2,62}", bucket):
@@ -91,11 +136,12 @@ def documentos_s3():
     return f"Hay {n} documentos en AWS S3"
 
 # ── SCORES ───────────────────────────────────────────────────────
+@_configurado
 def resumen_scores():
     try:
-        if not HISTORICO.exists():
+        if not ruta_historico().exists():
             return "No hay historial de scores todavía"
-        with open(HISTORICO, 'r', encoding='utf-8') as f:
+        with open(ruta_historico(), 'r', encoding='utf-8') as f:
             historico = json.load(f)
         if not historico:
             return "El historial está vacío"
@@ -108,11 +154,12 @@ def resumen_scores():
     except Exception as e:
         return f"Error leyendo historial: {e}"
 
+@_configurado
 def progreso_semanal():
     try:
-        if not HISTORICO.exists():
+        if not ruta_historico().exists():
             return "No hay datos de progreso todavía"
-        with open(HISTORICO, 'r', encoding='utf-8') as f:
+        with open(ruta_historico(), 'r', encoding='utf-8') as f:
             historico = json.load(f)
         hoy    = datetime.now()
         semana = [e for e in historico
@@ -127,22 +174,25 @@ def progreso_semanal():
         return f"Error calculando progreso: {e}"
 
 # ── GIT ───────────────────────────────────────────────────────────
+@_configurado
 def git_status():
-    result = wsl(f"cd {REPO_WSL} && git status --short")
+    result = wsl(f"cd {repo_wsl()} && git status --short")
     if not result:
         return "El repositorio está limpio"
     lineas = [l for l in result.split('\n') if l.strip()]
     return f"Hay {len(lineas)} archivos con cambios pendientes"
 
 # ── TEMAS PENDIENTES ─────────────────────────────────────────────
+@_configurado
 def temas_pendientes():
-    n = wsl(f"grep -c '- \\[ \\]' {ROADMAP_WSL}")
+    n = wsl(f"grep -c '- \\[ \\]' {roadmap_wsl()}")
     try:
         return f"Tienes {int(n)} temas pendientes en el roadmap"
     except Exception:
         return "No puedo leer el roadmap ahora mismo"
 
 # ── AUTOPILOTO ───────────────────────────────────────────────────
+@_configurado
 def autopiloto():
     if racha_activa():
         return "Ya hay una racha en ejecución"
@@ -152,6 +202,7 @@ def autopiloto():
     return siguiente_racha()
 
 # ── ESTADO GLOBAL ────────────────────────────────────────────────
+@_configurado
 def estado_global():
     partes = [
         resumen_scores(),

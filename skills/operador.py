@@ -47,14 +47,21 @@ EXCLUIR_SECRETOS = [f":(exclude,icase,glob)**/{patron}{sufijo}"
 
 # Comando fijo por proyecto (el modelo solo elige alias y filtro).
 # jarvis: el venv no tiene pytest -> unittest (también admite -k).
-# authority: la suite vive en jarvis-runtime y usa su propio venv (en WSL no hay 'python').
-# java-labs, dam y vibe-guard no tienen suite ejecutable en la raíz: sin entrada.
-COMANDOS_TEST = {
-    "jarvis":    ["venv\\Scripts\\python.exe", "-m", "unittest", "discover", "-s", "tests"],
-    "authority": ["wsl.exe", "-d", rutas.valor("wsl_distro"), "--cd",
-                  rutas.wsl_ruta("AuthorityEngine/jarvis-runtime"),
-                  "--", "venv/bin/python", "-m", "pytest", "-q", "--tb=short"],
-}
+# El resto, de "tests" en el perfil de rutas.json: {"alias": {"wsl": "carpeta del home de WSL",
+# "comando": ["venv/bin/python", "-m", "pytest", "-q"]}} (sin "wsl", en la carpeta del proyecto).
+TESTS_NO_CONFIGURADOS = ('Los tests de {proyecto} no están configurados. Para ejecutarlos, añade su comando en '
+                         '"tests" del perfil de rutas.json.')
+
+
+def comandos_test():
+    comandos = {"jarvis": ["venv\\Scripts\\python.exe", "-m", "unittest", "discover", "-s", "tests"]}
+    for alias, (carpeta, comando) in rutas.tests().items():
+        comandos.setdefault(alias, ["wsl.exe", "-d", rutas.valor("wsl_distro"), "--cd", rutas.wsl_ruta(carpeta),
+                                    "--", *comando] if carpeta else comando)
+    return comandos
+
+
+COMANDOS_TEST = comandos_test()
 TESTS_TIMEOUT = 300
 MAX_COLA_TEST = 4 * 1024
 FILTRO_VALIDO = re.compile(r"[\w/._-]{1,80}", re.ASCII)
@@ -381,11 +388,12 @@ def buscar_en_codigo(proyecto, patron, glob=None):
 @_con_redaccion
 def ejecutar_tests(proyecto, filtro=None):
     """(True, resumen) si la suite pasa; (False, motivo o resumen) si falla o no se pudo ejecutar."""
+    if proyecto not in COMANDOS_TEST:   # antes que nada: sin comando no se ejecuta nada
+        nombre = proyecto if isinstance(proyecto, str) and re.fullmatch(r"[\w.-]{1,40}", proyecto) else "ese proyecto"
+        return False, TESTS_NO_CONFIGURADOS.format(proyecto=nombre)
     base, error = _base(proyecto)
     if error:
         return False, error
-    if proyecto not in COMANDOS_TEST:
-        return False, f"{proyecto} no tiene suite de tests configurada. Con tests: {', '.join(COMANDOS_TEST)}."
     if filtro == "":  # vacío = sin filtro
         filtro = None
     if filtro is not None:

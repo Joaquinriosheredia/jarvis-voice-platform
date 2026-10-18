@@ -8,9 +8,9 @@ Cada valor sale, por este orden:
      /home/<usuario de Windows> en WSL. Ningún usuario concreto escrito en el código.
 
 Lo mismo para el perfil (perfil()): nombre, saludo, ciudad y coordenadas del tiempo, descripción,
-usuario de GitHub, webs propias y proyectos del operador. Entorno > "perfil" de rutas.json >
-vacío (saludo sin nombre, sin ciudad ni tiempo, y como proyecto solo este repo). Son datos del
-usuario, no del código.
+usuario de GitHub, webs propias, proyectos y comandos de tests del operador y AuthorityEngine.
+Entorno > "perfil" de rutas.json > vacío (saludo sin nombre, sin ciudad ni tiempo, como proyecto
+solo este repo y sin AuthorityEngine). Son datos del usuario, no del código.
 
 La carpeta de secretos solo se configura por entorno (JARVIS_SECRETOS): rutas.json vive dentro.
 La carpeta del código es siempre la de este archivo.
@@ -19,6 +19,7 @@ Ligero a propósito (sin dependencias): lo importan doctor.py y los tests.
 """
 import json
 import os
+import re
 
 RAIZ    = os.path.dirname(os.path.abspath(__file__))
 ARCHIVO = "rutas.json"
@@ -187,3 +188,52 @@ def proyectos():
             ruta = ruta.strip()
             lista[alias] = wsl_unc(ruta[4:]) if ruta.lower().startswith("wsl:") else ruta
     return lista
+
+
+# Carpetas del home de WSL y argumentos que acaban en un comando: solo caracteres seguros y sin ".."
+_RELATIVA = re.compile(r"[\w.-]+(/[\w.-]+)*", re.ASCII)
+_ARGUMENTO = re.compile(r"[\w./\\=:+-]{1,100}", re.ASCII)
+
+
+def _relativa(v):
+    """Carpeta relativa al home de WSL, segura para un comando, o None."""
+    if not isinstance(v, str):
+        return None
+    v = v.strip().strip("/")
+    return v if _RELATIVA.fullmatch(v) and ".." not in v.split("/") else None
+
+
+def _del_perfil(clave):
+    datos = _archivo().get("perfil")
+    v = datos.get(clave) if isinstance(datos, dict) else None
+    return v if isinstance(v, dict) else {}
+
+
+def authority():
+    """AuthorityEngine del perfil: {"motor": carpeta con racha.py, generar_inventario.py y su venv,
+    "roadmap": repo de documentos con ROADMAP_TEMAS.md}, las dos relativas al home de WSL. None si
+    falta alguna o no es válida: entonces JARVIS no ofrece sus tools ni ejecuta nada."""
+    datos = _del_perfil("authority")
+    motor, roadmap = _relativa(datos.get("motor")), _relativa(datos.get("roadmap"))
+    return {"motor": motor, "roadmap": roadmap} if motor and roadmap else None
+
+
+def tests():
+    """Comandos de tests del perfil: {alias: (carpeta de WSL o None, [argumentos])}. Con "wsl" se
+    ejecuta en esa carpeta del home de WSL; sin él, en la del proyecto (el primer argumento,
+    relativo a ella). Las entradas no válidas se ignoran."""
+    comandos = {}
+    for alias, datos in _del_perfil("tests").items():
+        if not isinstance(datos, dict):
+            continue
+        comando = datos.get("comando")
+        if not (isinstance(comando, list) and comando
+                and all(isinstance(a, str) and _ARGUMENTO.fullmatch(a) for a in comando)):
+            continue
+        carpeta = None
+        if "wsl" in datos:
+            carpeta = _relativa(datos["wsl"])
+            if not carpeta:
+                continue
+        comandos[alias] = (carpeta, list(comando))
+    return comandos
