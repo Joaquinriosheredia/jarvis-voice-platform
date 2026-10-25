@@ -10,6 +10,10 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 - `JARVIS_OLLAMA_MODELO`: modelo de Ollama para las respuestas locales, la precarga y el resumen de la memoria; vacío = `qwen2.5:3b`, como hasta ahora. `doctor.py` comprueba que el modelo configurado esté descargado
 
+**Corregido**
+
+- Resúmenes de la memoria que inventaban pendientes y decisiones en sesiones de solo preguntas («tienes pendiente saber que…»): el prompt ya no los pone de ejemplo, solo los menciona si los dijiste y no te atribuye los consejos. `calidad_resumen.py` lo comprueba con un detector de invenciones y 3 sesiones nuevas sin pendientes. Con `qwen2.5:3b` pasa de 3/9 a 9/9 sesiones aprobadas (detalle en docs/memoria-resumen.md)
+
 ### 2026-10-18
 
 **Añadido**
