@@ -2350,6 +2350,9 @@ def _orden_memoria(texto, skills, traza):
 
 
 PROMPT_RESUMEN_MAX_TOKENS = 250
+# Con la de Ollama por defecto (0,8) el resumen variaba más y a veces colaba «JARVIS» u omitía un
+# pendiente real; con 0,2, 49/54 sesiones de calidad_resumen.py frente a 47/54 (docs/memoria-resumen.md)
+PROMPT_RESUMEN_TEMPERATURA = 0.2
 
 
 def resumir_sesion(instrucciones, contenido):
@@ -2361,7 +2364,8 @@ def resumir_sesion(instrucciones, contenido):
             raise ConnectionError("ollama en pausa")
         r = requests.post(f"{OLLAMA_URL}/api/generate", json={
             "model": OLLAMA_MODEL, "prompt": f"{instrucciones}\n\nSESIÓN:\n{contenido}",
-            "stream": False, "keep_alive": OLLAMA_KEEP, "options": {"num_predict": PROMPT_RESUMEN_MAX_TOKENS},
+            "stream": False, "keep_alive": OLLAMA_KEEP,
+            "options": {"num_predict": PROMPT_RESUMEN_MAX_TOKENS, "temperature": PROMPT_RESUMEN_TEMPERATURA},
         }, timeout=30)
         r.raise_for_status()
         texto = (r.json().get("response") or "").strip()

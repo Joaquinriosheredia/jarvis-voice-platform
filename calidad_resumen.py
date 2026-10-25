@@ -293,7 +293,8 @@ def main(argv):
         def resumir(instrucciones, contenido):
             r = brain.requests.post(f"{brain.OLLAMA_URL}/api/generate", json={
                 "model": brain.OLLAMA_MODEL, "prompt": f"{instrucciones}\n\nSESIÓN:\n{contenido}", "stream": False,
-                "options": {"num_predict": brain.PROMPT_RESUMEN_MAX_TOKENS, "temperature": 0}}, timeout=120)
+                "options": {"num_predict": brain.PROMPT_RESUMEN_MAX_TOKENS,
+                            "temperature": brain.PROMPT_RESUMEN_TEMPERATURA}}, timeout=120)  # la de JARVIS
             r.raise_for_status()
             return r.json().get("response") or ""
     aprobadas, total = evaluar(resumir, PROMPT_ANTERIOR if "--prompt-anterior" in argv else None)

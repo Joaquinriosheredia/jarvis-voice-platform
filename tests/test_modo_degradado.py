@@ -163,6 +163,14 @@ class TestModeloOllama(unittest.TestCase):
             brain._llamar_ollama("qué es un volcán")
         self.assertEqual(post.call_args.kwargs["json"]["model"], "qwen2.5:7b")
 
+    def test_el_resumen_de_memoria_pide_temperatura_baja(self):
+        respuesta = MagicMock(**{"json.return_value": {"response": "Preguntaste por Kafka."}})
+        with patch.object(brain.requests, "post", return_value=respuesta) as post:
+            self.assertEqual(brain.resumir_sesion("instr", "texto"), "Preguntaste por Kafka.")
+        opciones = post.call_args.kwargs["json"]["options"]
+        self.assertEqual(opciones["temperature"], 0.2)
+        self.assertEqual(opciones["num_predict"], brain.PROMPT_RESUMEN_MAX_TOKENS)
+
 
 # ── Ollama caído ──────────────────────────────────────────────────
 class TestOllamaCaido(Base):
