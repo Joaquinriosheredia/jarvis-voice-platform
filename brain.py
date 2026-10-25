@@ -31,7 +31,15 @@ CLAUDE_REINTENTOS = 1
 cliente = anthropic.Anthropic(timeout=CLAUDE_TIMEOUT_S, max_retries=CLAUDE_REINTENTOS)
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 OLLAMA_URL     = "http://127.0.0.1:11434"
-OLLAMA_MODEL   = "qwen2.5:3b"
+OLLAMA_MODEL_DEFECTO = "qwen2.5:3b"   # literal: doctor.py lo lee sin importar brain
+
+
+def _modelo_ollama():
+    """Modelo de la capa local, la precarga y el resumen: JARVIS_OLLAMA_MODELO o, vacío, el de siempre."""
+    return os.environ.get("JARVIS_OLLAMA_MODELO", "").strip() or OLLAMA_MODEL_DEFECTO
+
+
+OLLAMA_MODEL   = _modelo_ollama()
 OLLAMA_TIMEOUT = 8
 OLLAMA_KEEP    = "10m"
 OLLAMA_PAUSA_S = 300   # tras un fallo de Ollama, ese tiempo va directo a Claude (JARVIS_OLLAMA_PAUSA_S)

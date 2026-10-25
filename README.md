@@ -53,7 +53,7 @@ flowchart LR
 ```
 
 - **Atajo:** frases cerradas como "qué hora es" o "para la música" ejecutan la tool sin llamar a ningún modelo.
-- **Local:** preguntas generales sin tools van a qwen2.5:3b en Ollama. Si la respuesta no sirve, se pasa a Claude.
+- **Local:** preguntas generales sin tools van a qwen2.5:3b en Ollama (otro modelo con `JARVIS_OLLAMA_MODELO`). Si la respuesta no sirve, se pasa a Claude.
 - **Claude:** todo lo que necesita tools, datos actuales, la persona de JARVIS o la pantalla. La ruta `dev` es Claude con un prompt de desarrollador.
 - **Métricas:** cada fase (whisper, router, llm, tools, tts) registra su tiempo en `metrics.py`. Al cerrar el turno se escribe una línea en `logs/turnos.jsonl` y la UI recibe el resumen.
 
@@ -507,6 +507,7 @@ JARVIS_AVISOS_CI=0              # 1 = avisos proactivos de CI en rojo (ver Aviso
 JARVIS_AVISOS_CI_MIN=5          # minutos entre comprobaciones (2 a 60)
 JARVIS_AVISOS_CI_REPOS=         # repos a vigilar; si no, los de JARVIS_GITHUB_REPOS
 JARVIS_OLLAMA_PAUSA_S=300       # tras un fallo de Ollama, segundos que todo va directo a Claude
+JARVIS_OLLAMA_MODELO=           # modelo local (respuestas locales y resumen); vacío = qwen2.5:3b. doctor comprueba que esté descargado
 JARVIS_VOZ_EMERGENCIA=1         # 0 = sin la voz de Windows cuando falla Piper
 JARVIS_DESCARGAS=               # rutas: ver Rutas (por defecto, rutas.json o los valores de respaldo)
 ```

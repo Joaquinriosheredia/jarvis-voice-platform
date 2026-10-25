@@ -16,7 +16,7 @@ Cada conversación pasa por el mismo camino que en JARVIS: registro del turno, c
 - **Gramática básica (heurística):** cada frase empieza en mayúscula y acaba en punto, sin palabras repetidas, sin otro alfabeto y sin inglés.
 - **Sesión de pruebas:** la que solo prueba la memoria no se guarda.
 
-Los datos de abajo son con Ollama `qwen2.5:3b`, el resumidor principal.
+Los datos de abajo son con Ollama `qwen2.5:3b`, el resumidor principal. Otro modelo local con `JARVIS_OLLAMA_MODELO` en el `.env` (vacío = `qwen2.5:3b`). Cambia también el de las respuestas locales, y `calidad_resumen.py` usa el mismo, así que conviene repetir esta evaluación antes de cambiarlo.
 
 ```powershell
 venv\Scripts\python.exe calidad_resumen.py                    # ahora

@@ -4,6 +4,12 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 ## Sin publicar
 
+### 2026-10-25
+
+**Añadido**
+
+- `JARVIS_OLLAMA_MODELO`: modelo de Ollama para las respuestas locales, la precarga y el resumen de la memoria; vacío = `qwen2.5:3b`, como hasta ahora. `doctor.py` comprueba que el modelo configurado esté descargado
+
 ### 2026-10-18
 
 **Añadido**

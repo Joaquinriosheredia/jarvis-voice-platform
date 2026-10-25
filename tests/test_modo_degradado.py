@@ -145,6 +145,25 @@ class TestClaudeCaido(Base):
         self.assertEqual((texto, respuesta_guardada), ("explícame qué es Kafka", frase))
 
 
+# ── Modelo de Ollama (JARVIS_OLLAMA_MODELO) ───────────────────────
+class TestModeloOllama(unittest.TestCase):
+    def test_vacio_es_qwen_y_con_valor_ese_valor(self):
+        for valor, esperado in (("", "qwen2.5:3b"), ("  ", "qwen2.5:3b"), ("qwen2.5:7b", "qwen2.5:7b"),
+                                (" llama3:8b ", "llama3:8b")):
+            with self.subTest(valor=valor), patch.dict(os.environ, {"JARVIS_OLLAMA_MODELO": valor}):
+                self.assertEqual(brain._modelo_ollama(), esperado)
+        with patch.dict(os.environ):
+            os.environ.pop("JARVIS_OLLAMA_MODELO", None)
+            self.assertEqual(brain._modelo_ollama(), "qwen2.5:3b")
+
+    def test_el_modelo_configurado_es_el_que_se_pide_a_ollama(self):
+        respuesta = MagicMock(**{"json.return_value": {"response": "Es una montaña con cráter."}})
+        with patch.object(brain, "OLLAMA_MODEL", "qwen2.5:7b"), \
+                patch.object(brain.requests, "post", return_value=respuesta) as post:
+            brain._llamar_ollama("qué es un volcán")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "qwen2.5:7b")
+
+
 # ── Ollama caído ──────────────────────────────────────────────────
 class TestOllamaCaido(Base):
     def setUp(self):
