@@ -203,7 +203,8 @@ def check_electron():
 
 
 def check_ollama():
-    url, modelo = constante("brain.py", "OLLAMA_URL"), constante("brain.py", "OLLAMA_MODEL")
+    url = constante("brain.py", "OLLAMA_URL")
+    modelo = variable("JARVIS_OLLAMA_MODELO").strip() or constante("brain.py", "OLLAMA_MODEL_DEFECTO")
     try:
         codigo, cuerpo = http_get(f"{url}/api/tags")
     except OSError:

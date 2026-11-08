@@ -23,7 +23,7 @@ CLAVE_FALSA = "sk-ant-api03-CLAVEFALSADETEST0123456789abcdef"
 CLAVE_EL    = "falsa" * 4  # se construye: un literal con forma de clave dispara gitleaks
 CONSTANTES = {
     ("brain.py", "OLLAMA_URL"): "http://127.0.0.1:11434",
-    ("brain.py", "OLLAMA_MODEL"): "qwen2.5:3b",
+    ("brain.py", "OLLAMA_MODEL_DEFECTO"): "qwen2.5:3b",
     ("brain.py", "CLAUDE_MODEL"): "claude-haiku-4-5-20251001",
     ("audio.py", "VOICE_MODEL"): r"C:\Jarvis\voices\es_ES-davefx-medium.onnx",
     (os.path.join("skills", "musica.py"), "VLC_PATH"): r"C:\Program Files\VideoLAN\VLC\vlc.exe",
@@ -46,7 +46,7 @@ class Base(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         for var in ("ANTHROPIC_API_KEY", "TAVILY_API_KEY", "JARVIS_TTS", "ELEVENLABS_API_KEY",
-                    "ELEVENLABS_VOICE_ID"):
+                    "ELEVENLABS_VOICE_ID", "JARVIS_OLLAMA_MODELO"):
             os.environ.pop(var, None)
 
     def estado(self, r, esperado):
@@ -155,6 +155,14 @@ class TestOllama(Base):
             self.estado(doctor.check_ollama(), doctor.AVISO)
         with patch.object(doctor, "http_get", return_value=(500, "")):
             self.estado(doctor.check_ollama(), doctor.AVISO)
+
+    def test_comprueba_el_modelo_de_jarvis_ollama_modelo(self):
+        tags = json.dumps({"models": [{"name": "qwen2.5:3b"}]})
+        with patch.object(doctor, "valores_env", return_value={"JARVIS_OLLAMA_MODELO": "qwen2.5:7b"}), \
+                patch.object(doctor, "http_get", return_value=(200, tags)):
+            r = doctor.check_ollama()
+        self.estado(r, doctor.AVISO)
+        self.assertIn("ollama pull qwen2.5:7b", r["accion"])
 
 
 # ── Audio, Piper, Whisper, CUDA ───────────────────────────────────
