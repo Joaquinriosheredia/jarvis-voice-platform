@@ -22,7 +22,11 @@ jobs:
       JARVIS_EVALS_LIVE: "0"   # los evals siempre con mocks; nunca se llama a la API
       PYTHONUTF8: "1"
     steps:
+      # Historial completo: test_publicacion busca la fecha del commit inicial con git log.
+      # Con el clon superficial por defecto solo hay el merge commit de la PR y falla.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:
