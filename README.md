@@ -53,7 +53,7 @@ flowchart LR
 ```
 
 - **Atajo:** frases cerradas como "qué hora es" o "para la música" ejecutan la tool sin llamar a ningún modelo.
-- **Local:** preguntas generales sin tools van a qwen2.5:3b en Ollama. Si la respuesta no sirve, se pasa a Claude.
+- **Local:** preguntas generales sin tools van a qwen2.5:3b en Ollama (otro modelo con `JARVIS_OLLAMA_MODELO`). Si la respuesta no sirve, se pasa a Claude.
 - **Claude:** todo lo que necesita tools, datos actuales, la persona de JARVIS o la pantalla. La ruta `dev` es Claude con un prompt de desarrollador.
 - **Métricas:** cada fase (whisper, router, llm, tools, tts) registra su tiempo en `metrics.py`. Al cerrar el turno se escribe una línea en `logs/turnos.jsonl` y la UI recibe el resumen.
 
@@ -97,7 +97,7 @@ JARVIS recuerda las sesiones anteriores con un resumen corto por sesión. No hay
 
 **Dónde.** `C:\Jarvis-secrets\memoria_sesiones.db`, fuera del repo y junto a los tokens y el `.env`. Se puede cambiar con `JARVIS_MEMORIA_DB`.
 
-**Qué se guarda.** Un registro por sesión: fecha, resumen de 1 a 5 líneas, temas y tools usadas. El resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se conserva el último resumen o, si no lo hay, la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse. El resumen va en segunda persona («preguntaste…, tienes pendiente…») y sin ruido meta. Si el modelo se deja un identificador técnico, se añade una línea «Términos: …». Las consultas y pruebas de la propia memoria («¿te acuerdas de…?», la tool `recordar`, «prueba de la memoria») no entran, así que una sesión que solo prueba la memoria no se guarda. La evaluación con conversaciones sintéticas está en [docs/memoria-resumen.md](docs/memoria-resumen.md).
+**Qué se guarda.** Un registro por sesión: fecha, resumen de 1 a 4 frases, temas y tools usadas. El resumen lo genera el modelo más barato disponible: primero Ollama local, que no sale del equipo, y si falla Claude Haiku. Si los dos fallan, se conserva el último resumen o, si no lo hay, la lista de temas. El modelo solo ve los turnos no privados, ya enmascarados, y lo que devuelve se vuelve a enmascarar antes de guardarse. El resumen va en segunda persona («preguntaste…») y sin ruido meta. Solo habla de decisiones o pendientes si los dijiste tú: no los inventa en una sesión de solo preguntas. Si el modelo se deja un identificador técnico, se añade una línea «Términos: …». Las consultas y pruebas de la propia memoria («¿te acuerdas de…?», la tool `recordar`, «prueba de la memoria») no entran, así que una sesión que solo prueba la memoria no se guarda. La evaluación con conversaciones sintéticas está en [docs/memoria-resumen.md](docs/memoria-resumen.md).
 
 **Cuándo se guarda.** Siempre sobre la misma fila de la sesión, para que un cierre brusco no pierda la conversación:
 
@@ -507,6 +507,7 @@ JARVIS_AVISOS_CI=0              # 1 = avisos proactivos de CI en rojo (ver Aviso
 JARVIS_AVISOS_CI_MIN=5          # minutos entre comprobaciones (2 a 60)
 JARVIS_AVISOS_CI_REPOS=         # repos a vigilar; si no, los de JARVIS_GITHUB_REPOS
 JARVIS_OLLAMA_PAUSA_S=300       # tras un fallo de Ollama, segundos que todo va directo a Claude
+JARVIS_OLLAMA_MODELO=           # modelo local (respuestas locales y resumen); vacío = qwen2.5:3b. doctor comprueba que esté descargado
 JARVIS_VOZ_EMERGENCIA=1         # 0 = sin la voz de Windows cuando falla Piper
 JARVIS_DESCARGAS=               # rutas: ver Rutas (por defecto, rutas.json o los valores de respaldo)
 ```

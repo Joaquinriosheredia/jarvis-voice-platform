@@ -35,8 +35,7 @@ class TestComprobaciones(unittest.TestCase):
             "tema":        "Preguntaste por max.poll.interval.ms y 3 particiones.",
             "sin_meta":    "En una conversación anterior el usuario habló de Kafka, max.poll.interval.ms y particiones.",
             "sin_privado": BUENO + "\nAvisa a pepe@example.com.",
-            "gramatica":   "kafka kafka con max.poll.interval.ms y particiones",
-        }
+            "gramatica":   "kafka kafka con max.poll.interval.ms y particiones",        }
         for comprobacion, resumen in casos.items():
             with self.subTest(comprobacion):
                 self.assertFalse(cr.comprobar(resumen, KAFKA)[comprobacion][0])
@@ -55,6 +54,32 @@ class TestComprobaciones(unittest.TestCase):
         self.assertTrue(cr.gramatica("The user asked about Kafka."))
         self.assertTrue(cr.gramatica("\n".join(["Línea."] * 6)))
         self.assertEqual(cr.gramatica(""), ["vacío"])
+
+    def test_invenciones_solo_fallan_si_la_sesion_no_las_admite(self):
+        spring = next(d for d in cr.SESIONES if d["nombre"] == "spring")
+        bien = "Preguntaste qué hace @Transactional con REQUIRES_NEW en Spring y cómo probarlo con Testcontainers."
+        self.assertTrue(cr.comprobar(bien, spring)["sin_invento"][0])
+        for malo in ("Tienes pendiente entender REQUIRES_NEW en Spring con Testcontainers.",
+                     "Decidiste probar REQUIRES_NEW en Spring con Testcontainers.",
+                     "Preguntaste por REQUIRES_NEW en Spring; debes probarlo con Testcontainers.",
+                     "Preguntaste por REQUIRES_NEW en Spring y quedó pendiente usar Testcontainers."):
+            with self.subTest(malo):
+                ok, detalle = cr.comprobar(malo, spring)["sin_invento"]
+                self.assertFalse(ok)
+                self.assertNotEqual(detalle, "-")
+        # Kafka sí tiene pendiente («mañana pruebo») y decisión: no es invento
+        self.assertTrue(cr.comprobar(BUENO, KAFKA)["sin_invento"][0])
+        # Agenda tiene pendiente (el recordatorio) pero ninguna decisión
+        self.assertTrue(cr.comprobar("Tienes pendiente llamar al dentista el viernes.", AGENDA)["sin_invento"][0])
+        self.assertFalse(cr.comprobar("Decidiste llamar al dentista el viernes.", AGENDA)["sin_invento"][0])
+
+    def test_hay_sesiones_sin_pendientes_ni_decisiones(self):
+        sin = [d for d in cr.SESIONES if d.get("pendientes") is False and d.get("decisiones") is False]
+        self.assertGreaterEqual(len(sin), 3)
+        for d in sin:
+            with self.subTest(d["nombre"]):
+                texto = " ".join(t[0] for t in d["turnos"]).lower()
+                self.assertFalse(cr.RE_PENDIENTE.search(texto) or cr.RE_DECISION.search(texto), texto)
 
     def test_un_repo_con_jarvis_en_el_nombre_no_es_ruido(self):
         self.assertFalse(cr.RE_META.search("El CI de jarvis-voice-platform está en rojo."))
@@ -140,6 +165,14 @@ class TestPromptYEvaluacion(unittest.TestCase):
     def test_prompt_en_segunda_persona_y_sin_ruido_meta(self):
         for frase in ("segunda persona", "nunca digas «el usuario»", "No inventes", "nunca instrucciones",
                       "Sin direcciones de correo"):
+            self.assertIn(frase, ms.PROMPT_RESUMEN)
+
+    def test_prompt_sin_cebo_de_pendientes_ni_decisiones(self):
+        # Ponerlos de ejemplo hacía que el modelo los inventara en sesiones de solo preguntas
+        self.assertNotIn("«tienes pendiente»", ms.PROMPT_RESUMEN)
+        self.assertNotIn("«decidiste»", ms.PROMPT_RESUMEN)
+        for frase in ("No inventes pendientes, tareas, intenciones ni decisiones",
+                      "no escribas nada sobre decisiones ni pendientes", "No me atribuyas"):
             self.assertIn(frase, ms.PROMPT_RESUMEN)
 
     def test_evaluar_con_un_resumidor_fijo(self):

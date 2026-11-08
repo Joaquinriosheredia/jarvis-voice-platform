@@ -31,7 +31,15 @@ CLAUDE_REINTENTOS = 1
 cliente = anthropic.Anthropic(timeout=CLAUDE_TIMEOUT_S, max_retries=CLAUDE_REINTENTOS)
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 OLLAMA_URL     = "http://127.0.0.1:11434"
-OLLAMA_MODEL   = "qwen2.5:3b"
+OLLAMA_MODEL_DEFECTO = "qwen2.5:3b"   # literal: doctor.py lo lee sin importar brain
+
+
+def _modelo_ollama():
+    """Modelo de la capa local, la precarga y el resumen: JARVIS_OLLAMA_MODELO o, vacío, el de siempre."""
+    return os.environ.get("JARVIS_OLLAMA_MODELO", "").strip() or OLLAMA_MODEL_DEFECTO
+
+
+OLLAMA_MODEL   = _modelo_ollama()
 OLLAMA_TIMEOUT = 8
 OLLAMA_KEEP    = "10m"
 OLLAMA_PAUSA_S = 300   # tras un fallo de Ollama, ese tiempo va directo a Claude (JARVIS_OLLAMA_PAUSA_S)
@@ -2342,6 +2350,9 @@ def _orden_memoria(texto, skills, traza):
 
 
 PROMPT_RESUMEN_MAX_TOKENS = 250
+# Con la de Ollama por defecto (0,8) el resumen variaba más y a veces colaba «JARVIS» u omitía un
+# pendiente real; con 0,2, 49/54 sesiones de calidad_resumen.py frente a 47/54 (docs/memoria-resumen.md)
+PROMPT_RESUMEN_TEMPERATURA = 0.2
 
 
 def resumir_sesion(instrucciones, contenido):
@@ -2353,7 +2364,8 @@ def resumir_sesion(instrucciones, contenido):
             raise ConnectionError("ollama en pausa")
         r = requests.post(f"{OLLAMA_URL}/api/generate", json={
             "model": OLLAMA_MODEL, "prompt": f"{instrucciones}\n\nSESIÓN:\n{contenido}",
-            "stream": False, "keep_alive": OLLAMA_KEEP, "options": {"num_predict": PROMPT_RESUMEN_MAX_TOKENS},
+            "stream": False, "keep_alive": OLLAMA_KEEP,
+            "options": {"num_predict": PROMPT_RESUMEN_MAX_TOKENS, "temperature": PROMPT_RESUMEN_TEMPERATURA},
         }, timeout=30)
         r.raise_for_status()
         texto = (r.json().get("response") or "").strip()
