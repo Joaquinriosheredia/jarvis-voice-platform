@@ -176,9 +176,9 @@ class TestBorrarMultiples(Base):
     def _skills(self):
         return {"gmail": MagicMock()}
 
-    def test_11_bloqueado(self):
+    def test_11_bloqueado(self):   # por encima del máximo (MAX_BORRAR_EMAILS, hoy 25)
         s = self._skills()
-        ids = [f"m{i}" for i in range(11)]
+        ids = [f"m{i}" for i in range(brain.MAX_BORRAR_EMAILS + 1)]
         res = brain.ejecutar_herramienta("borrar_multiples_emails", {"msg_ids": ids}, s, "borra 11")
         self.assertTrue(bloqueado(res))
         self.assertIn("máximo", res)
@@ -244,13 +244,13 @@ class TestIntegracionDispatcher(Base):
 
     def test_toda_tool_del_schema_tiene_riesgo(self):
         nombres = {t["name"] for t in brain.TOOLS}
-        self.assertEqual(len(nombres), 51)
+        self.assertEqual(len(nombres), 52)   # +deshacer_borrado_emails
         self.assertEqual(nombres, set(brain.TOOL_RISK))
         self.assertTrue(set(brain.TOOL_RISK.values()) <= {"READ", "WRITE", "EXTERNAL", "DESTRUCTIVE"})
         por_nivel = {n: {t for t, r in brain.TOOL_RISK.items() if r == n}
                      for n in ("READ", "WRITE", "EXTERNAL", "DESTRUCTIVE")}
         self.assertEqual({n: len(v) for n, v in por_nivel.items()},
-                         {"READ": 26, "WRITE": 2, "EXTERNAL": 17, "DESTRUCTIVE": 6})
+                         {"READ": 26, "WRITE": 2, "EXTERNAL": 18, "DESTRUCTIVE": 6})
         self.assertEqual(por_nivel["DESTRUCTIVE"],
                          {"borrar_archivo", "apagar_pc", "borrar_email", "borrar_multiples_emails",
                           "enviar_email", "olvidar_todo"})

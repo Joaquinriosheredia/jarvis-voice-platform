@@ -345,6 +345,7 @@ def main():
     audio.modelo_whisper = whisper_model
     audio.al_parar.append(brain.cancelar_generacion)
     ui_bridge.al_parar = audio.parar_voz
+    gmail.al_listar = lambda emails: ui_bridge.emit("email_list", emails=emails)  # lista numerada
     brain.al_texto_parcial = lambda texto: ui_bridge.emit("assistant_delta", text=texto)
     # Una sola vez por arranque: por voz (dentro del resumen) y en la UI (persistente)
     autorizacion, aviso = _comprobar_autorizacion()
@@ -431,6 +432,12 @@ def _respuesta_privada():
     info = brain.pendiente_info() if brain.hay_pendiente() else None
     if info:
         texto += f". Pendiente de confirmar por voz: {info['tool']}"
+    try:
+        vigente = len(gmail.lista_vigente())
+    except Exception:
+        vigente = 0
+    if vigente:  # sin contenido: solo que hay una lista numerada que el sistema resuelve por posición
+        texto += f". Lista de correo vigente: {vigente} emails, posiciones 1 a {vigente}"
     return texto + "]"
 
 # Rutas que no son conversación: órdenes de parada y de memoria ("olvida lo de X" no
@@ -470,6 +477,9 @@ def _turno(texto):
         if brain.generacion_cancelada():
             brain._print_seguro("[PARADA] respuesta descartada")
             return None, False
+        if brain.es_marcador_privado(respuesta):  # el modelo imitó la nota del historial
+            brain._print_seguro("[HISTORIAL] respuesta con marcador privado: no se dice")
+            respuesta = brain.MSG_MARCADOR_PRIVADO
         d1_ejecutado = _d1_fix(texto)
 
         # Envío pendiente: JARVIS lee el destinatario real (de _pendiente),

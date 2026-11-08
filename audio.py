@@ -56,11 +56,28 @@ def vocabulario(ruta=None):
     return terminos[:MAX_TERMINOS]
 
 
+# Remitentes frecuentes de tu bandeja (los genera vocabulario_remitentes.py, en local y solo si
+# lo ejecutas tú): fuera del repo, en la carpeta de secretos. Van detrás del vocabulario propio.
+NOMBRE_VOCABULARIO_REMITENTES = "vocabulario_remitentes.txt"
+
+
+def vocabulario_completo():
+    """Vocabulario propio + remitentes frecuentes (si existe el archivo), sin repetidos y con
+    el mismo tope de MAX_TERMINOS."""
+    propios = vocabulario()
+    try:
+        remitentes = vocabulario(rutas.en_secretos(NOMBRE_VOCABULARIO_REMITENTES))
+    except Exception:
+        remitentes = []
+    vistos = {t.lower() for t in propios}
+    return (propios + [t for t in remitentes if t.lower() not in vistos])[:MAX_TERMINOS]
+
+
 def prompt_whisper():
     """Contexto inicial de la escucha normal: vocabulario propio + WHISPER_PROMPT (cacheado)."""
     global _vocabulario
     if _vocabulario is None:
-        _vocabulario = vocabulario()
+        _vocabulario = vocabulario_completo()
     return (", ".join(_vocabulario) + ". " + WHISPER_PROMPT) if _vocabulario else WHISPER_PROMPT
 
 

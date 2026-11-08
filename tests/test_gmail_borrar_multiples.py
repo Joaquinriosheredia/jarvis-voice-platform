@@ -76,11 +76,12 @@ class TestGateBorrarMultiples(Base):
         self._bloqueado_sin_armar(res)
         self.assertIn("desactualizada", res["message"])
 
-    def test_mas_de_10_bloqueado(self):
-        self._listar(*[(f"m{i}", DAVID, f"Asunto {i}") for i in range(11)])
-        res = self._ej([f"m{i}" for i in range(11)], "borra todos")
+    def test_mas_del_maximo_bloqueado(self):
+        n = brain.MAX_BORRAR_EMAILS + 1
+        self._listar(*[(f"m{i}", DAVID, f"Asunto {i}") for i in range(n)])
+        res = self._ej([f"m{i}" for i in range(n)], "borra todos")
         self._bloqueado_sin_armar(res)
-        self.assertIn("máximo 10", res["message"])
+        self.assertIn(f"máximo {brain.MAX_BORRAR_EMAILS}", res["message"])
 
     def test_ids_repetidos_bloqueado(self):
         self._listar()

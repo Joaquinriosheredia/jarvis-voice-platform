@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import socket
+import time
 import subprocess
 import sys
 import urllib.request
@@ -446,30 +447,88 @@ def check_secretos_trackeados():
     return resultado(OK, "Ningún archivo de secretos trackeado por git")
 
 
-def _duenio_del_puerto(puerto):
+def _puerto_ocupado(puerto):
+    """True si algo escucha ya en 127.0.0.1:puerto. Se prueba con bind, que responde al instante.
+    Antes se usaba connect_ex con timeout de 0,5 s, pero en Windows conectar a un puerto cerrado de
+    localhost tarda ~2 s en rechazarse (10061): con el timeout devolvía 10035 y el puerto libre
+    salía como «en uso por otro proceso»."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):   # Windows: sin compartir el puerto con nadie
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            s.bind(("127.0.0.1", puerto))
+        except OSError:
+            return True
+    return False
+
+
+def _duenio_del_puerto(puerto, intentos=3):
+    """(pid, nombre, línea de comandos o ruta del ejecutable) del proceso que escucha en el puerto,
+    o None. Tolera los fallos de psutil (AccessDenied, procesos que desaparecen) y reintenta: un fallo
+    aislado no puede convertir al propio JARVIS en «otro proceso»."""
     import psutil
-    for c in psutil.net_connections(kind="tcp"):
-        if c.laddr and c.laddr.port == puerto and c.status == psutil.CONN_LISTEN and c.pid:
-            p = psutil.Process(c.pid)
-            return p.pid, p.name(), " ".join(p.cmdline())
+    for intento in range(intentos):
+        try:
+            conexiones = psutil.net_connections(kind="tcp")
+        except (psutil.Error, OSError):
+            conexiones = []
+        # Cualquier socket con ese puerto LOCAL es del dueño (los clientes usan puertos efímeros).
+        # No solo LISTEN: Windows lo muestra unos segundos como NONE (enlazado) o como el extremo
+        # servidor de una conexión, y exigir LISTEN hacía que el propio JARVIS saliera como «otro proceso»
+        propias = [c for c in conexiones if c.laddr and c.laddr.port == puerto and c.pid]
+        propias.sort(key=lambda c: c.status != psutil.CONN_LISTEN)
+        for c in propias:
+            try:
+                p = psutil.Process(c.pid)
+            except (psutil.Error, OSError):
+                continue
+            datos = []
+            for leer in (p.name, lambda: " ".join(p.cmdline()), p.exe):
+                try:
+                    datos.append(leer() or "")
+                except (psutil.Error, OSError):
+                    datos.append("")
+            nombre, linea, exe = datos
+            identidad = linea or exe
+            try:   # el lanzador del venv arranca un hijo con el Python base: el padre dice quién es
+                padre = p.parent()
+                if padre is not None:
+                    identidad += " | padre: " + str(" ".join(padre.cmdline()) or padre.exe())
+            except Exception:   # solo diagnóstico: sin padre legible se decide con el propio proceso
+                pass
+            return c.pid, nombre or "proceso", identidad
+        if intento + 1 < intentos:
+            time.sleep(0.2)
     return None
 
 
+def _es_jarvis(linea):
+    """La línea de comandos lanza jarvis.py, o el ejecutable está dentro de la carpeta del proyecto
+    (cuando la línea de comandos no es accesible). Que «jarvis» salga en cualquier parte no basta."""
+    raiz = os.path.normcase(os.path.realpath(RAIZ)) + os.sep
+    for parte in (linea or "").split(" | padre: "):
+        if re.search(r"(?:^|[\\/\s\"])jarvis\.py(?:$|[\s\"])", parte, re.I):
+            return True
+        if os.path.normcase(parte.strip().strip('"')).startswith(raiz):
+            return True
+    return False
+
+
 def check_puerto():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(0.5)
-        libre = s.connect_ex(("127.0.0.1", PUERTO_UI)) != 0
-    if libre:
+    if not _puerto_ocupado(PUERTO_UI):
         return resultado(OK, f"Puerto {PUERTO_UI} libre")
     try:
         duenio = _duenio_del_puerto(PUERTO_UI)
     except Exception:
         duenio = None
-    if duenio and "jarvis" in duenio[2].lower():
+    if duenio and _es_jarvis(duenio[2]):
         return resultado(OK, f"Puerto {PUERTO_UI} en uso por JARVIS (pid {duenio[0]})")
-    quien = f"{duenio[1]} (pid {duenio[0]})" if duenio else "otro proceso"
-    return resultado(ERROR, f"Puerto {PUERTO_UI} en uso por {quien}: la UI no podrá conectar",
-                     f"Cierra ese proceso (taskkill /pid {duenio[0]})" if duenio else "Cierra el proceso que lo usa")
+    if not duenio:   # puede ser el propio JARVIS: sin saberlo no es un ERROR
+        return resultado(AVISO, f"Puerto {PUERTO_UI} en uso por un proceso que no se puede identificar "
+                                "(si JARVIS está abierto, es él)",
+                         "Si JARVIS no está abierto, busca el proceso con: netstat -ano | findstr :8765")
+    return resultado(ERROR, f"Puerto {PUERTO_UI} en uso por {duenio[1]} (pid {duenio[0]}): la UI no podrá conectar",
+                     f"Cierra ese proceso (taskkill /pid {duenio[0]})")
 
 
 def check_zona_horaria():

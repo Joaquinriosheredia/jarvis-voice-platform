@@ -116,11 +116,26 @@ TOOLS = [
     },
     {
         "name": "borrar_multiples_emails",
-        "description": "Mueve a la papelera varios emails ya listados. El gate pide confirmación al usuario.",
+        "description": ("Mueve a la papelera varios emails (se pueden recuperar). Indica cuáles con UNO de: "
+                        "posiciones (números de la última lista: 'los tres primeros' = [1, 2, 3], 'el segundo' = [2]), "
+                        "todos (true = todos los de la última lista, también la suma de varias búsquedas de este turno) "
+                        "o remitente (nombre tal cual lo dijo el usuario: 'todos los de AliExpress'; el sistema busca "
+                        "todos los de ese remitente en la bandeja). El sistema resuelve los emails, anuncia el recuento "
+                        "real y pide UNA confirmación por voz."),
         "input_schema": {"type": "object", "properties": {
-            "msg_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10,
-                        "description": "IDs de los emails: los valores [id=...] del último listado"}
-        }, "required": ["msg_ids"]}
+            "posiciones": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1,
+                           "maxItems": 25, "description": "Posiciones (desde 1) en la última lista"},
+            "todos":      {"type": "boolean", "description": "true = todos los emails de la última lista"},
+            "remitente":  {"type": "string", "description": "Remitente tal cual lo dijo el usuario"},
+            "msg_ids":    {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 25,
+                           "description": "Solo si tienes los [id=...] de un listado de ESTE turno; si no, usa posiciones"}
+        }}
+    },
+    {
+        "name": "deshacer_borrado_emails",
+        "description": ("Saca de la papelera los emails del último borrado de esta sesión ('deshaz el último borrado', "
+                        "'recupera los correos que borraste'). No pide confirmación: solo restaura."),
+        "input_schema": {"type": "object", "properties": {}}
     },
     {
         "name": "archivar_email",
@@ -447,8 +462,9 @@ COMPORTAMIENTO:
 - Usa herramientas para CUALQUIER acción — nunca finjas haberla ejecutado
 - Para música: usa reproducir_musica (reproduce con VLC, no abre navegador)
 - Para abrir YouTube en navegador: usa abrir_youtube
-- Para borrar un email: llama a borrar_email con su msg_id ([id=...] del último listado; nunca leas el id en voz alta). El gate pedirá confirmación.
-- Para borrar varios emails: llama a borrar_multiples_emails con sus msg_ids ([id=...] del último listado, máximo 10; nunca leas los ids en voz alta). El gate pedirá confirmación.
+- Para borrar emails usa borrar_multiples_emails (también para uno solo): 'el segundo' = posiciones [2], 'los tres primeros' = posiciones [1, 2, 3], 'todos esos' o 'bórralos todos' = todos true, 'todos los de AliExpress' = remitente 'AliExpress' (el sistema busca todos los de la bandeja). La lista numerada es la última que se leyó (se ve en pantalla) y el sistema la guarda aunque tú no veas su contenido en el historial: usa las posiciones aunque el turno anterior fuera privado. Para 'los de AliExpress y las alertas' haz las dos búsquedas en el mismo turno (se suman a la lista) y luego todos true. Nunca pidas IDs al usuario ni leas un [id=...] en voz alta; nunca inventes IDs. Borrar = mover a la papelera (se puede recuperar). El sistema anuncia el recuento real y pide una sola confirmación: no la pidas tú. Si el usuario dice un remitente que no aparece, el sistema te dice el más parecido: pregúntale si es ese.
+- Para deshacer un borrado de correo ('deshaz el último borrado', 'recupera esos correos'): deshacer_borrado_emails.
+- Nunca respondas con marcadores entre corchetes como [Respuesta privada no guardada...] o [Turno privado...]: son notas del historial, no respuestas.
 - Para enviar un email: llama a enviar_email con destinatario, asunto y cuerpo. Si el usuario se lo envía a sí mismo ('mándamelo a mí', 'a mi correo', 'a mi dirección', 'a mi propia dirección'), usa destinatario 'yo': el sistema obtiene su dirección de la cuenta de Gmail. Nunca le preguntes su propia dirección; si la herramienta falla, dile la causa que devuelve. Si dicta otra dirección, pásala tal cual: el sistema valida el formato y se la deletrea antes de confirmar. El historial no guarda direcciones (salen como <email>) ni el texto de los turnos privados: si se refiere a una dirección que dictó antes, usa destinatario 'dictada' y el sistema la recupera; nunca escribas <email> como destinatario. Si nombra a un contacto, usa destinatario 'contacto: <nombre tal cual lo dijo>': el sistema lo busca en sus contactos con el nombre que dijo por el micrófono; si hay varios, dile los nombres que devuelva el sistema y pregúntale cuál, sin elegir tú, y luego vuelve a llamar con el nombre completo que diga. El gate pedirá confirmación.
 {ORDENES_DE_VOZ}
 - Para apagar el PC llama directamente a apagar_pc. Llamar a apagar_pc no apaga nada todavía: el sistema pide la confirmación al usuario y solo se ejecuta tras 'confirmo apagado del pc' leído del micrófono. Llámala en cuanto el usuario pida apagar o reiniciar; no pidas tú la confirmación.
@@ -611,6 +627,8 @@ TOOL_RISK = {
     "borrar_archivo": "DESTRUCTIVE", "apagar_pc": "DESTRUCTIVE",
     "borrar_email": "DESTRUCTIVE", "borrar_multiples_emails": "DESTRUCTIVE",
     "enviar_email": "DESTRUCTIVE",
+    # Restaura de la papelera solo los IDs del último lote borrado por JARVIS: no destruye nada
+    "deshacer_borrado_emails": "EXTERNAL",
     "olvidar_todo": "DESTRUCTIVE",  # borra la memoria entre sesiones (memoria_sesiones)
 }
 
@@ -687,7 +705,7 @@ def _requiere_confirmacion(nombre):
 
 ANUNCIO_CAPTURA = "Voy a capturar tu pantalla y enviarla a Claude. Di confirmo captura."
 CONFIRM_TTL       = 120
-MAX_BORRAR_EMAILS = 10
+MAX_BORRAR_EMAILS = 25  # mismo límite que gmail.MAX_LOTE
 MAX_ADJUNTO       = 20 * 1024 * 1024  # bytes; mismo límite que gmail.MAX_ADJUNTO
 # Fase 5D: la dirección propia (gmail.get_mi_email). Vacía = solo direcciones dictadas.
 DESTINATARIOS_PERMITIDOS = []
@@ -877,8 +895,10 @@ def _resumen_remitentes(entradas):
     (nombre visible del From, sin la dirección, para que se pueda leer en voz alta)."""
     cuenta = {}
     for e in entradas:
-        nombre, direccion = parseaddr(e.get("remitente", ""))
-        quien = nombre or direccion or e.get("remitente") or "desconocido"
+        remitente = e.get("remitente", "") or ""
+        # gmail guarda ya el nombre sin la dirección («Alertas Clases»): parseaddr lo cortaría
+        nombre, direccion = parseaddr(remitente) if ("<" in remitente or "@" in remitente) else (remitente, "")
+        quien = nombre.strip() or direccion or remitente or "desconocido"
         cuenta[quien] = cuenta.get(quien, 0) + 1
     total = len(entradas)
     emails = "email" if total == 1 else "emails"
@@ -977,6 +997,10 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
                 "(distinta acción, ya usada o caducada). Pide de nuevo la acción al usuario.")
 
     _pendiente = {"firma": firma, "ts": ahora}
+    if nombre == "borrar_email":
+        _pendiente["emails"] = [dict(email)]
+    elif nombre == "borrar_multiples_emails":
+        _pendiente["emails"] = [dict(e) for e in email["entradas"]]
     if nombre == "enviar_email" or nombre in CONFIRM_PHRASES_ESTRICTO:
         # El D1-fix ejecuta pendiente_info()["params"] sin modelo: los params completos
         # (la firma de enviar_email solo lleva un hash del asunto y el cuerpo)
@@ -997,6 +1021,11 @@ def _gate_core(nombre, parametros, texto_usuario="", email=None):
         # privada; lo que se va a hacer se lo dice al usuario el anuncio del sistema
         return (f"BLOQUEADO: gate estricto: '{nombre}' requiere confirmación del usuario. "
                 f"JARVIS ya le ha dicho qué se va a hacer; que responda solo: \"{frase}\". "
+                f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
+    if nombre in ("borrar_email", "borrar_multiples_emails"):
+        # Papelera, no borrado definitivo. El anuncio con el recuento real lo dice el sistema
+        return (f"BLOQUEADO: '{nombre}' ({objeto}, a la papelera) requiere confirmación del usuario. "
+                f"JARVIS ya le ha dicho qué se va a mover y que responda solo: \"{frase}\". "
                 f"Caduca en {CONFIRM_TTL} s. No repitas la llamada hasta entonces.")
     return (f"BLOQUEADO: '{nombre}' ({objeto}) es irreversible y requiere confirmación del usuario. "
             f"Dile exactamente qué se va a hacer y que responda solo: \"{frase}\". "
@@ -1222,6 +1251,17 @@ def _anuncio_estricto(tool, p):
     return f"{que} ¿Confirmas con '{CONFIRM_PHRASES_ESTRICTO[tool]}'?"
 
 
+def _anuncio_borrado_emails(pend):
+    """Lo que se va a mover a la papelera, dicho por el sistema: recuento real y remitentes."""
+    entradas = pend.get("emails") or []
+    tool     = pend["firma"][0]
+    que = f"Voy a mover a la papelera {_resumen_remitentes(entradas)}"
+    if len(entradas) == 1:
+        que += f": «{_para_anuncio(entradas[0].get('asunto'), MAX_ANUNCIO_ASUNTO)}»"
+    que += "."
+    return f"{que} Se pueden recuperar. ¿Confirmas con '{CONFIRM_PHRASES[tool]}'?"
+
+
 def anuncio_confirmacion():
     """Texto fijo (no del modelo) para leer en voz alta si este turno dejó un
     enviar_email pendiente de confirmar; None si no. Sale de _pendiente, que
@@ -1231,7 +1271,7 @@ def anuncio_confirmacion():
     traza = _ultima_traza or {}
     if _envio_cambiado and not hay_pendiente():
         return MSG_ENVIO_CAMBIADO
-    anunciables = ("enviar_email", "ver_pantalla", *tools_estrictas())
+    anunciables = ("enviar_email", "ver_pantalla", "borrar_email", "borrar_multiples_emails", *tools_estrictas())
     if not hay_pendiente() or _pendiente["firma"][0] not in anunciables:
         return None
     tool = _pendiente["firma"][0]
@@ -1241,6 +1281,8 @@ def anuncio_confirmacion():
         return ANUNCIO_CAPTURA
     if tool in CONFIRM_PHRASES_ESTRICTO:
         return _anuncio_estricto(tool, _pendiente.get("params") or {})
+    if tool in ("borrar_email", "borrar_multiples_emails"):
+        return _anuncio_borrado_emails(_pendiente)
     return _anuncio_envio(_pendiente)
 
 
@@ -1259,6 +1301,22 @@ def _gate(nombre, parametros, texto_usuario="", email=None):
     else:
         _print_seguro("[GATE OK]")
     return resultado
+
+
+def _contar_listado():
+    global _listados_turno
+    _listados_turno += 1
+
+
+# El historial guarda los turnos privados con este marcador (jarvis._respuesta_privada). El modelo
+# a veces lo imita como respuesta: nunca se dice en voz alta ni se toma como respuesta real
+_RE_MARCADOR_PRIVADO = re.compile(r"^\s*\[(?:Respuesta privada no guardada|Turno privado)", re.I)
+MSG_MARCADOR_PRIVADO = ("No tengo a mano los datos de ese turno. Dime qué quieres hacer con el correo, "
+                        "por ejemplo «borra los dos primeros» o «borra todos los de AliExpress».")
+
+
+def es_marcador_privado(texto):
+    return isinstance(texto, str) and bool(_RE_MARCADOR_PRIVADO.match(texto))
 
 
 # ── CONTRATO ESTRUCTURADO DE RESULTADO ───────────────────────────
@@ -1353,8 +1411,74 @@ def _con_avisos(final, traza):
 # Su resultado (emails, agenda) nunca se sintetiza con un TTS externo: el turno va con Piper
 TOOLS_PRIVADAS = {"leer_emails", "leer_email", "buscar_emails", "emails_recruiters", "borrar_email",
                   "borrar_multiples_emails", "archivar_email", "enviar_email", "get_mi_email",
+                  "deshacer_borrado_emails",
                   "ver_agenda", "ver_pantalla", "briefing",  # el briefing lleva agenda y correo
                   "buscar_contacto"}
+
+# Búsquedas o lecturas de correo hechas en el turno actual (pensar() lo pone a 0): la segunda
+# búsqueda del turno se suma a la lista vigente en vez de sustituirla
+_listados_turno = 0
+SELECTORES_BORRADO = ("msg_ids", "posiciones", "todos", "remitente")
+
+
+def _resolver_seleccion_emails(parametros, texto_usuario, skills):
+    """borrar_multiples_emails con posiciones / todos / remitente → {"msg_ids": [...]} resueltos
+    por el sistema (nunca por el modelo). Va ANTES del gate: el gate y su firma siguen siendo el
+    conjunto exacto de IDs, que es lo que se anuncia, se confirma y se ejecuta.
+    Devuelve (parametros, None) o (None, mensaje). Un error no arma ni gasta confirmaciones."""
+    usados = [k for k in SELECTORES_BORRADO
+              if k in parametros and parametros[k] not in (None, False, [], "")]
+    if usados in ([], ["msg_ids"]):   # msg_ids (o nada): el gate lo valida como siempre
+        return parametros, None
+    if len(usados) != 1:
+        return None, ("Indica qué emails borrar con UNO de: posiciones (de la última lista), todos "
+                      "(toda la última lista) o remitente (tal cual lo dijo el usuario).")
+    gmail = skills.get('gmail')
+    if usados == ["posiciones"]:
+        entradas, error = gmail.por_posiciones(parametros["posiciones"])
+        if error:
+            return None, error
+    elif usados == ["todos"]:
+        if parametros["todos"] is not True:
+            return None, "todos tiene que ser true."
+        entradas = gmail.lista_vigente()
+        if not entradas:
+            return None, "No hay ninguna lista de emails vigente. Lee primero los emails."
+    else:
+        entradas, error = _por_remitente(parametros["remitente"], texto_usuario, gmail)
+        if error:
+            return None, error
+    if len(entradas) > MAX_BORRAR_EMAILS:
+        return None, (f"Son {len(entradas)} emails y el máximo por operación es {MAX_BORRAR_EMAILS}. "
+                      f"Dile al usuario el total y borra por partes (posiciones 1 a {MAX_BORRAR_EMAILS}).")
+    return {"msg_ids": [e["id"] for e in entradas]}, None
+
+
+def _por_remitente(remitente, texto_usuario, gmail):
+    """(entradas, None) con TODOS los emails de la bandeja de ese remitente, o (None, mensaje).
+    El nombre tiene que haberlo dicho el usuario en este turno (o algo parecido: Whisper escribe
+    «Alis Pres» por «AliExpress»). Uno que solo sale de un correo leído no vale (inyección)."""
+    if not isinstance(remitente, str) or not remitente.strip():
+        return None, "Falta el remitente."
+    if not gmail.mencionado_en(remitente, texto_usuario):
+        return None, ("BLOQUEADO: el remitente tiene que decirlo el usuario por el micrófono en este turno; "
+                      "uno que aparece en un correo o un resultado no vale. Pregúntale de quién son.")
+    try:
+        entradas, total = gmail.buscar_por_remitente(remitente)
+    except Exception as e:
+        return None, gmail.fallo("Error buscando", e)
+    if not entradas:
+        sugerido, puntos = gmail.remitente_mas_parecido(remitente, gmail.remitentes_vistos())
+        if sugerido and puntos >= 0.5:
+            return None, (f"No hay emails de «{remitente}» en la bandeja. El remitente más parecido es "
+                          f"{sugerido}: pregúntale al usuario si se refiere a ese, sin borrar nada todavía.")
+        return None, f"No hay emails de «{remitente}» en la bandeja de entrada."
+    if total > len(entradas):
+        return None, (f"Hay unos {total} emails de {remitente} y el máximo por operación es "
+                      f"{MAX_BORRAR_EMAILS}. Están listados los {len(entradas)} más recientes: dile el total "
+                      f"y, si quiere, borra esos con todos=true.")
+    return entradas, None
+
 
 def _email_en_cache(nombre, parametros, skills):
     """Entrada de la caché de gmail para borrar_email (o None). Da remitente
@@ -1460,6 +1584,10 @@ def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
                 cargar_destinatarios_permitidos(skills)
             else:
                 cargar_destinatarios_permitidos(skills)  # por si falló al arrancar
+        if nombre == "borrar_multiples_emails":
+            parametros, error = _resolver_seleccion_emails(parametros, texto_usuario, skills)
+            if error:
+                return _err(error, "seleccion_no_valida")
         aviso = _no_configurado(nombre, parametros)
         if aviso:
             return _err(aviso, "no_configurado")
@@ -1512,6 +1640,7 @@ def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
 
         # ── GMAIL ─────────────────────────────────────────────────
         if nombre == "leer_emails":
+            _contar_listado()
             return _envolver(gmail.leer_no_leidos())
 
         if nombre == "leer_email":
@@ -1550,10 +1679,19 @@ def _ejecutar_tool(nombre, parametros, skills, texto_usuario=""):
             return _envolver(gmail.archivar_email(parametros.get('indice', 0)))
 
         if nombre == "buscar_emails":
+            acumular = _listados_turno > 0
+            _contar_listado()
+            if acumular:
+                return _envolver(gmail.buscar_emails(parametros.get('query', ''), acumular=True))
             return _envolver(gmail.buscar_emails(parametros.get('query', '')))
 
         if nombre == "emails_recruiters":
+            _contar_listado()
             return _envolver(gmail.leer_recruiters())
+
+        if nombre == "deshacer_borrado_emails":
+            ok, msg = gmail.deshacer_ultimo_borrado()
+            return _ok(msg) if ok else _err(msg, "deshacer_rechazado")
 
         # ── SISTEMA ───────────────────────────────────────────────
         if nombre == "tiempo":
@@ -2168,8 +2306,9 @@ def _llamar_claude(params):
 def pensar(texto, contexto="", skills=None, conversacion_reciente=False):
     """contexto: lista de mensajes previos (memoria.obtener_mensajes) que se
     pasan a Claude como turnos reales, o texto plano (formato antiguo)."""
-    global _ultima_traza, _envio_cambiado
+    global _ultima_traza, _envio_cambiado, _listados_turno
     _envio_cambiado = False
+    _listados_turno = 0
     tts_elevenlabs.nuevo_turno()
     _registrar_dictada(texto)
     t0              = time.monotonic()

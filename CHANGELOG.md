@@ -8,10 +8,18 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Añadido**
 
+- Correo por voz por lotes: `borrar_multiples_emails` acepta posiciones de la última lista («los tres primeros»), `todos` o un remitente dicho por el micrófono («todos los de AliExpress», que busca el conjunto completo). El sistema resuelve los IDs, anuncia el recuento real y los remitentes, y pide una sola confirmación; lo ejecutado es exactamente lo confirmado (misma firma del gate). La lista sale numerada en la ventana, dos búsquedas en el mismo turno se suman y un remitente que no existe se responde con el más parecido
+- `deshacer_borrado_emails`: «deshaz el último borrado» saca de la papelera el último lote borrado en la sesión
+- `docs/filtros-gmail.md`: guía corta para crear filtros de Gmail para promociones recurrentes (sin automatizar)
+- `vocabulario_remitentes.py`: propone los remitentes frecuentes para Whisper y, con `--guardar`, los deja fuera del repo, en la carpeta de secretos
+
 - `.github/dependabot.yml`: solo actualizaciones de seguridad (las de versión siguen desactivadas) e ignora torch a partir de 2.12 y setuptools a partir de 82, porque torch va con la build CUDA (`+cu128`) y setuptools debe seguir siendo compatible con él
 
 **Corregido**
 
+- `doctor.py`: «Puerto 8765 en uso por otro proceso» salía como ERROR falso. En Windows, conectar a un puerto cerrado de localhost tarda ~2 s en rechazarse y el timeout de 0,5 s lo daba por ocupado; y con JARVIS abierto, su socket aparecía a ratos sin estado LISTEN, así que no se reconocía. Ahora se comprueba con bind, se identifica al dueño por cualquier socket con ese puerto local (y su proceso padre) y, si no se puede identificar, es AVISO
+- El modelo imitaba el marcador del historial de los turnos privados («[Respuesta privada no guardada…]») y JARVIS lo leía en voz alta: ya no se dice nunca
+- El anuncio de un borrado cortaba los remitentes de varias palabras («Alertas Clases» salía «Alertas»)
 - CI: el job `test` descarga el historial completo; con el clon superficial, `test_publicacion` fallaba en todas las PR porque solo veía el merge commit, no el commit inicial
 
 ### 2026-10-25
