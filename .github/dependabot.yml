@@ -1,0 +1,19 @@
+# Dependabot: solo actualizaciones de seguridad.
+# open-pull-requests-limit: 0 desactiva las de versión; las de seguridad no se ven afectadas.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    ignore:
+      # torch va con la build CUDA (+cu128, índice de PyTorch). Dependabot propone la de PyPI
+      # sin sufijo CUDA. Se actualiza a mano cuando se decida la migración de CUDA.
+      - dependency-name: "torch"
+        versions: [">=2.12"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # setuptools >= 82: pendiente de comprobar compatibilidad con torch/whisper.
+      # Deja abierta GHSA-h35f-9h28-mq5c (media, corregida en 83): revisar al migrar torch.
+      - dependency-name: "setuptools"
+        versions: [">=82"]
