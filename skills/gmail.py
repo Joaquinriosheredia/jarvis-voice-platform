@@ -1,7 +1,10 @@
 import os
+import re
 import time
 import base64
 import json
+import difflib
+import unicodedata
 
 import rutas
 from email.message import EmailMessage
@@ -19,6 +22,12 @@ CACHE_TTL        = 300  # s; pasado este tiempo no se borra nada de la lista
 pendiente_borrar = None  # mantenido por compatibilidad con jarvis.py
 MAX_ADJUNTO      = 20 * 1024 * 1024  # bytes
 _mi_email        = None  # caché de getProfile
+MAX_LOTE         = 25    # emails por borrado (mismo límite que brain.MAX_BORRAR_EMAILS)
+MAX_LISTA        = 10    # emails que muestra una búsqueda
+# Último lote movido a la papelera en esta sesión: {"ids", "remitentes", "ts"} (solo en memoria)
+_ultimo_lote     = None
+# Callback de la UI (lo pone jarvis.py): recibe [{"n", "remitente", "asunto"}] de la lista vigente
+al_listar        = None
 
 # ── AUTENTICACIÓN ─────────────────────────────────────────────────
 def credenciales(scopes, token_file, servicio="gmail"):
@@ -63,6 +72,10 @@ def _get_headers(service, msg_id):
     return remitente, asunto
 
 # ── CACHÉ DE LA ÚLTIMA LISTA ──────────────────────────────────────
+# Remitentes vistos en las listas de esta sesión (solo en memoria): para sugerir el más
+# parecido cuando Whisper escribe mal un nombre
+_remitentes_vistos = {}
+
 def _entradas_cache(service, messages):
     ahora    = time.time()
     entradas = []
@@ -70,10 +83,104 @@ def _entradas_cache(service, messages):
         remitente, asunto = _get_headers(service, msg['id'])
         entradas.append({"id": msg['id'], "remitente": remitente,
                          "asunto": asunto, "ts": ahora})
+        _remitentes_vistos[remitente] = _remitentes_vistos.get(remitente, 0) + 1
     return entradas
+
+def remitentes_vistos():
+    """Remitentes de la lista vigente y de las anteriores de esta sesión, los más vistos primero."""
+    actuales = [e.get("remitente", "") for e in cache_emails if isinstance(e, dict)]
+    previos  = sorted(_remitentes_vistos, key=_remitentes_vistos.get, reverse=True)
+    return list(dict.fromkeys(actuales + previos))
 
 def _linea(i, e):
     return f"{i+1}. {e['remitente']}: {e['asunto']} [id={e['id']}]"
+
+def _publicar_lista():
+    """Envía a la UI la lista vigente numerada (posición → remitente y asunto, sin IDs)."""
+    if not callable(al_listar):
+        return
+    try:
+        al_listar([{"n": i + 1, "remitente": e.get("remitente", ""), "asunto": e.get("asunto", "")}
+                   for i, e in enumerate(cache_emails) if isinstance(e, dict)])
+    except Exception as e:
+        print(f"[GMAIL] no se pudo mostrar la lista: {type(e).__name__}")
+
+def lista_vigente():
+    """Entradas de la última lista si no ha caducado (CACHE_TTL); [] si no hay o caducó."""
+    ahora = time.time()
+    entradas = [e for e in cache_emails if isinstance(e, dict)]
+    if not entradas or any(ahora - e.get('ts', 0) > CACHE_TTL for e in entradas):
+        return []
+    return entradas
+
+def por_posiciones(posiciones):
+    """(entradas, None) para posiciones 1..N de la lista vigente, o (None, motivo).
+    Nunca busca: solo resuelve contra lo que ya se ha listado al usuario."""
+    entradas = lista_vigente()
+    if not entradas:
+        return None, "No hay ninguna lista de emails vigente. Lee primero los emails."
+    if (not isinstance(posiciones, list) or not posiciones
+            or not all(isinstance(p, int) and not isinstance(p, bool) for p in posiciones)):
+        return None, "Las posiciones tienen que ser números de la última lista (1, 2, 3...)."
+    fuera = [p for p in posiciones if not 1 <= p <= len(entradas)]
+    if fuera:
+        return None, (f"La última lista tiene {len(entradas)} emails; no existe la posición "
+                      f"{', '.join(map(str, fuera))}.")
+    return [entradas[p - 1] for p in dict.fromkeys(posiciones)], None
+
+# ── NOMBRES PARECIDOS (Whisper escribe «Alis Pres» por «AliExpress») ─
+def _compacto(texto):
+    t = unicodedata.normalize("NFD", (texto or "").lower())
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]", "", t)
+
+def _nombre_visible(remitente):
+    from email.utils import parseaddr
+    nombre, direccion = parseaddr(remitente or "")
+    return (nombre or direccion or remitente or "").strip()
+
+def _trozos(texto, maximo=3):
+    """Grupos de 1 a `maximo` palabras seguidas, compactados («alis pres» → «alispres»)."""
+    palabras = re.findall(r"\w+", unicodedata.normalize("NFC", texto or "").lower())
+    return {_compacto("".join(palabras[i:i + n]))
+            for n in range(1, maximo + 1) for i in range(len(palabras) - n + 1)} - {""}
+
+def parecido(a, b):
+    """Similitud 0..1 entre dos nombres, sin mayúsculas, tildes, espacios ni signos."""
+    a, b = _compacto(a), _compacto(b)
+    if not a or not b:
+        return 0.0
+    if min(len(a), len(b)) >= 4 and (a in b or b in a):
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+UMBRAL_PARECIDO = 0.72
+
+def mencionado_en(nombre, texto):
+    """True si `nombre` (o algo parecido) aparece en `texto` (lo que transcribió Whisper)."""
+    objetivo = _compacto(nombre)
+    if len(objetivo) < 3:
+        return False
+    return any(parecido(objetivo, t) >= UMBRAL_PARECIDO for t in _trozos(texto))
+
+def remitente_mas_parecido(nombre, candidatos=None):
+    """(remitente visible, similitud) del candidato más parecido a `nombre`, o (None, 0).
+    Por defecto, los remitentes de la lista vigente."""
+    if candidatos is None:
+        candidatos = [e.get("remitente", "") for e in cache_emails if isinstance(e, dict)]
+    mejor, puntos = None, 0.0
+    for c in dict.fromkeys(_nombre_visible(c) for c in candidatos):
+        p = max([parecido(nombre, c)] + [parecido(nombre, t) for t in _trozos(c)])
+        if p > puntos:
+            mejor, puntos = c, p
+    return mejor, puntos
+
+def de_remitente(nombre):
+    """Entradas de la lista vigente cuyo remitente se parece a `nombre`."""
+    return [e for e in lista_vigente()
+            if max([parecido(nombre, e.get("remitente", ""))]
+                   + [parecido(nombre, t) for t in _trozos(_nombre_visible(e.get("remitente", "")))])
+            >= UMBRAL_PARECIDO]
 
 def info_email(msg_id):
     """Entrada de caché del email (dict) o None si no se ha listado."""
@@ -103,6 +210,7 @@ def leer_no_leidos(max_emails=5):
             cache_emails = []
             return "No tienes emails sin leer en la bandeja principal"
         cache_emails = _entradas_cache(service, messages)
+        _publicar_lista()
         resumen = [_linea(i, e) for i, e in enumerate(cache_emails[:5])]
         return f"Tienes {len(messages)} emails sin leer. {'. '.join(resumen)}"
     except Exception as e:
@@ -147,6 +255,7 @@ def leer_recruiters():
         if not messages:
             return "No tienes emails de recruiters sin leer"
         cache_emails = _entradas_cache(service, messages)
+        _publicar_lista()
         resumen = [_linea(i, e) for i, e in enumerate(cache_emails)]
         return f"Tienes {len(messages)} emails de recruiters. " + ". ".join(resumen)
     except Exception as e:
@@ -216,6 +325,8 @@ def borrar_email(msg_id):
         return False, fallo("Error borrando", e)
     if entrada in cache_emails:
         cache_emails.remove(entrada)
+    _recordar_lote([entrada])
+    _publicar_lista()
     return True, f"Email de {entrada['remitente']} eliminado"
 
 # ── BORRAR MÚLTIPLES ──────────────────────────────────────────────
@@ -246,12 +357,49 @@ def borrar_multiples(msg_ids):
         borrados.append(e)
         if e in cache_emails:
             cache_emails.remove(e)
+    if borrados:
+        _recordar_lote(borrados)
+        _publicar_lista()
     if not fallidos:
         return True, f"{len(borrados)} emails eliminados"
     fallo = "; ".join(f"{e['remitente']}: {e['asunto']}" for e in fallidos)
     if not borrados:
         return False, f"No se pudo borrar ningún email. Fallaron: {fallo}"
     return False, f"Eliminados {len(borrados)} de {len(entradas)}. Fallaron: {fallo}"
+
+def _recordar_lote(entradas):
+    global _ultimo_lote
+    _ultimo_lote = {"ids": [e["id"] for e in entradas],
+                    "remitentes": [e.get("remitente", "") for e in entradas], "ts": time.time()}
+
+# ── DESHACER EL ÚLTIMO BORRADO ────────────────────────────────────
+def deshacer_ultimo_borrado():
+    """Saca de la papelera (untrash) los emails del último lote borrado en esta sesión.
+    Devuelve (ok, mensaje). Solo toca esos IDs; nunca borra ni busca nada."""
+    global _ultimo_lote
+    lote = _ultimo_lote
+    if not lote or not lote.get("ids"):
+        return False, "No hay ningún borrado de correo que deshacer en esta sesión"
+    try:
+        service = get_service()
+    except Exception as e:
+        return False, fallo("Error recuperando", e)
+    recuperados, fallidos = [], []
+    for msg_id in lote["ids"]:
+        try:
+            service.users().messages().untrash(userId='me', id=msg_id).execute()
+        except Exception:
+            fallidos.append(msg_id)
+            continue
+        recuperados.append(msg_id)
+    if not fallidos:
+        _ultimo_lote = None
+        n = len(recuperados)
+        return True, f"{n} email{'s' if n != 1 else ''} recuperado{'s' if n != 1 else ''} de la papelera"
+    _ultimo_lote = dict(lote, ids=fallidos)   # se puede reintentar con los que faltan
+    if not recuperados:
+        return False, "No se pudo recuperar ningún email de la papelera"
+    return False, f"Recuperados {len(recuperados)} de {len(lote['ids'])}; {len(fallidos)} siguen en la papelera"
 
 # ── ARCHIVAR EMAIL ────────────────────────────────────────────────
 def archivar_email(indice=0):
@@ -270,7 +418,10 @@ def archivar_email(indice=0):
         return fallo("Error archivando", e)
 
 # ── BUSCAR EMAILS ─────────────────────────────────────────────────
-def buscar_emails(query, max_emails=5):
+def buscar_emails(query, max_emails=MAX_LISTA, acumular=False):
+    """Busca y deja los resultados numerados como lista vigente. Con acumular=True
+    (segunda búsqueda del mismo turno: «los de AliExpress y las alertas») se añaden
+    detrás de la lista vigente en vez de sustituirla, para poder borrar todo junto."""
     global cache_emails
     try:
         service  = get_service()
@@ -282,11 +433,39 @@ def buscar_emails(query, max_emails=5):
         messages = results.get('messages', [])
         if not messages:
             return f"No encontré emails sobre: {query}"
-        cache_emails = _entradas_cache(service, messages)
-        resumen = [_linea(i, e) for i, e in enumerate(cache_emails[:3])]
-        return f"Encontré {len(messages)} emails. " + ". ".join(resumen)
+        nuevas = _entradas_cache(service, messages)
+        base   = lista_vigente() if acumular else []
+        vistos = {e["id"] for e in base}
+        cache_emails = base + [e for e in nuevas if e["id"] not in vistos]
+        _publicar_lista()
+        inicio  = len(base)
+        resumen = [_linea(i, e) for i, e in enumerate(cache_emails) if i >= inicio]
+        return f"Encontré {len(messages)} emails sobre {query}. " + ". ".join(resumen)
     except Exception as e:
         return fallo("Error buscando", e)
+
+def _limpiar_remitente(nombre):
+    """Solo letras, números, espacios y . - _ @, y sin comillas: va entre comillas en from:"...",
+    así que OR, -, paréntesis o in: no pueden actuar como operadores de búsqueda."""
+    return " ".join(re.sub(r"[^\w.@\- ]", " ", nombre or "").split())[:60]
+
+def buscar_por_remitente(nombre, maximo=MAX_LOTE):
+    """Emails de la bandeja de entrada de un remitente (todas las categorías). Deja el
+    resultado como lista vigente numerada. Devuelve (entradas, total_estimado) o lanza."""
+    global cache_emails
+    limpio = _limpiar_remitente(nombre)
+    if not limpio:
+        return [], 0
+    service  = get_service()
+    results  = service.users().messages().list(
+        userId='me', q=f'in:inbox from:"{limpio}"', maxResults=maximo).execute()
+    messages = results.get('messages', [])
+    if not messages:   # sin resultados la lista vigente se queda como estaba
+        return [], 0
+    cache_emails = _entradas_cache(service, messages)
+    _publicar_lista()
+    total = max(results.get('resultSizeEstimate', 0), len(cache_emails))
+    return list(cache_emails), total
 
 # ── ENVIAR EMAIL ──────────────────────────────────────────────────
 def enviar_email(destinatario, asunto, cuerpo, adjunto=None):

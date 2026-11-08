@@ -31,7 +31,7 @@ def _texto(s):
 
 def _skills(texto):
     gmail = NS(leer_email=lambda indice=0: texto, leer_no_leidos=lambda: texto,
-               buscar_emails=lambda q="": texto, leer_recruiters=lambda: texto)
+               buscar_emails=lambda q="", **_: texto, leer_recruiters=lambda: texto)
     return {"gmail": gmail, "webs": NS(buscar_en_web=lambda q: texto)}
 
 

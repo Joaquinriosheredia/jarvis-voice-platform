@@ -145,6 +145,29 @@ function aviso(msg) {
   burbuja('aviso', msg.message, msg.ts);
 }
 
+// ── Última lista de correo, numerada: «borra el segundo» se refiere a estos números ──
+function listaEmails(msg) {
+  const emails = Array.isArray(msg.emails) ? msg.emails : [];
+  vacio.hidden = true;
+  const div = document.createElement('div');
+  div.className = 'burbuja jarvis lista-emails';
+  const titulo = document.createElement('div');
+  titulo.className = 'lista-emails-titulo';
+  titulo.textContent = emails.length ? `Correo (${emails.length})` : 'Correo: lista vacía';
+  const ol = document.createElement('ol');
+  for (const e of emails) {
+    const li = document.createElement('li');
+    if (Number.isInteger(e.n)) li.value = e.n;
+    const quien = document.createElement('strong');
+    quien.textContent = String(e.remitente ?? '');
+    li.append(quien, document.createTextNode(`: ${String(e.asunto ?? '')}`));
+    ol.appendChild(li);
+  }
+  div.append(titulo, ol);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
 function manejar(msg) {
   switch (msg.type) {
     case 'hello':
@@ -174,6 +197,9 @@ function manejar(msg) {
       break;
     case 'metrics':
       metricas(msg);
+      break;
+    case 'email_list':
+      listaEmails(msg);
       break;
   }
 }
