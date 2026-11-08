@@ -16,6 +16,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 **Corregido**
 
+- `doctor.py`: «Puerto 8765 en uso por otro proceso» salía como ERROR falso. En Windows, conectar a un puerto cerrado de localhost tarda ~2 s en rechazarse y el timeout de 0,5 s lo daba por ocupado; y con JARVIS abierto, su socket aparecía a ratos sin estado LISTEN, así que no se reconocía. Ahora se comprueba con bind, se identifica al dueño por cualquier socket con ese puerto local (y su proceso padre) y, si no se puede identificar, es AVISO
 - El modelo imitaba el marcador del historial de los turnos privados («[Respuesta privada no guardada…]») y JARVIS lo leía en voz alta: ya no se dice nunca
 - El anuncio de un borrado cortaba los remitentes de varias palabras («Alertas Clases» salía «Alertas»)
 - CI: el job `test` descarga el historial completo; con el clon superficial, `test_publicacion` fallaba en todas las PR porque solo veía el merge commit, no el commit inicial

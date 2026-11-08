@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
@@ -376,23 +377,103 @@ class TestSeguridad(Base):
 
 # ── Puerto, zona horaria, proyectos, logs, git ────────────────────
 class TestPuerto(Base):
-    def sock(self, codigo):
-        s = MagicMock()
-        s.__enter__.return_value.connect_ex.return_value = codigo
-        return patch.object(doctor.socket, "socket", return_value=s)
+    def ocupado(self, valor):
+        return patch.object(doctor, "_puerto_ocupado", return_value=valor)
 
     def test_libre_jarvis_y_otro(self):
-        with self.sock(10061):
+        with self.ocupado(False):
             self.estado(doctor.check_puerto(), doctor.OK)
-        with self.sock(0), patch.object(doctor, "_duenio_del_puerto",
-                                        return_value=(42, "python.exe", r"C:\Jarvis\venv\Scripts\python.exe jarvis.py")):
+        with self.ocupado(True), patch.object(doctor, "_duenio_del_puerto",
+                                              return_value=(42, "python.exe", r"C:\Jarvis\venv\Scripts\python.exe jarvis.py")):
             self.estado(doctor.check_puerto(), doctor.OK)
-        with self.sock(0), patch.object(doctor, "_duenio_del_puerto", return_value=(7, "node.exe", "node server.js")):
+        with self.ocupado(True), patch.object(doctor, "_duenio_del_puerto", return_value=(7, "node.exe", "node server.js")):
             r = doctor.check_puerto()
         self.estado(r, doctor.ERROR)
         self.assertIn("node.exe", r["detalle"])
-        with self.sock(0), patch.object(doctor, "_duenio_del_puerto", side_effect=ImportError):
-            self.estado(doctor.check_puerto(), doctor.ERROR)
+
+    def test_es_jarvis_no_basta_con_que_salga_la_palabra(self):
+        self.assertTrue(doctor._es_jarvis(r"C:\Jarvis\venv\Scripts\python.exe -u jarvis.py"))
+        self.assertTrue(doctor._es_jarvis(os.path.join(doctor.RAIZ, "venv", "Scripts", "python.exe")))
+        self.assertFalse(doctor._es_jarvis(r"C:\Python314\python.exe C:\Jarvis-tmp\otro_servidor.py"))
+        self.assertFalse(doctor._es_jarvis("node jarvis-dashboard/server.js"))
+        self.assertFalse(doctor._es_jarvis(""))
+
+    def test_dueno_no_identificable_es_aviso_no_error(self):
+        # Antes: ERROR «otro proceso» aunque fuese el propio JARVIS
+        for efecto in (ImportError, RuntimeError("psutil")):
+            with self.subTest(efecto), self.ocupado(True), \
+                    patch.object(doctor, "_duenio_del_puerto", side_effect=efecto):
+                self.estado(doctor.check_puerto(), doctor.AVISO)
+        with self.ocupado(True), patch.object(doctor, "_duenio_del_puerto", return_value=None):
+            self.estado(doctor.check_puerto(), doctor.AVISO)
+
+    def test_puerto_cerrado_sale_libre_al_instante(self):
+        # El fallo real: connect_ex con timeout daba 10035 en Windows con el puerto cerrado
+        import socket as sk
+        with sk.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            puerto = s.getsockname()[1]
+        t0 = time.monotonic()
+        self.assertFalse(doctor._puerto_ocupado(puerto))
+        self.assertLess(time.monotonic() - t0, 0.5)
+
+    def test_puerto_escuchando_sale_ocupado(self):
+        import socket as sk
+        with sk.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            s.listen(1)
+            self.assertTrue(doctor._puerto_ocupado(s.getsockname()[1]))
+
+    def test_dueno_con_cmdline_denegada_se_reconoce_por_el_ejecutable(self):
+        import psutil
+        con = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_LISTEN, pid=42)
+        proc = MagicMock()
+        proc.name.return_value = "python.exe"
+        proc.cmdline.side_effect = psutil.AccessDenied(42)
+        exe = os.path.join(doctor.RAIZ, "venv", "Scripts", "python.exe")
+        proc.exe.return_value = exe
+        proc.parent.return_value = None
+        with patch.object(psutil, "net_connections", return_value=[con]), \
+                patch.object(psutil, "Process", return_value=proc), \
+                self.ocupado(True):
+            self.assertEqual(doctor._duenio_del_puerto(8765), (42, "python.exe", exe))
+            self.estado(doctor.check_puerto(), doctor.OK)
+
+    def test_hijo_del_lanzador_del_venv_se_reconoce_por_el_padre(self):
+        import psutil
+        con = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_LISTEN, pid=42)
+        hijo, padre = MagicMock(), MagicMock()
+        hijo.name.return_value = "python.exe"
+        hijo.cmdline.side_effect = psutil.AccessDenied(42)
+        hijo.exe.return_value = r"C:\Python314\python.exe"
+        hijo.parent.return_value = padre
+        padre.cmdline.return_value = [os.path.join(doctor.RAIZ, "venv", "Scripts", "python.exe"), "-u", "jarvis.py"]
+        with patch.object(psutil, "net_connections", return_value=[con]), \
+                patch.object(psutil, "Process", return_value=hijo), self.ocupado(True):
+            self.estado(doctor.check_puerto(), doctor.OK)
+
+    def test_dueno_enlazado_sin_listen_todavia_se_reconoce(self):
+        # Medido en Windows: el servidor sale unos segundos como NONE o ESTABLISHED antes que LISTEN
+        import psutil
+        cliente = MagicMock(laddr=MagicMock(port=50123), status=psutil.CONN_ESTABLISHED, pid=99)
+        servidor = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_NONE, pid=42)
+        proc = MagicMock()
+        proc.name.return_value = "python.exe"
+        proc.cmdline.return_value = ["python.exe", "-u", "jarvis.py"]
+        with patch.object(psutil, "net_connections", return_value=[cliente, servidor]), \
+                patch.object(psutil, "Process", return_value=proc) as Proc:
+            self.assertEqual(doctor._duenio_del_puerto(8765)[0], 42)
+        Proc.assert_called_once_with(42)
+
+    def test_un_fallo_aislado_de_psutil_se_reintenta(self):
+        import psutil
+        con = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_LISTEN, pid=42)
+        proc = MagicMock()
+        proc.name.return_value = "python.exe"
+        proc.cmdline.return_value = ["python.exe", "-u", "jarvis.py"]
+        with patch.object(psutil, "net_connections", side_effect=[psutil.AccessDenied(), [con]]), \
+                patch.object(psutil, "Process", return_value=proc), patch.object(doctor.time, "sleep"):
+            self.assertEqual(doctor._duenio_del_puerto(8765)[0], 42)
 
 
 class TestVarios(Base):
