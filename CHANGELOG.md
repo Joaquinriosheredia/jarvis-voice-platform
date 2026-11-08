@@ -4,6 +4,16 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 ## Sin publicar
 
+### 2026-11-08
+
+**Añadido**
+
+- `.github/dependabot.yml`: solo actualizaciones de seguridad (las de versión siguen desactivadas) e ignora torch a partir de 2.12 y setuptools a partir de 82, porque torch va con la build CUDA (`+cu128`) y setuptools debe seguir siendo compatible con él
+
+**Corregido**
+
+- CI: el job `test` descarga el historial completo; con el clon superficial, `test_publicacion` fallaba en todas las PR porque solo veía el merge commit, no el commit inicial
+
 ### 2026-10-25
 
 **Añadido**
