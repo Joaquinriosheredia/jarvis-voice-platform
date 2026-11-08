@@ -10,6 +10,7 @@ Todos los cambios desde el commit inicial, agrupados por día y por tipo, del m�
 
 - Correo por voz por lotes: `borrar_multiples_emails` acepta posiciones de la última lista («los tres primeros»), `todos` o un remitente dicho por el micrófono («todos los de AliExpress», que busca el conjunto completo). El sistema resuelve los IDs, anuncia el recuento real y los remitentes, y pide una sola confirmación; lo ejecutado es exactamente lo confirmado (misma firma del gate). La lista sale numerada en la ventana, dos búsquedas en el mismo turno se suman y un remitente que no existe se responde con el más parecido
 - `deshacer_borrado_emails`: «deshaz el último borrado» saca de la papelera el último lote borrado en la sesión
+- `docs/filtros-gmail.md`: guía corta para crear filtros de Gmail para promociones recurrentes (sin automatizar)
 - `vocabulario_remitentes.py`: propone los remitentes frecuentes para Whisper y, con `--guardar`, los deja fuera del repo, en la carpeta de secretos
 
 - `.github/dependabot.yml`: solo actualizaciones de seguridad (las de versión siguen desactivadas) e ignora torch a partir de 2.12 y setuptools a partir de 82, porque torch va con la build CUDA (`+cu128`) y setuptools debe seguir siendo compatible con él
