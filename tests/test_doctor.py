@@ -424,55 +424,66 @@ class TestPuerto(Base):
             s.listen(1)
             self.assertTrue(doctor._puerto_ocupado(s.getsockname()[1]))
 
+    @staticmethod
+    def psutil_falso(conexiones, proceso):
+        """psutil no está en requirements-ci.txt: módulo falso con lo que usa _duenio_del_puerto."""
+        class Error(Exception):
+            pass
+
+        class AccessDenied(Error):
+            pass
+
+        net = MagicMock(return_value=conexiones)
+        falso = types.SimpleNamespace(CONN_LISTEN="LISTEN", CONN_NONE="NONE", CONN_ESTABLISHED="ESTABLISHED",
+                                      Error=Error, AccessDenied=AccessDenied, net_connections=net,
+                                      Process=MagicMock(return_value=proceso))
+        return falso, patch.dict(sys.modules, {"psutil": falso})
+
+    @staticmethod
+    def conexion(puerto, estado, pid):
+        return types.SimpleNamespace(laddr=types.SimpleNamespace(port=puerto), status=estado, pid=pid)
+
     def test_dueno_con_cmdline_denegada_se_reconoce_por_el_ejecutable(self):
-        import psutil
-        con = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_LISTEN, pid=42)
         proc = MagicMock()
+        falso, parche = self.psutil_falso([self.conexion(8765, "LISTEN", 42)], proc)
         proc.name.return_value = "python.exe"
-        proc.cmdline.side_effect = psutil.AccessDenied(42)
+        proc.cmdline.side_effect = falso.AccessDenied(42)
         exe = os.path.join(doctor.RAIZ, "venv", "Scripts", "python.exe")
         proc.exe.return_value = exe
         proc.parent.return_value = None
-        with patch.object(psutil, "net_connections", return_value=[con]), \
-                patch.object(psutil, "Process", return_value=proc), \
-                self.ocupado(True):
+        with parche, self.ocupado(True):
             self.assertEqual(doctor._duenio_del_puerto(8765), (42, "python.exe", exe))
             self.estado(doctor.check_puerto(), doctor.OK)
 
     def test_hijo_del_lanzador_del_venv_se_reconoce_por_el_padre(self):
-        import psutil
-        con = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_LISTEN, pid=42)
         hijo, padre = MagicMock(), MagicMock()
+        falso, parche = self.psutil_falso([self.conexion(8765, "LISTEN", 42)], hijo)
         hijo.name.return_value = "python.exe"
-        hijo.cmdline.side_effect = psutil.AccessDenied(42)
+        hijo.cmdline.side_effect = falso.AccessDenied(42)
         hijo.exe.return_value = r"C:\Python314\python.exe"
         hijo.parent.return_value = padre
         padre.cmdline.return_value = [os.path.join(doctor.RAIZ, "venv", "Scripts", "python.exe"), "-u", "jarvis.py"]
-        with patch.object(psutil, "net_connections", return_value=[con]), \
-                patch.object(psutil, "Process", return_value=hijo), self.ocupado(True):
+        with parche, self.ocupado(True):
             self.estado(doctor.check_puerto(), doctor.OK)
 
     def test_dueno_enlazado_sin_listen_todavia_se_reconoce(self):
         # Medido en Windows: el servidor sale unos segundos como NONE o ESTABLISHED antes que LISTEN
-        import psutil
-        cliente = MagicMock(laddr=MagicMock(port=50123), status=psutil.CONN_ESTABLISHED, pid=99)
-        servidor = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_NONE, pid=42)
         proc = MagicMock()
         proc.name.return_value = "python.exe"
         proc.cmdline.return_value = ["python.exe", "-u", "jarvis.py"]
-        with patch.object(psutil, "net_connections", return_value=[cliente, servidor]), \
-                patch.object(psutil, "Process", return_value=proc) as Proc:
+        falso, parche = self.psutil_falso([self.conexion(50123, "ESTABLISHED", 99),
+                                           self.conexion(8765, "NONE", 42)], proc)
+        with parche:
             self.assertEqual(doctor._duenio_del_puerto(8765)[0], 42)
-        Proc.assert_called_once_with(42)
+        falso.Process.assert_called_once_with(42)
 
     def test_un_fallo_aislado_de_psutil_se_reintenta(self):
-        import psutil
-        con = MagicMock(laddr=MagicMock(port=8765), status=psutil.CONN_LISTEN, pid=42)
         proc = MagicMock()
         proc.name.return_value = "python.exe"
         proc.cmdline.return_value = ["python.exe", "-u", "jarvis.py"]
-        with patch.object(psutil, "net_connections", side_effect=[psutil.AccessDenied(), [con]]), \
-                patch.object(psutil, "Process", return_value=proc), patch.object(doctor.time, "sleep"):
+        falso, parche = self.psutil_falso([], proc)
+        falso.net_connections.side_effect = [falso.AccessDenied(), [self.conexion(8765, "LISTEN", 42)]]
+        with parche, patch.object(doctor.time, "sleep"):
             self.assertEqual(doctor._duenio_del_puerto(8765)[0], 42)
 
 
