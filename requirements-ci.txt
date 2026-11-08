@@ -4,7 +4,7 @@
 anthropic==0.89.0          # brain.py crea el cliente al importar (sin llamadas: mockeado)
 numpy==2.4.4               # audio.py
 scipy==1.17.1              # audio.py (scipy.io.wavfile); un test lo importa sin stub
-pillow==12.3.0             # skills/pantalla.py y test_pantalla
+pillow==13.0.0             # skills/pantalla.py y test_pantalla
 websockets==17.2           # ui_bridge.py
 python-dotenv==1.2.2       # lectura real del .env (test_bom: BOM UTF-8, doctor)
 requests==2.33.1           # tts_elevenlabs.py, skills/webs.py, skills/sistema.py
